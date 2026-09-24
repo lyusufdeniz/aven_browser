@@ -149,7 +149,8 @@ class BrowserStore {
 
   Future<bool> loadLiteBrowsing() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_liteKey) ?? false;
+    // TV default: calm browsing (fewer animations / less media work).
+    return prefs.getBool(_liteKey) ?? true;
   }
 
   Future<void> saveLiteBrowsing(bool enabled) async {

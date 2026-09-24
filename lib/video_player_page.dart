@@ -22,6 +22,7 @@ class VideoPlayerPage extends StatefulWidget {
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
   VideoPlayerController? _controller;
   VideoSource? _source;
+  late List<VideoSource> _sources;
   List<_Cue> _cues = const [];
   String? _subtitleLabel;
   String? _displayedCue;
@@ -31,7 +32,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   String? _error;
   bool _loading = true;
   bool _controls = true;
-  bool _exitPromptOpen = false;
+  bool _exiting = false;
+  bool _pickerOpen = false;
   Timer? _hideControls;
   final _rootFocus = FocusNode();
   late final List<FocusNode> _barFocus = List.generate(8, (_) => FocusNode());
@@ -46,24 +48,72 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   void initState() {
     super.initState();
+    _sources = _uniqueSources(widget.video.sources);
     _open(widget.initialSource);
     _scheduleHide();
   }
 
+  List<VideoSource> _uniqueSources(List<VideoSource> sources) {
+    final seen = <String>{};
+    final out = <VideoSource>[];
+    for (final source in sources) {
+      if (seen.add(source.url)) {
+        out.add(
+          VideoSource(
+            url: source.url,
+            label: _displayLabel(source),
+            headers: source.headers,
+          ),
+        );
+      }
+    }
+    return out;
+  }
+
+  String _displayLabel(VideoSource source) {
+    final hint = qualityLabelForUrl(source.url);
+    final label = source.label.trim();
+    if (label.isEmpty ||
+        label == 'Kaynak' ||
+        label == 'Net' ||
+        label == 'Video' ||
+        label == 'Oynatilan' ||
+        label == 'Script' ||
+        label == 'XHR' ||
+        label == 'Sayfa' ||
+        label == 'Gömülü' ||
+        label == 'Iframe') {
+      return hint;
+    }
+    if (hint != 'Akış' && !label.contains(hint)) return '$hint · $label';
+    return label;
+  }
+
   Future<void> _open(VideoSource source) async {
     final previous = _controller;
+    final resumeAt = previous?.value.isInitialized == true
+        ? previous!.value.position
+        : Duration.zero;
+
+    // Detach the old player from the tree before disposing it.
     setState(() {
       _loading = true;
       _error = null;
       _source = source;
+      _controller = null;
+      _displayedCue = null;
+      _displayedPlaying = false;
     });
+    previous?.removeListener(_onVideoTick);
+    try {
+      await previous?.pause();
+    } catch (_) {}
+    try {
+      await previous?.dispose();
+    } catch (_) {}
+    if (!mounted) return;
 
-    final attempts = <Map<String, String>>[
-      source.headers,
-      _headersVariant(source, preferMediaReferer: true),
-      _headersVariant(source, preferMediaReferer: true, dropOrigin: true),
-      _headersVariant(source, preferMediaReferer: false, dropOrigin: true),
-    ];
+    final attempts = _headerAttempts(source);
 
     Object? lastError;
     for (final headers in attempts) {
@@ -76,12 +126,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       try {
         await next.initialize();
         await next.setPlaybackSpeed(_speed);
+        if (resumeAt > const Duration(milliseconds: 400)) {
+          final duration = next.value.duration;
+          final target = duration > Duration.zero && resumeAt > duration
+              ? duration
+              : resumeAt;
+          await next.seekTo(target);
+        }
         next.addListener(_onVideoTick);
         await next.setVolume(1);
         await next.play();
-        await previous?.pause();
-        previous?.removeListener(_onVideoTick);
-        await previous?.dispose();
         if (!mounted) {
           await next.dispose();
           return;
@@ -93,53 +147,65 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           _displayedCue = null;
         });
         _revealControls();
+        unawaited(_expandHlsQualities(source));
         return;
       } catch (error) {
         lastError = error;
-        await next.dispose();
+        try {
+          await next.dispose();
+        } catch (_) {}
       }
     }
 
     if (!mounted) return;
-    final fallback = widget.video.sources.where((item) => item.url != source.url);
+    final fallback = _sources.where((item) => item.url != source.url);
     for (final other in fallback) {
-      final next = VideoPlayerController.networkUrl(
-        Uri.parse(other.url),
-        httpHeaders: _headersVariant(other, preferMediaReferer: true),
-        formatHint: _formatHint(other.url),
-        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
-      );
-      try {
-        await next.initialize();
-        await next.setPlaybackSpeed(_speed);
-        next.addListener(_onVideoTick);
-        await next.setVolume(1);
-        await next.play();
-        await previous?.pause();
-        previous?.removeListener(_onVideoTick);
-        await previous?.dispose();
-        if (!mounted) {
-          await next.dispose();
+      for (final headers in _headerAttempts(other)) {
+        final next = VideoPlayerController.networkUrl(
+          Uri.parse(other.url),
+          httpHeaders: headers,
+          formatHint: _formatHint(other.url),
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: false),
+        );
+        try {
+          await next.initialize();
+          await next.setPlaybackSpeed(_speed);
+          if (resumeAt > const Duration(milliseconds: 400)) {
+            final duration = next.value.duration;
+            final target = duration > Duration.zero && resumeAt > duration
+                ? duration
+                : resumeAt;
+            await next.seekTo(target);
+          }
+          next.addListener(_onVideoTick);
+          await next.setVolume(1);
+          await next.play();
+          if (!mounted) {
+            await next.dispose();
+            return;
+          }
+          setState(() {
+            _controller = next;
+            _source = other;
+            _loading = false;
+            _displayedPlaying = next.value.isPlaying;
+            _displayedCue = null;
+            _error = null;
+          });
+          _revealControls();
+          unawaited(_expandHlsQualities(other));
           return;
+        } catch (error) {
+          lastError = error;
+          try {
+            await next.dispose();
+          } catch (_) {}
         }
-        setState(() {
-          _controller = next;
-          _source = other;
-          _loading = false;
-          _displayedPlaying = next.value.isPlaying;
-          _displayedCue = null;
-          _error = null;
-        });
-        _revealControls();
-        return;
-      } catch (error) {
-        lastError = error;
-        await next.dispose();
       }
     }
 
+    if (!mounted) return;
     setState(() {
-      _controller = previous;
       _loading = false;
       _error = 'Bu kaynak açılamadı.';
     });
@@ -149,15 +215,142 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }());
   }
 
+  Future<void> _expandHlsQualities(VideoSource source) async {
+    final variants = await _parseHlsVariants(source);
+    if (!mounted || variants.length <= 1) return;
+    final merged = _uniqueSources([...variants, ..._sources]);
+    if (merged.length <= _sources.length) return;
+    // Prefer higher resolutions first.
+    merged.sort((a, b) => _qualityRank(b.url).compareTo(_qualityRank(a.url)));
+    setState(() => _sources = merged);
+  }
+
+  int _qualityRank(String url) {
+    final lower = url.toLowerCase();
+    if (lower.contains('2160') || lower.contains('4k')) return 2160;
+    if (lower.contains('1440')) return 1440;
+    if (lower.contains('1080') || lower.contains('fhd')) return 1080;
+    if (lower.contains('720') || lower.contains('/hd')) return 720;
+    if (lower.contains('540')) return 540;
+    if (lower.contains('480') || lower.contains('/sd')) return 480;
+    if (lower.contains('360')) return 360;
+    if (lower.contains('240')) return 240;
+    return 0;
+  }
+
+  Future<List<VideoSource>> _parseHlsVariants(VideoSource source) async {
+    final lower = source.url.toLowerCase();
+    if (!lower.contains('.m3u8') && !lower.contains('mpegurl')) {
+      return [source];
+    }
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 8);
+      final request = await client.getUrl(Uri.parse(source.url));
+      source.headers.forEach(request.headers.set);
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return [source];
+      }
+      final body = await response.transform(utf8.decoder).join();
+      if (!body.contains('#EXT-X-STREAM-INF')) return [source];
+      final lines = const LineSplitter().convert(body);
+      final out = <VideoSource>[];
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i].trim();
+        if (!line.startsWith('#EXT-X-STREAM-INF')) continue;
+        var uriLine = '';
+        for (var j = i + 1; j < lines.length; j++) {
+          final next = lines[j].trim();
+          if (next.isEmpty) continue;
+          if (next.startsWith('#')) break;
+          uriLine = next;
+          break;
+        }
+        if (uriLine.isEmpty) continue;
+        final abs = Uri.parse(source.url).resolve(uriLine).toString();
+        final label = _labelFromStreamInf(line) ?? qualityLabelForUrl(abs);
+        out.add(VideoSource(url: abs, label: label, headers: source.headers));
+      }
+      return out.isEmpty ? [source] : out;
+    } catch (_) {
+      return [source];
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  String? _labelFromStreamInf(String line) {
+    final res = RegExp(r'RESOLUTION=(\d+)x(\d+)', caseSensitive: false).firstMatch(line);
+    if (res != null) {
+      final height = int.tryParse(res.group(2)!);
+      if (height != null && height > 0) return '${height}p';
+    }
+    final name = RegExp(r'NAME="([^"]+)"', caseSensitive: false).firstMatch(line);
+    if (name != null && name.group(1)!.trim().isNotEmpty) return name.group(1)!.trim();
+    final bw = RegExp(r'BANDWIDTH=(\d+)', caseSensitive: false).firstMatch(line);
+    if (bw != null) {
+      final rate = int.tryParse(bw.group(1)!);
+      if (rate != null) {
+        if (rate >= 5000000) return '1080p';
+        if (rate >= 2500000) return '720p';
+        if (rate >= 1200000) return '480p';
+        if (rate >= 600000) return '360p';
+      }
+    }
+    return null;
+  }
+
   VideoFormat? _formatHint(String url) {
     final lower = url.toLowerCase();
-    if (lower.contains('.m3u8') || lower.contains('mpegurl') || lower.contains('/hls/')) {
+    if (lower.contains('.m3u8') ||
+        lower.contains('mpegurl') ||
+        lower.contains('/hls/') ||
+        lower.contains('live-video.net') ||
+        lower.contains('/ivs/') ||
+        (lower.contains('playlist') && lower.contains('hls'))) {
       return VideoFormat.hls;
     }
-    if (lower.contains('.mpd') || lower.contains('dash')) {
+    if (lower.contains('.mpd') || (lower.contains('dash') && !lower.contains('dashboard'))) {
       return VideoFormat.dash;
     }
     return null;
+  }
+
+  bool _keepPageReferer(VideoSource source) {
+    final referer = source.headers['Referer']?.toLowerCase() ?? '';
+    final media = Uri.tryParse(source.url);
+    final host = media?.host.toLowerCase() ?? '';
+    if (referer.isEmpty || host.isEmpty) return false;
+    if (referer.contains(host)) return false;
+    // Kick / IVS CDN rejects requests that spoof the CDN as Referer.
+    if (host.contains('live-video.net') ||
+        host.contains('cloudfront.net') ||
+        host.contains('akamaized.net') ||
+        host.contains('kick.com') ||
+        source.url.toLowerCase().contains('/ivs/')) {
+      return true;
+    }
+    // Any page Referer that is not the media host is safer to keep first.
+    return referer.startsWith('http');
+  }
+
+  List<Map<String, String>> _headerAttempts(VideoSource source) {
+    if (_keepPageReferer(source)) {
+      return [
+        source.headers,
+        _headersVariant(source, preferMediaReferer: false),
+        _headersVariant(source, preferMediaReferer: false, dropOrigin: true),
+        _headersVariant(source, preferMediaReferer: true, dropOrigin: true),
+      ];
+    }
+    return [
+      source.headers,
+      _headersVariant(source, preferMediaReferer: true),
+      _headersVariant(source, preferMediaReferer: true, dropOrigin: true),
+      _headersVariant(source, preferMediaReferer: false, dropOrigin: true),
+    ];
   }
 
   Map<String, String> _headersVariant(
@@ -253,23 +446,144 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   void _scheduleHide() {
     _hideControls?.cancel();
+    if (_exiting || _pickerOpen) return;
     _hideControls = Timer(const Duration(seconds: 4), () {
-      if (!mounted) return;
+      if (!mounted || _exiting || _pickerOpen) return;
       setState(() => _controls = false);
       _rootFocus.requestFocus();
     });
   }
 
   void _revealControls({bool grabPlay = true}) {
+    if (_pickerOpen) return;
     setState(() => _controls = true);
     _scheduleHide();
     if (!grabPlay) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _controls) _barFocus[_playIndex].requestFocus();
+      if (mounted && _controls && !_pickerOpen) {
+        _barFocus[_playIndex].requestFocus();
+      }
     });
   }
 
+  void _setBarFocusEnabled(bool enabled) {
+    for (final node in _barFocus) {
+      node.canRequestFocus = enabled;
+    }
+    _rootFocus.canRequestFocus = enabled;
+  }
+
+  Future<T?> _showTvPicker<T>({
+    required String title,
+    required List<_PickerOption<T>> options,
+    required int returnFocusIndex,
+  }) async {
+    if (_pickerOpen || !mounted || options.isEmpty) return null;
+    _pickerOpen = true;
+    _hideControls?.cancel();
+    _setBarFocusEnabled(false);
+    if (_rootFocus.hasFocus) _rootFocus.unfocus();
+    for (final node in _barFocus) {
+      if (node.hasFocus) node.unfocus();
+    }
+    try {
+      return await showGeneralDialog<T>(
+        context: context,
+        barrierDismissible: true,
+        barrierLabel: 'Kapat',
+        barrierColor: AvenColors.scrim,
+        transitionDuration: const Duration(milliseconds: 120),
+        pageBuilder: (dialogContext, animation, secondaryAnimation) {
+          return SafeArea(
+            child: Center(
+              child: FocusScope(
+                autofocus: true,
+                child: Material(
+                  color: AvenColors.ink,
+                  elevation: 12,
+                  borderRadius: BorderRadius.circular(16),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 480, maxHeight: 420),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                title,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 22,
+                                  color: AvenColors.mist,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Flexible(
+                            child: ListView(
+                              shrinkWrap: true,
+                              children: [
+                                for (final option in options)
+                                  ListTile(
+                                    autofocus: option.autofocus,
+                                    enabled: option.enabled,
+                                    title: Text(
+                                      option.title,
+                                      style: TextStyle(
+                                        color: option.enabled
+                                            ? AvenColors.text
+                                            : AvenColors.textMuted,
+                                      ),
+                                    ),
+                                    subtitle: option.subtitle == null
+                                        ? null
+                                        : Text(
+                                            option.subtitle!,
+                                            style: const TextStyle(
+                                              color: AvenColors.textMuted,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                    trailing: option.selected
+                                        ? const Icon(Icons.check, color: AvenColors.mist)
+                                        : null,
+                                    onTap: option.enabled
+                                        ? () => Navigator.pop(dialogContext, option.value)
+                                        : null,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    } finally {
+      _pickerOpen = false;
+      if (mounted) {
+        _setBarFocusEnabled(true);
+        setState(() => _controls = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _barFocus[returnFocusIndex].requestFocus();
+          _scheduleHide();
+        });
+      }
+    }
+  }
+
   void _moveBar(int index, LogicalKeyboardKey key) {
+    if (_pickerOpen) return;
     const last = _closeIndex;
     if (key == LogicalKeyboardKey.arrowRight && index < last) {
       _barFocus[index + 1].requestFocus();
@@ -284,6 +598,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   KeyEventResult _onBarKey(int index, KeyEvent event, VoidCallback activate) {
+    if (_pickerOpen) return KeyEventResult.ignored;
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
     if (index == _progressIndex) {
@@ -316,159 +631,62 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         key == LogicalKeyboardKey.gameButtonA ||
         key == LogicalKeyboardKey.space) {
       activate();
-      _scheduleHide();
+      // Speed / quality / subtitle manage their own focus lifecycle.
+      if (index != _closeIndex &&
+          index != _qualityIndex &&
+          index != 4 &&
+          index != 6) {
+        _scheduleHide();
+      }
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
-  Future<bool> _confirmExit() async {
-    if (_exitPromptOpen) return false;
-    _exitPromptOpen = true;
+  void _requestExit() {
+    if (_exiting || _pickerOpen) return;
+    _exiting = true;
     _hideControls?.cancel();
-    if (_controls) {
-      setState(() => _controls = false);
-    }
-    for (final node in _barFocus) {
-      node.canRequestFocus = false;
-      if (node.hasFocus) node.unfocus();
-    }
-    _rootFocus.canRequestFocus = false;
-    if (_rootFocus.hasFocus) _rootFocus.unfocus();
-
-    try {
-      final leave = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        useRootNavigator: true,
-        builder: (dialogContext) {
-          return FocusScope(
-            autofocus: true,
-            child: AlertDialog(
-              backgroundColor: AvenColors.ink,
-              title: const Text('Oynatıcıdan çık?', style: TextStyle(color: AvenColors.mist)),
-              content: const Text(
-                'Video kapanacak ve sayfaya döneceksin.',
-                style: TextStyle(color: AvenColors.textMuted),
-              ),
-              actions: [
-                TextButton(
-                  autofocus: true,
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('Kal'),
-                ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AvenColors.hover,
-                    foregroundColor: AvenColors.mist,
-                  ),
-                  onPressed: () => Navigator.pop(dialogContext, true),
-                  child: const Text('Çık'),
-                ),
-              ],
-            ),
-          );
-        },
-      );
-      return leave == true;
-    } finally {
-      _exitPromptOpen = false;
-      if (mounted) {
-        for (final node in _barFocus) {
-          node.canRequestFocus = true;
-        }
-        _rootFocus.canRequestFocus = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _rootFocus.requestFocus();
-        });
-      }
-    }
-  }
-
-  Future<void> _requestExit() async {
-    if (!await _confirmExit()) return;
-    if (mounted) Navigator.pop(context);
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _pickSpeed() async {
-    final picked = await showModalBottomSheet<double>(
-      context: context,
-      backgroundColor: AvenColors.background,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              for (final value in _speeds)
-                ListTile(
-                  autofocus: value == _speed,
-                  title: Text(value == 1 ? 'Normal' : '${value}x'),
-                  trailing: value == _speed ? const Icon(Icons.check) : null,
-                  onTap: () => Navigator.pop(context, value),
-                ),
-            ],
+    final picked = await _showTvPicker<double>(
+      title: 'Hız',
+      returnFocusIndex: 4,
+      options: [
+        for (final value in _speeds)
+          _PickerOption(
+            value: value,
+            title: value == 1 ? 'Normal' : '${value}x',
+            selected: value == _speed,
+            autofocus: value == _speed,
           ),
-        );
-      },
+      ],
     );
     if (picked != null) await _setSpeed(picked);
   }
 
   Future<void> _pickSource() async {
-    final sources = widget.video.sources;
-    final picked = await showModalBottomSheet<VideoSource>(
-      context: context,
-      backgroundColor: AvenColors.ink,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              const ListTile(
-                title: Text(
-                  'Kalite / Kaynak',
-                  style: TextStyle(fontWeight: FontWeight.w600, color: AvenColors.mist),
-                ),
-              ),
-              if (sources.isEmpty)
-                const ListTile(
-                  title: Text('Kaynak yok', style: TextStyle(color: AvenColors.textMuted)),
-                )
-              else
-                for (var i = 0; i < sources.length; i++)
-                  ListTile(
-                    autofocus: sources[i].url == _source?.url || (i == 0 && _source == null),
-                    title: Text(
-                      sources[i].label.isEmpty ? 'Kaynak ${i + 1}' : sources[i].label,
-                      style: const TextStyle(color: AvenColors.text),
-                    ),
-                    subtitle: Text(
-                      _qualityHint(sources[i].url),
-                      style: const TextStyle(color: AvenColors.textMuted, fontSize: 13),
-                    ),
-                    trailing: sources[i].url == _source?.url
-                        ? const Icon(Icons.check, color: AvenColors.mist)
-                        : null,
-                    onTap: () => Navigator.pop(context, sources[i]),
-                  ),
-            ],
+    final sources = _sources;
+    if (sources.isEmpty) return;
+    final picked = await _showTvPicker<VideoSource>(
+      title: 'Kalite',
+      returnFocusIndex: _qualityIndex,
+      options: [
+        for (var i = 0; i < sources.length; i++)
+          _PickerOption(
+            value: sources[i],
+            title: sources[i].label.isEmpty
+                ? qualityLabelForUrl(sources[i].url)
+                : sources[i].label,
+            subtitle: qualityLabelForUrl(sources[i].url),
+            selected: sources[i].url == _source?.url,
+            autofocus: sources[i].url == _source?.url || (i == 0 && _source == null),
           ),
-        );
-      },
+      ],
     );
-    if (picked != null) await _open(picked);
-  }
-
-  String _qualityHint(String url) {
-    final lower = url.toLowerCase();
-    if (lower.contains('1080') || lower.contains('fhd')) return '1080p';
-    if (lower.contains('720') || lower.contains('hd')) return '720p';
-    if (lower.contains('480') || lower.contains('sd')) return '480p';
-    if (lower.contains('360')) return '360p';
-    if (lower.contains('.m3u8')) return 'HLS';
-    if (lower.contains('.mp4')) return 'MP4';
-    if (lower.contains('.mpd')) return 'DASH';
-    return 'Akış';
+    if (picked != null && picked.url != _source?.url) await _open(picked);
   }
 
   Future<void> _pickSubtitle() async {
@@ -476,33 +694,33 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       final kind = track.kind.toLowerCase();
       return kind == 'subtitles' || kind == 'captions';
     }).toList();
-    final picked = await showModalBottomSheet<Object?>(
-      context: context,
-      backgroundColor: AvenColors.background,
-      builder: (context) {
-        return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              ListTile(
-                autofocus: _subtitleLabel == null,
-                title: const Text('Kapalı'),
-                trailing: _subtitleLabel == null ? const Icon(Icons.check) : null,
-                onTap: () => Navigator.pop(context, 'off'),
-              ),
-              if (tracks.isEmpty)
-                const ListTile(title: Text('Bu kaynakta altyazı yok'))
-              else
-                for (final track in tracks)
-                  ListTile(
-                    title: Text(track.label),
-                    trailing: _subtitleLabel == track.label ? const Icon(Icons.check) : null,
-                    onTap: () => Navigator.pop(context, track),
-                  ),
-            ],
-          ),
-        );
-      },
+    final picked = await _showTvPicker<Object?>(
+      title: 'Altyazı',
+      returnFocusIndex: 6,
+      options: [
+        _PickerOption(
+          value: 'off',
+          title: 'Kapalı',
+          selected: _subtitleLabel == null,
+          autofocus: _subtitleLabel == null,
+        ),
+        if (tracks.isEmpty)
+          const _PickerOption<Object?>(
+            value: null,
+            title: 'Bu kaynakta altyazı yok',
+            selected: false,
+            autofocus: false,
+            enabled: false,
+          )
+        else
+          for (final track in tracks)
+            _PickerOption(
+              value: track,
+              title: track.label,
+              selected: _subtitleLabel == track.label,
+              autofocus: _subtitleLabel == track.label,
+            ),
+      ],
     );
     if (picked == 'off') {
       await _setSubtitle(null);
@@ -537,13 +755,15 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         focusNode: _rootFocus,
         autofocus: true,
         onKeyEvent: (node, event) {
-          if (_exitPromptOpen) return KeyEventResult.ignored;
+          if (_pickerOpen || _exiting) return KeyEventResult.ignored;
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
           final key = event.logicalKey;
           if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
-            if (_controls) {
-              setState(() => _controls = false);
-              _rootFocus.requestFocus();
+            if (!_controls) {
+              _revealControls();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _barFocus[_closeIndex].requestFocus();
+              });
               return KeyEventResult.handled;
             }
             _requestExit();
@@ -593,7 +813,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         child: Stack(
           children: [
             Center(
-              child: controller != null && controller.value.isInitialized
+              child: !_loading &&
+                      controller != null &&
+                      controller.value.isInitialized
                   ? AspectRatio(
                       aspectRatio: controller.value.aspectRatio == 0
                           ? 16 / 9
@@ -655,7 +877,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                             final progressFocused = _barFocus[_progressIndex].hasFocus;
                             final qualityLabel = _source == null
                                 ? 'Kalite'
-                                : _qualityHint(_source!.url);
+                                : (_source!.label.isNotEmpty
+                                    ? _source!.label
+                                    : qualityLabelForUrl(_source!.url));
                             return Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -934,6 +1158,24 @@ class _Cue {
   final Duration start;
   final Duration end;
   final String text;
+}
+
+class _PickerOption<T> {
+  const _PickerOption({
+    required this.value,
+    required this.title,
+    required this.selected,
+    required this.autofocus,
+    this.subtitle,
+    this.enabled = true,
+  });
+
+  final T value;
+  final String title;
+  final String? subtitle;
+  final bool selected;
+  final bool autofocus;
+  final bool enabled;
 }
 
 Future<List<_Cue>> _loadCues(String url) async {

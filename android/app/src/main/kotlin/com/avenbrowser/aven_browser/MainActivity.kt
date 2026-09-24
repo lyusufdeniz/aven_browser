@@ -218,7 +218,43 @@ class MainActivity : FlutterActivity() {
         val webView = findWebView(window.decorView) ?: return
         webView.post {
             try {
+                webView.evaluateJavascript(
+                    """
+                    (function(){
+                      window.__avenWantPlay = false;
+                      function kill(v){
+                        try {
+                          v.pause();
+                          v.muted = true;
+                          v.preload = 'none';
+                          try { v.removeAttribute('src'); v.load(); } catch(e) {}
+                        } catch(e) {}
+                      }
+                      try { document.querySelectorAll('video,audio').forEach(kill); } catch(e) {}
+                      try {
+                        document.querySelectorAll('iframe').forEach(function(f){
+                          try {
+                            var d = f.contentDocument || (f.contentWindow && f.contentWindow.document);
+                            if (d) d.querySelectorAll('video,audio').forEach(kill);
+                          } catch(e) {}
+                        });
+                      } catch(e) {}
+                    })();
+                    """.trimIndent(),
+                    null,
+                )
+            } catch (_: Exception) {
+            }
+            try {
                 webView.onPause()
+            } catch (_: Exception) {
+            }
+            try {
+                webView.pauseTimers()
+            } catch (_: Exception) {
+            }
+            try {
+                webView.visibility = View.INVISIBLE
             } catch (_: Exception) {
             }
         }
@@ -227,6 +263,14 @@ class MainActivity : FlutterActivity() {
     private fun resumeWebView() {
         val webView = findWebView(window.decorView) ?: return
         webView.post {
+            try {
+                webView.visibility = View.VISIBLE
+            } catch (_: Exception) {
+            }
+            try {
+                webView.resumeTimers()
+            } catch (_: Exception) {
+            }
             try {
                 webView.onResume()
             } catch (_: Exception) {
@@ -637,14 +681,36 @@ private fun isPlayableMedia(url: String): Boolean {
         lower.contains("/ads/") ||
         lower.contains("adserver") ||
         lower.contains("preroll") ||
-        lower.contains("vast") && lower.contains("ad")
+        (lower.contains("vast") && lower.contains("ad"))
     ) {
         return false
     }
     if (lower.contains(".m3u8") || lower.contains(".mpd")) return true
-    if (lower.contains("/hls/") || lower.contains("playlist.m3u8") || lower.contains("master.m3u8")) return true
-    if (Regex("[?&](type|format|ext)=(m3u8|mpd|mp4|hls)").containsMatchIn(lower)) return true
+    if (lower.contains("/hls/") || lower.contains("/dash/") ||
+        lower.contains("playlist.m3u8") ||
+        lower.contains("master.m3u8")
+    ) {
+        return true
+    }
+    if (lower.contains("live-video.net") &&
+        (lower.contains(".m3u8") ||
+            lower.contains("/hls") ||
+            lower.contains("playlist") ||
+            lower.contains("master"))
+    ) {
+        return true
+    }
+    if (lower.contains("/stream/") && lower.contains(".m3u8")) return true
+    if (Regex("[?&](type|format|ext|video_format)=(m3u8|mpd|mp4|hls|dash)").containsMatchIn(lower)) {
+        return true
+    }
+    if (lower.contains("manifest") &&
+        (lower.contains("video") || lower.contains("hls") || lower.contains("dash"))
+    ) {
+        return true
+    }
     if (lower.contains("googlevideo.com") && lower.contains("mime=video")) return true
+    if (lower.contains("videoplayback") && lower.contains("http")) return true
     val path = lower.substringBefore('?').substringBefore('#')
     return path.endsWith(".mp4") ||
         path.endsWith(".webm") ||

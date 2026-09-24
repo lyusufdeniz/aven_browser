@@ -103,6 +103,7 @@ class _BrowserPageState extends State<BrowserPage>
   bool _menuOpen = false;
   DateTime _lastBack = DateTime.fromMillisecondsSinceEpoch(0);
   bool _openingVideo = false;
+  bool _webSuspended = false;
   bool _pageTyping = false;
   bool _popupOpen = false;
   bool _addressEditing = false;
@@ -123,9 +124,13 @@ class _BrowserPageState extends State<BrowserPage>
   String? _userAgent;
   final Set<LogicalKeyboardKey> _held = {};
   Offset _direction = Offset.zero;
-  Duration _lastTick = Duration.zero;
+  DateTime? _tickWall;
   final Map<LogicalKeyboardKey, Timer> _arrowRelease = {};
   DateTime _lastScroll = DateTime.fromMillisecondsSinceEpoch(0);
+
+  static const _cursorSpeedMin = 95.0;
+  static const _cursorSpeedMax = 240.0;
+  DateTime? _moveStartedAt;
 
   static final Set<Factory<OneSequenceGestureRecognizer>> _pageGestures =
       <Factory<OneSequenceGestureRecognizer>>{
@@ -241,28 +246,38 @@ class _BrowserPageState extends State<BrowserPage>
     } catch (_) {}
     await platform.setCustomWidgetCallbacks(
       onShowCustomWidget: (widget, onHide) {
-        if (!mounted) {
-          onHide();
-          return;
-        }
-        setState(() {
-          _fullscreenVideo = widget;
-          _exitFullscreen = onHide;
-        });
-        _surfaceFocus.canRequestFocus = true;
-        _surfaceFocus.requestFocus();
-        _bumpCursor();
+        // Refuse in-WebView fullscreen — it stalls the TV. Hijack to Aven player.
+        onHide();
+        unawaited(_hijackPageVideos());
       },
-      onHideCustomWidget: () {
-        if (!mounted) return;
-        setState(() {
-          _fullscreenVideo = null;
-          _exitFullscreen = null;
-        });
-        _cursorVisible.value = true;
-        _cursorHide?.cancel();
-      },
+      onHideCustomWidget: () {},
     );
+  }
+
+  Future<void> _hijackPageVideos() async {
+    // Fullscreen is refused on TV; only offer the opt-in badge — never auto-open.
+    try {
+      await _controller.runJavaScript(r'''
+(function(){
+  try {
+    if (window.__avenPrepare) {
+      var videos = document.querySelectorAll('video');
+      for (var i = 0; i < videos.length; i++) window.__avenPrepare(videos[i]);
+    }
+  } catch(e) {}
+})();
+''');
+    } catch (_) {}
+  }
+
+  Future<void> _onWatchedMedia(String url) async {
+    if (!mounted || !_isWebUrl(url)) return;
+    // Feed the media pool / focused badge only — do not auto-open Aven player.
+    try {
+      await _controller.runJavaScript(
+        'window.__avenOffer && window.__avenOffer(${jsonEncode(url)});',
+      );
+    } catch (_) {}
   }
 
   void _bumpCursor() {
@@ -301,6 +316,14 @@ class _BrowserPageState extends State<BrowserPage>
       }
       _saved = _bookmarks.any((item) => item.url == url);
     });
+    if (_isWebUrl(url) && _webSuspended) {
+      unawaited(_resumeWebPage());
+    }
+    unawaited(
+      _controller.runJavaScript(
+        'window.__avenPool=[];window.__avenWantPlay=false;window.__avenLastPayload=null;',
+      ),
+    );
     _installHooks();
     _input.watchMedia();
   }
@@ -379,9 +402,7 @@ class _BrowserPageState extends State<BrowserPage>
   }
 
   void _holdSurfaceForError() {
-    _held.clear();
-    _direction = Offset.zero;
-    if (_ticker.isActive) _ticker.stop();
+    _resetPointerState();
     _surfaceFocus.canRequestFocus = false;
     _surfaceFocus.unfocus();
     _addressFocus.unfocus();
@@ -425,30 +446,88 @@ class _BrowserPageState extends State<BrowserPage>
     try {
       await _controller.runJavaScript(_pageHooks);
       await _controller.runJavaScript(videoWatchScript);
+      await _installCalmMode();
     } catch (_) {}
   }
 
-  Future<void> _installLiteCss() async {
+  /// Always-on TV calm mode: kill CSS motion and freeze GIFs so browsing stays usable.
+  Future<void> _installCalmMode() async {
     try {
       await _controller.runJavaScript(r'''
 (function(){
-  var s = document.getElementById('aven-lite-style');
+  var s = document.getElementById('aven-calm-style');
   if (!s) {
     s = document.createElement('style');
-    s.id = 'aven-lite-style';
+    s.id = 'aven-calm-style';
     (document.head || document.documentElement).appendChild(s);
   }
-  s.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}html{scroll-behavior:auto!important}';
+  s.textContent = [
+    '*,*::before,*::after{animation:none!important;animation-play-state:paused!important;transition:none!important;scroll-behavior:auto!important}',
+    'html{scroll-behavior:auto!important}',
+    'video,audio{autoplay:false!important}',
+  ].join('');
+
+  function isGif(img) {
+    var src = (img.currentSrc || img.src || img.getAttribute('src') || '').toLowerCase();
+    if (!src) return false;
+    if (src.indexOf('data:image/gif') === 0) return true;
+    return /\.gif(\?|#|$)/i.test(src);
+  }
+
+  function freezeOne(img) {
+    if (img.__avenFrozen) return;
+    img.__avenFrozen = true;
+    try {
+      var w = img.naturalWidth || img.width;
+      var h = img.naturalHeight || img.height;
+      if (!w || !h || w > 1600 || h > 1600) {
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        return;
+      }
+      var c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      var ctx = c.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, w, h);
+      img.src = c.toDataURL('image/png');
+    } catch (e) {
+      try {
+        img.style.setProperty('image-rendering', 'auto');
+        img.setAttribute('loading', 'lazy');
+      } catch (e2) {}
+    }
+  }
+
+  function freezeGifs(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    var imgs = scope.querySelectorAll ? scope.querySelectorAll('img') : [];
+    var budget = 24;
+    for (var i = 0; i < imgs.length && budget > 0; i++) {
+      var img = imgs[i];
+      if (img.__avenFrozen) continue;
+      if (!isGif(img)) continue;
+      budget--;
+      if (!img.complete) {
+        img.addEventListener('load', function(ev){ freezeOne(ev.target); }, {once:true});
+        continue;
+      }
+      freezeOne(img);
+    }
+  }
+
   function quietMedia(){
     document.querySelectorAll('video,audio').forEach(function(m){
       try {
-        m.pause();
+        if (!m.paused && !window.__avenWantPlay) m.pause();
         m.removeAttribute('autoplay');
         m.autoplay = false;
-        m.preload = 'none';
+        if (!m.preload || m.preload === 'auto') m.preload = 'metadata';
       } catch(e) {}
     });
   }
+
   function lazyImages(){
     document.querySelectorAll('img').forEach(function(img){
       try {
@@ -460,13 +539,44 @@ class _BrowserPageState extends State<BrowserPage>
       try { if (!f.getAttribute('loading')) f.loading = 'lazy'; } catch(e) {}
     });
   }
+
   quietMedia();
   lazyImages();
-  if (!window.__avenLiteObs) {
-    window.__avenLiteObs = true;
-    new MutationObserver(function(){ quietMedia(); lazyImages(); })
-      .observe(document.documentElement, {childList:true, subtree:true});
+  freezeGifs(document);
+  if (!window.__avenCalmObs) {
+    window.__avenCalmObs = true;
+    var t = null;
+    new MutationObserver(function(){
+      if (t) return;
+      t = setTimeout(function(){
+        t = null;
+        quietMedia();
+        lazyImages();
+        freezeGifs(document);
+      }, 700);
+    }).observe(document.documentElement, {childList:true, subtree:true});
   }
+})();
+''');
+    } catch (_) {}
+  }
+
+  Future<void> _installLiteCss() async {
+    // Extra lite trimming on top of always-on calm mode.
+    try {
+      await _controller.runJavaScript(r'''
+(function(){
+  function quietMedia(){
+    document.querySelectorAll('video,audio').forEach(function(m){
+      try {
+        m.pause();
+        m.removeAttribute('autoplay');
+        m.autoplay = false;
+        m.preload = 'none';
+      } catch(e) {}
+    });
+  }
+  quietMedia();
 })();
 ''');
     } catch (_) {}
@@ -503,6 +613,7 @@ class _BrowserPageState extends State<BrowserPage>
     _addressFocus.unfocus();
     _startFocus.unfocus();
     _surfaceFocus.canRequestFocus = true;
+    await _resumeWebPage();
     await _controller.loadRequest(Uri.parse(target));
     _surfaceFocus.requestFocus();
   }
@@ -520,9 +631,77 @@ class _BrowserPageState extends State<BrowserPage>
     _surfaceFocus.canRequestFocus = false;
     _surfaceFocus.unfocus();
     _syncChrome();
+    unawaited(_suspendWebPage());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _startFocus.requestFocus();
     });
+  }
+
+  /// Keeps the last document loaded but stops media and freezes the WebView
+  /// so home / chrome overlays do not leave audio playing underneath.
+  Future<void> _suspendWebPage() async {
+    _mediaEpoch++;
+    _webSuspended = true;
+    try {
+      await _controller.runJavaScript(r'''
+(function(){
+  window.__avenWantPlay = false;
+  window.__avenLastPayload = null;
+  try { window.__avenPool = []; } catch(e) {}
+  function kill(v){
+    try {
+      v.pause();
+      v.removeAttribute('autoplay');
+      v.autoplay = false;
+      v.muted = true;
+      v.preload = 'none';
+      try { v.removeAttribute('src'); v.load(); } catch(e) {}
+      try {
+        while (v.firstChild) v.removeChild(v.firstChild);
+        v.load();
+      } catch(e) {}
+    } catch(e) {}
+  }
+  try {
+    document.querySelectorAll('video,audio').forEach(kill);
+  } catch(e) {}
+  try {
+    document.querySelectorAll('iframe').forEach(function(f){
+      try {
+        var d = f.contentDocument || (f.contentWindow && f.contentWindow.document);
+        if (!d) return;
+        d.querySelectorAll('video,audio').forEach(kill);
+      } catch(e) {}
+    });
+  } catch(e) {}
+})();
+''');
+    } catch (_) {}
+    try {
+      await _input.pauseWebView();
+    } catch (_) {}
+  }
+
+  Future<void> _resumeWebPage() async {
+    if (!_webSuspended) return;
+    _webSuspended = false;
+    try {
+      await _input.resumeWebView();
+    } catch (_) {}
+    if (mounted && !_onStart) await _wakeSurface();
+  }
+
+  Future<void> _leaveStartToPage() async {
+    if (!_onStart) return;
+    setState(() {
+      _onStart = false;
+      if (_isWebUrl(_pageUrl)) _address.text = _pageUrl!;
+    });
+    _syncChrome();
+    _surfaceFocus.canRequestFocus = true;
+    await _resumeWebPage();
+    if (!mounted) return;
+    _surfaceFocus.requestFocus();
   }
 
   Future<void> _toggleBookmark() async {
@@ -674,8 +853,7 @@ class _BrowserPageState extends State<BrowserPage>
       _pageTyping = false;
       _input.setPageTyping(false);
     }
-    _held.clear();
-    _direction = Offset.zero;
+    _resetPointerState();
     setState(() => _menuOpen = true);
     _syncChrome();
     _surfaceFocus.canRequestFocus = false;
@@ -793,19 +971,11 @@ class _BrowserPageState extends State<BrowserPage>
     }
   }
 
-  Future<void> _onWatchedMedia(String url) async {
-    if (!mounted || !_isWebUrl(url)) return;
-    final epoch = _mediaEpoch;
-    try {
-      await _controller.runJavaScript('window.__avenOffer && window.__avenOffer(${jsonEncode(url)});');
-    } catch (_) {}
-    if (epoch != _mediaEpoch) return;
-  }
-
   Future<void> _onVideoMessage(JavaScriptMessage message) async {
     final parsed = parsePlayedVideo(message.message);
     if (parsed == null || !mounted || _openingVideo) return;
-    final sources = [
+    final epoch = _mediaEpoch;
+    var sources = _preferPlayable([
       for (final source in parsed.sources)
         if (_isStreamUrl(source.url))
           VideoSource(
@@ -813,30 +983,44 @@ class _BrowserPageState extends State<BrowserPage>
             label: source.label,
             headers: _mediaHeadersFor(source.url),
           ),
-    ];
-    if (sources.isEmpty) return;
-    final video = PageVideo(sources: _preferPlayable(sources), tracks: parsed.tracks);
+    ]);
+    // Kick/IVS often opens before the master playlist hits the pool.
+    if (!_hasHls(sources)) {
+      for (var i = 0; i < 10 && mounted && !_openingVideo; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        if (epoch != _mediaEpoch) return;
+        final pooled = await _readMediaPool();
+        if (pooled.isEmpty) continue;
+        final merged = <VideoSource>[
+          ...sources,
+          for (final item in pooled)
+            if (_isStreamUrl(item.url))
+              VideoSource(
+                url: item.url,
+                label: item.label,
+                headers: _mediaHeadersFor(item.url),
+              ),
+        ];
+        sources = _preferPlayable(_dedupeSources(merged));
+        if (_hasHls(sources)) break;
+      }
+    }
+    if (epoch != _mediaEpoch || sources.isEmpty || !mounted || _openingVideo) return;
+    final video = PageVideo(sources: sources, tracks: parsed.tracks);
     var initial = video.sources.first;
     for (final source in video.sources) {
-      if (source.url.toLowerCase().contains('.m3u8')) {
+      final u = source.url.toLowerCase();
+      if (u.contains('.m3u8')) {
         initial = source;
-        break;
+        if (u.contains('live-video.net') || u.contains('master')) break;
       }
     }
     _openingVideo = true;
-    try {
-      await _controller.runJavaScript(
-        "document.querySelectorAll('video,audio').forEach(function(v){try{v.pause()}catch(e){}});",
-      );
-    } catch (_) {}
-    try {
-      await _input.pauseWebView();
-    } catch (_) {}
+    _resetPointerState();
+    await _suspendWebPage();
     if (!mounted) {
       _openingVideo = false;
-      try {
-        await _input.resumeWebView();
-      } catch (_) {}
+      await _resumeWebPage();
       return;
     }
     await Navigator.push<void>(
@@ -846,19 +1030,128 @@ class _BrowserPageState extends State<BrowserPage>
       ),
     );
     _openingVideo = false;
-    try {
-      await _input.resumeWebView();
-    } catch (_) {}
+    if (_onStart) {
+      // Home stays on top — keep the page frozen underneath.
+      return;
+    }
+    await _resumeWebPage();
     if (!mounted || _menuOpen) return;
+    _resetPointerState();
+    if (_webSize.isEmpty) {
+      _cursor.value = Offset.zero;
+    } else {
+      _cursor.value = Offset(_webSize.width / 2, _webSize.height / 2);
+    }
+    _cursorVisible.value = true;
+    _cursorLook.value = _CursorLook.normal;
+    try {
+      await _input.lockFocus();
+      await _input.prepareForInput();
+    } catch (_) {}
     _surfaceFocus.canRequestFocus = true;
     _surfaceFocus.requestFocus();
+    await _wakeSurface();
+  }
+
+  /// Clears stuck D-pad state that survives route pushes (player open/close).
+  void _resetPointerState() {
+    for (final timer in _arrowRelease.values) {
+      timer.cancel();
+    }
+    _arrowRelease.clear();
+    _held.clear();
+    _direction = Offset.zero;
+    _tickWall = null;
+    _moveStartedAt = null;
+    if (_ticker.isActive) _ticker.stop();
+    if (_cursorLook.value != _CursorLook.normal) {
+      _cursorLook.value = _CursorLook.normal;
+    }
+  }
+
+  bool _hasHls(List<VideoSource> sources) {
+    return sources.any((s) {
+      final u = s.url.toLowerCase();
+      return u.contains('.m3u8') || u.contains('mpegurl') || u.contains('live-video.net');
+    });
+  }
+
+  List<VideoSource> _dedupeSources(List<VideoSource> sources) {
+    final seen = <String>{};
+    final out = <VideoSource>[];
+    for (final source in sources) {
+      if (seen.add(source.url)) out.add(source);
+    }
+    return out;
+  }
+
+  Future<List<({String url, String label})>> _readMediaPool() async {
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(r'''
+(function(){
+  try {
+    return JSON.stringify((window.__avenPool || []).map(function(item){
+      return {url: item.url || '', label: item.label || 'Net'};
+    }));
+  } catch (e) { return '[]'; }
+})();
+''');
+      final text = raw is String
+          ? raw.replaceAll(r'\"', '"').replaceAll(RegExp(r'^"|"$'), '')
+          : raw.toString();
+      // runJavaScriptReturningResult often wraps JSON as a quoted JS string.
+      dynamic decoded = raw;
+      if (raw is String) {
+        try {
+          decoded = jsonDecode(raw);
+        } catch (_) {
+          try {
+            decoded = jsonDecode(text);
+          } catch (_) {
+            return const [];
+          }
+        }
+      }
+      if (decoded is String) {
+        try {
+          decoded = jsonDecode(decoded);
+        } catch (_) {
+          return const [];
+        }
+      }
+      if (decoded is! List) return const [];
+      return [
+        for (final item in decoded)
+          if (item is Map && item['url'] is String && (item['url'] as String).isNotEmpty)
+            (url: item['url'] as String, label: (item['label'] as String?) ?? 'Net'),
+      ];
+    } catch (_) {
+      return const [];
+    }
   }
 
   bool _isStreamUrl(String url) {
     final lower = url.toLowerCase();
     final path = lower.split('?').first.split('#').first;
-    if (path.endsWith('.ts')) return false;
-    return lower.startsWith('http://') || lower.startsWith('https://');
+    if (path.endsWith('.ts') || path.endsWith('.m4s') || path.endsWith('.aac')) {
+      return false;
+    }
+    if (!(lower.startsWith('http://') || lower.startsWith('https://'))) return false;
+    // Only hand ExoPlayer real playlists / progressive files — Kick's bare
+    // `/stream/` API hits and similar junk cause progressive 404s.
+    if (lower.contains('.m3u8') || lower.contains('mpegurl')) return true;
+    if (lower.contains('.mpd')) return true;
+    if (RegExp(r'\.(mp4|webm|mkv|mov)([?#]|$)').hasMatch(lower)) return true;
+    if (lower.contains('live-video.net') &&
+        (lower.contains('/hls') ||
+            lower.contains('playlist') ||
+            lower.contains('master') ||
+            lower.contains('.m3u8'))) {
+      return true;
+    }
+    if (lower.contains('googlevideo.com') && lower.contains('mime=video')) return true;
+    if (lower.contains('/hls/') && !lower.contains('/stream/')) return true;
+    return false;
   }
 
   List<VideoSource> _preferPlayable(List<VideoSource> sources) {
@@ -866,10 +1159,12 @@ class _BrowserPageState extends State<BrowserPage>
     ranked.sort((a, b) {
       int score(VideoSource s) {
         final u = s.url.toLowerCase();
-        if (u.contains('.m3u8')) return 0;
-        if (u.contains('.mpd')) return 1;
-        if (u.contains('.mp4')) return 2;
-        return 3;
+        if (u.contains('live-video.net') && u.contains('.m3u8')) return 0;
+        if (u.contains('.m3u8') && u.contains('master')) return 1;
+        if (u.contains('.m3u8')) return 2;
+        if (u.contains('.mpd')) return 3;
+        if (u.contains('.mp4')) return 4;
+        return 5;
       }
       return score(a).compareTo(score(b));
     });
@@ -920,45 +1215,64 @@ class _BrowserPageState extends State<BrowserPage>
       return;
     }
     if (_onStart && _isWebUrl(_pageUrl)) {
-      setState(() => _onStart = false);
-      _surfaceFocus.canRequestFocus = true;
-      _surfaceFocus.requestFocus();
+      await _leaveStartToPage();
       return;
     }
     await SystemNavigator.pop();
   }
 
   void _onTick(Duration elapsed) {
-    final dt = _lastTick == Duration.zero
-        ? 0.016
-        : ((elapsed - _lastTick).inMicroseconds / 1000000).clamp(0.0, 0.05);
-    _lastTick = elapsed;
-    if (_direction == Offset.zero || _webSize.isEmpty || _menuOpen || _onStart) {
+    final now = DateTime.now();
+    // Wall-clock dt stays steady even when vsync hitches after the player.
+    final dt = _tickWall == null
+        ? (1 / 60)
+        : (now.difference(_tickWall!).inMicroseconds / 1000000).clamp(0.0, 1 / 30);
+    _tickWall = now;
+    if (_direction == Offset.zero ||
+        _webSize.isEmpty ||
+        _menuOpen ||
+        _onStart ||
+        _openingVideo ||
+        _pageError != null) {
       if (_ticker.isActive) _ticker.stop();
-      _lastTick = Duration.zero;
+      _tickWall = null;
+      _moveStartedAt = null;
       if (_cursorLook.value != _CursorLook.normal) {
         _cursorLook.value = _CursorLook.normal;
       }
       return;
     }
+    // Keep the hot-spot inside the drawable area (elementFromPoint needs this).
+    final maxX = (_webSize.width - 1).clamp(0.0, double.infinity);
+    final maxY = (_webSize.height - 1).clamp(0.0, double.infinity);
+    final holdMs = _moveStartedAt == null
+        ? 0
+        : now.difference(_moveStartedAt!).inMilliseconds;
+    // Short taps stay precise; long holds ramp up for crossing the screen.
+    final t = (holdMs / 650).clamp(0.0, 1.0);
+    final speed = _cursorSpeedMin + (_cursorSpeedMax - _cursorSpeedMin) * t * t;
     final current = _cursor.value;
-    var next = current + _direction * 300 * dt;
+    var next = current + _direction * speed * dt;
     var scrollX = 0.0;
     var scrollY = 0.0;
     if (next.dx < 0) {
       scrollX = next.dx;
       next = Offset(0, next.dy);
-    } else if (next.dx > _webSize.width) {
-      scrollX = next.dx - _webSize.width;
-      next = Offset(_webSize.width, next.dy);
+    } else if (next.dx > maxX) {
+      scrollX = next.dx - maxX;
+      next = Offset(maxX, next.dy);
     }
     if (next.dy < 0) {
       scrollY = next.dy;
       next = Offset(next.dx, 0);
-    } else if (next.dy > _webSize.height) {
-      scrollY = next.dy - _webSize.height;
-      next = Offset(next.dx, _webSize.height);
+    } else if (next.dy > maxY) {
+      scrollY = next.dy - maxY;
+      next = Offset(next.dx, maxY);
     }
+    next = Offset(
+      next.dx.clamp(0.0, maxX),
+      next.dy.clamp(0.0, maxY),
+    );
     if (next != current) {
       _cursor.value = next;
       _bumpCursor();
@@ -974,10 +1288,10 @@ class _BrowserPageState extends State<BrowserPage>
                     : _CursorLook.normal;
     if (_cursorLook.value != look) _cursorLook.value = look;
     if (scrollX != 0 || scrollY != 0) {
-      final now = DateTime.now();
-      if (now.difference(_lastScroll).inMilliseconds > 40) {
+      if (now.difference(_lastScroll).inMilliseconds > 55) {
         _lastScroll = now;
-        _scrollBy(scrollX.sign * 28, scrollY.sign * 28, next.dx, next.dy);
+        final step = holdMs > 400 ? 22.0 : 14.0;
+        _scrollBy(scrollX.sign * step, scrollY.sign * step, next.dx, next.dy);
       }
     }
   }
@@ -989,18 +1303,40 @@ class _BrowserPageState extends State<BrowserPage>
     if (_held.contains(LogicalKeyboardKey.arrowRight)) x += 1;
     if (_held.contains(LogicalKeyboardKey.arrowUp)) y -= 1;
     if (_held.contains(LogicalKeyboardKey.arrowDown)) y += 1;
-    final next = Offset(x, y);
+    var next = Offset(x, y);
+    final length = next.distance;
+    if (length > 0) next = next / length;
     if (next == _direction) return;
+    final wasMoving = _direction != Offset.zero;
     _direction = next;
-    if (next != Offset.zero) _bumpCursor();
-    if (next != Offset.zero && !_ticker.isActive && !_menuOpen && !_onStart && _pageError == null) {
-      _lastTick = Duration.zero;
+    if (next != Offset.zero) {
+      _bumpCursor();
+      if (!wasMoving) _moveStartedAt = DateTime.now();
+    } else {
+      _moveStartedAt = null;
+    }
+    if (next != Offset.zero &&
+        !_ticker.isActive &&
+        !_menuOpen &&
+        !_onStart &&
+        !_openingVideo &&
+        _pageError == null) {
+      _tickWall = null;
       _ticker.start();
+    }
+    if (next == Offset.zero && _ticker.isActive) {
+      _ticker.stop();
+      _tickWall = null;
     }
   }
 
   bool _onHardwareKey(KeyEvent event) {
-    if (!mounted || _onStart || _menuOpen || _pageTyping || _pageError != null) {
+    if (!mounted ||
+        _onStart ||
+        _menuOpen ||
+        _pageTyping ||
+        _pageError != null ||
+        _openingVideo) {
       return false;
     }
     if (ModalRoute.of(context)?.isCurrent == false) return false;
@@ -1020,8 +1356,9 @@ class _BrowserPageState extends State<BrowserPage>
       _syncDirection();
       return;
     }
+    // Release promptly so keys don't "stick" after the external player.
     _arrowRelease[key]?.cancel();
-    _arrowRelease[key] = Timer(const Duration(milliseconds: 120), () {
+    _arrowRelease[key] = Timer(const Duration(milliseconds: 40), () {
       _arrowRelease.remove(key);
       _held.remove(key);
       _syncDirection();
@@ -1074,9 +1411,12 @@ class _BrowserPageState extends State<BrowserPage>
   }
 
   Future<void> _scrollBy(double dx, double dy, double x, double y) async {
+    if (_webSize.isEmpty) return;
+    final px = x.clamp(0.0, (_webSize.width - 1).clamp(0.0, double.infinity));
+    final py = y.clamp(0.0, (_webSize.height - 1).clamp(0.0, double.infinity));
     final script = '''
 (function() {
-  var x = $x, y = $y, dx = $dx, dy = $dy;
+  var x = $px, y = $py, dx = $dx, dy = $dy;
   var el = document.elementFromPoint(x, y);
   while (el && el !== document.documentElement) {
     var style = getComputedStyle(el);
@@ -1101,6 +1441,8 @@ class _BrowserPageState extends State<BrowserPage>
   void _rememberWebSize(Size size) {
     if (size == _webSize || size.isEmpty) return;
     _webSize = size;
+    final maxX = (size.width - 1).clamp(0.0, double.infinity);
+    final maxY = (size.height - 1).clamp(0.0, double.infinity);
     if (!_placed) {
       _placed = true;
       _cursor.value = Offset(size.width / 2, size.height / 2);
@@ -1108,8 +1450,18 @@ class _BrowserPageState extends State<BrowserPage>
     }
     final current = _cursor.value;
     _cursor.value = Offset(
-      current.dx.clamp(0, size.width).toDouble(),
-      current.dy.clamp(0, size.height).toDouble(),
+      current.dx.clamp(0.0, maxX),
+      current.dy.clamp(0.0, maxY),
+    );
+  }
+
+  Offset _cursorPaintOrigin(Offset hotSpot, Size area) {
+    const size = 32.0;
+    final maxLeft = (area.width - size).clamp(0.0, double.infinity);
+    final maxTop = (area.height - size).clamp(0.0, double.infinity);
+    return Offset(
+      (hotSpot.dx - size / 2).clamp(0.0, maxLeft),
+      (hotSpot.dy - size / 2).clamp(0.0, maxTop),
     );
   }
 
@@ -1176,6 +1528,7 @@ class _BrowserPageState extends State<BrowserPage>
                     });
                   }
                   return Stack(
+                    clipBehavior: Clip.hardEdge,
                     children: [
                       Positioned.fill(
                         child: ValueListenableBuilder<int>(
@@ -1199,9 +1552,12 @@ class _BrowserPageState extends State<BrowserPage>
                             return ValueListenableBuilder<Offset>(
                               valueListenable: _cursor,
                               builder: (context, offset, _) {
+                                final paint = _cursorPaintOrigin(offset, size);
                                 return Positioned(
-                                  left: offset.dx - 16,
-                                  top: offset.dy - 16,
+                                  left: paint.dx,
+                                  top: paint.dy,
+                                  width: 32,
+                                  height: 32,
                                   child: IgnorePointer(child: _CursorDot(look: look)),
                                 );
                               },
@@ -1301,9 +1657,13 @@ class _BrowserPageState extends State<BrowserPage>
                       return ValueListenableBuilder<Offset>(
                         valueListenable: _cursor,
                         builder: (context, offset, _) {
+                          final area = MediaQuery.sizeOf(context);
+                          final paint = _cursorPaintOrigin(offset, area);
                           return Positioned(
-                            left: offset.dx - 16,
-                            top: offset.dy - 16,
+                            left: paint.dx,
+                            top: paint.dy,
+                            width: 32,
+                            height: 32,
                             child: IgnorePointer(
                               child: AnimatedOpacity(
                                 opacity: visible ? 1 : 0,
@@ -1742,8 +2102,7 @@ class _CursorDot extends StatelessWidget {
         width: 32,
         height: 32,
         decoration: BoxDecoration(
-          shape: scrolling ? BoxShape.rectangle : BoxShape.circle,
-          borderRadius: scrolling ? BorderRadius.circular(10) : null,
+          borderRadius: BorderRadius.circular(scrolling ? 10 : 16),
           color: scrolling
               ? AvenColors.hover
               : AvenColors.hover.withValues(alpha: 0.9),
@@ -1755,7 +2114,7 @@ class _CursorDot extends StatelessWidget {
         alignment: Alignment.center,
         child: _icon == null
             ? null
-            : Icon(_icon, size: 26, color: AvenColors.text),
+            : Icon(_icon, size: 22, color: AvenColors.text),
       ),
     );
   }
