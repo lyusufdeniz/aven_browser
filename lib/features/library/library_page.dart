@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'aven_theme.dart';
-import 'bookmark_store.dart';
+import '../../core/theme/aven_theme.dart';
+import '../../data/settings_store.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key, required this.store, this.initialSection = 0});

@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'url_input.dart';
+import '../core/url/url_input.dart';
 
 class WebLink {
   const WebLink({required this.title, required this.url, this.savedAt});
@@ -120,7 +120,15 @@ class BrowserStore {
 
   Future<AdBlock> loadAdBlock() async {
     final prefs = await SharedPreferences.getInstance();
-    return AdBlock.fromName(prefs.getString(_adBlockKey));
+    // One-shot: mega host lists broke film/dizi players — force off once.
+    if (prefs.getBool('ad_block_safe_v1') != true) {
+      await prefs.setBool('ad_block_safe_v1', true);
+      await prefs.setString(_adBlockKey, AdBlock.off.name);
+      return AdBlock.off;
+    }
+    final raw = prefs.getString(_adBlockKey);
+    if (raw == null || raw.isEmpty) return AdBlock.off;
+    return AdBlock.fromName(raw);
   }
 
   Future<AdBlock> loadAdBlockProvider() async {

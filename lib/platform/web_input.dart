@@ -7,8 +7,8 @@ import 'package:flutter/services.dart';
 class WebInput {
   static const _channel = MethodChannel('com.avenbrowser/input');
 
-  Future<void> tap(double x, double y) {
-    return _channel.invokeMethod<void>('tap', {'x': x, 'y': y});
+  Future<void> tap(double x, double y, {bool screen = false}) {
+    return _channel.invokeMethod<void>('tap', {'x': x, 'y': y, 'screen': screen});
   }
 
   Future<void> lockFocus() {
@@ -73,6 +73,11 @@ class WebInput {
 
   Future<void> setAdBlock(String mode) {
     return _channel.invokeMethod<void>('setAdBlock', {'mode': mode});
+  }
+
+  /// TV speed mode: block trackers, webfonts, and chat widgets.
+  Future<void> setSpeedMode(bool enabled) {
+    return _channel.invokeMethod<void>('setSpeedMode', {'enabled': enabled});
   }
 
   Future<void> setLoadsImages(bool enabled) {

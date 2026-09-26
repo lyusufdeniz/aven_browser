@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'aven_theme.dart';
 import 'package:flutter/services.dart';
 
-import 'bookmark_store.dart';
-import 'url_input.dart';
-import 'web_input.dart';
+import '../../core/theme/aven_theme.dart';
+import '../../core/url/url_input.dart';
+import '../../data/settings_store.dart';
+import '../../platform/web_input.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.store, required this.input});
@@ -256,9 +256,9 @@ class _SettingsPageState extends State<SettingsPage> {
           (
             AdBlock.values[index].label,
             switch (AdBlock.values[index]) {
-              AdBlock.off => 'Sistem DNS. Reklamlar engellenmez.',
-              AdBlock.adguard => 'Geniş yerel liste, path engeli ve kozmetik filtre.',
-              AdBlock.ublock => 'Geniş yerel host listesi, path engeli ve kozmetik filtre.',
+              AdBlock.off => 'Sistem DNS. Reklamlar engellenmez (film siteleri için önerilir).',
+              AdBlock.adguard => 'Bilinen reklam ağları + kozmetik filtre (yerel mega liste yok).',
+              AdBlock.ublock => 'Bilinen reklam ağları + kozmetik filtre (yerel mega liste yok).',
             },
             _block == AdBlock.values[index],
           ),

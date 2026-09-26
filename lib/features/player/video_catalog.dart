@@ -483,11 +483,7 @@ const _watchScript = r'''
   function hook(video) {
     if (!video || video.__avenHook) return;
     video.__avenHook = true;
-    try {
-      video.removeAttribute('autoplay');
-      video.autoplay = false;
-      video.preload = 'metadata';
-    } catch (e) {}
+    // Do not strip autoplay/preload — site players (HLS/preroll) need them.
     video.addEventListener('play', function() { prepare(video); }, true);
     video.addEventListener('playing', function() { prepare(video); }, true);
     video.addEventListener('loadeddata', function() { prepare(video); });
@@ -635,16 +631,22 @@ const _watchScript = r'''
     hookMediaPlay();
     var observer = null;
     var debounce = null;
+    var scrollQuiet = null;
+    var scrolling = false;
     function scheduleScan() {
+      if (scrolling) return;
       if (anyPlaying()) {
         lightScan();
         return;
       }
       if (debounce) return;
+      // Heavier debounce while lite browsing — fewer full DOM walks on TV.
+      var wait = window.__avenLite ? 1800 : 900;
       debounce = setTimeout(function() {
         debounce = null;
+        if (scrolling) return;
         scan();
-      }, 900);
+      }, wait);
     }
     function ensureObserver(on) {
       if (on) {
@@ -659,9 +661,16 @@ const _watchScript = r'''
     scan();
     ensureObserver(true);
     window.addEventListener('scroll', function() {
+      scrolling = true;
+      if (scrollQuiet) clearTimeout(scrollQuiet);
+      scrollQuiet = setTimeout(function() {
+        scrolling = false;
+        scrollQuiet = null;
+        if (anyPlaying()) lightScan();
+        else scheduleScan();
+      }, window.__avenLite ? 900 : 400);
       if (anyPlaying()) lightScan();
-      else scheduleScan();
-    }, true);
+    }, {passive: true, capture: true});
     document.addEventListener('play', function(event) {
       var target = event.target;
       if (target && target.tagName === 'VIDEO') {
@@ -676,6 +685,7 @@ const _watchScript = r'''
       if (!anyPlaying()) setTimeout(scan, 700);
     }, true);
     setInterval(function() {
+      if (scrolling) return;
       if (anyPlaying()) {
         ensureObserver(false);
         var focus = focusedPlayer();
@@ -685,7 +695,7 @@ const _watchScript = r'''
         ensureObserver(true);
         scan();
       }
-    }, 4500);
+    }, window.__avenLite ? 8000 : 4500);
   }
   install();
 })();

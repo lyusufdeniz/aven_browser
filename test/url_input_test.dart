@@ -1,5 +1,5 @@
-import 'package:aven_browser/url_input.dart';
-import 'package:aven_browser/web_input.dart';
+import 'package:aven_browser/core/url/url_input.dart';
+import 'package:aven_browser/platform/web_input.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

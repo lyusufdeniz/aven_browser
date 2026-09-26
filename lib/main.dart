@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'aven_theme.dart';
-import 'browser_page.dart';
+import 'core/theme/aven_theme.dart';
+import 'features/browser/browser_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
