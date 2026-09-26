@@ -15,11 +15,11 @@ internal val bannerCosmeticCss = (
         "iframe[width='728'][height='90'],iframe[width='300'][height='250'],iframe[width='160'][height='600']," +
         "iframe[width='336'][height='280'],iframe[width='320'][height='50'],ins.adsbygoogle," +
         "[data-ad-client],[data-ad-slot],[id^='google_ads_'],[id^='div-gpt-ad'],[id^='ads-']," +
-        "[class^='ads-'],[class*='adsbygoogle'],[class*='ad-banner'],[class*='banner-ad']," +
+        // Avoid [class^='ads-']: some players wrap media in classes starting with ads-.
+        "[class*='adsbygoogle'],[class*='ad-banner'],[class*='banner-ad']," +
         "[class*='ads-banner'],[class*='ad-slot']," +
-        "[class*='sticky-ad'],[class*='floating-ad'],[class*='popup-ad'],[id*='reklam'],[class*='reklam']," +
-        ".banner-slot,#footerFixedDiv,#psContainer,iframe#psContainer," +
-        "#cts_test,#ad_ctd,.adsbox,.textads,.banner_ads,.banner-ads,.adbox,.ADBox,.AdBox,.adbox-wrapper," +
+        "[class*='sticky-ad'],[class*='floating-ad'],[class*='popup-ad']," +
+        ".banner-slot,.adsbox,.textads,.banner_ads,.banner-ads,.adbox,.ADBox,.AdBox,.adbox-wrapper," +
         ".adSocial,.ad-unit,.afs_ads,.ad-zone,.ad-space"
     ) + cosmeticHideRule
 

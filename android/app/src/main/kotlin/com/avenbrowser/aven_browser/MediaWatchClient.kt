@@ -32,6 +32,7 @@ internal class MediaWatchClient(
         } catch (_: Exception) {
             null
         }
+        WebViewEngine.warmDns(pageHost)
         injectPageHooks(view, injectGen, force = false)
         inner.onPageStarted(view, url, favicon)
     }
@@ -48,6 +49,13 @@ internal class MediaWatchClient(
     }
 
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+        // Update origin as soon as the main frame URL is known. Subresources often
+        // race ahead of onPageStarted; a stale pageHost marks them third-party and
+        // speed-mode font blocks can stall sync <script> parsing (readyState=loading).
+        if (request.isForMainFrame) {
+            pageHost = request.url.host?.lowercase()
+            WebViewEngine.warmDns(pageHost)
+        }
         val delegated = inner.shouldInterceptRequest(view, request)
         val requestUrl = request.url?.toString().orEmpty()
         if (requestUrl.isNotEmpty() && isPlayableMedia(requestUrl) && remember(requestUrl)) {
@@ -66,14 +74,15 @@ internal class MediaWatchClient(
             return null
         }
         val origin = pageHost
-        val firstParty = origin != null && (host == origin || host.endsWith(".$origin"))
+        // If origin is still unknown, do not treat the request as third-party.
+        val firstParty = origin == null || host == origin || host.endsWith(".$origin")
         val deferToJs = shouldDeferBlockToJs(request)
         // Puffin-style speed path: always cut trackers/fonts/widgets (even if adblock off).
         if (!firstParty && speed() && isSpeedBlocked(host, path, requestUrl)) {
             // HEAD / no-cors: any synthetic HTTP response = "Accessible" on ad-block tests.
-            // JS hook rejects those; native still blocks img/script GET bodies.
+            // JS hook rejects those; native still stubs img/script GET bodies instantly.
             if (deferToJs) return null
-            return emptyBlockedResponse()
+            return emptyBlockedResponse(requestUrl, path)
         }
         val current = mode()
         if (current == "off") return null
@@ -81,13 +90,13 @@ internal class MediaWatchClient(
             // Only known same-origin ad scripts (e.g. turtlecute ads.js / pagead.js).
             if (!isBlockedAdScriptPath(path)) return null
             if (deferToJs) return null
-            return emptyBlockedResponse()
+            return emptyBlockedResponse(requestUrl, path)
         }
         // Never stall the network thread (HEAD sleep broke page load/scroll).
         // Host probes are failed via JS fetch hook + AvenAdblock bridge.
         if (isBlockedPath(path) || isBlockedHost(host, current)) {
             if (deferToJs) return null
-            return emptyBlockedResponse()
+            return emptyBlockedResponse(requestUrl, path)
         }
         return null
     }
@@ -110,6 +119,8 @@ internal class MediaWatchClient(
                 val script = buildString {
                     if (speed()) {
                         append(speedStyleScript)
+                        append('\n')
+                        append(speedPrefetchScript)
                         append('\n')
                         append(bannerCosmeticScript)
                         append('\n')
@@ -162,8 +173,8 @@ internal class MediaWatchClient(
     }
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-        // Emulator / leanback WebView often rejects player CDN certs (jwpcdn, cdn77,
-        // dplayer mirrors). Cancel keeps "jwplayer is not defined" and blank video.
+        // Emulator / leanback WebView often rejects player CDN certs.
+        // Cancel keeps site players blank ("jwplayer is not defined").
         try {
             handler.proceed()
         } catch (_: Exception) {

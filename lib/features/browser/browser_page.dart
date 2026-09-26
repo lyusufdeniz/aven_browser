@@ -692,7 +692,7 @@ class _BrowserPageState extends _BrowserPageBase
             durationSeconds: source.durationSeconds,
           ),
     ]);
-    // Embed players (dplayer etc.) often fire ad MP4s first; wait for real HLS/content.
+    // Embed players often fire short ad MP4s first; wait for real HLS/content.
     if (!_hasContentStream(sources)) {
       for (var i = 0; i < 14 && mounted && !_openingVideo; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -721,7 +721,7 @@ class _BrowserPageState extends _BrowserPageBase
       final u = source.url.toLowerCase();
       if (u.contains('.m3u8')) {
         initial = source;
-        if (u.contains('live-video.net') || u.contains('master') || u.contains('dplayer')) break;
+        if (u.contains('live-video.net') || u.contains('master') || u.contains('/hls/') || u.contains('.m3u8')) break;
       }
     }
     // Prefer longest known duration over short preroll leftovers.
@@ -779,11 +779,12 @@ class _BrowserPageState extends _BrowserPageBase
     if (_hasHls(sources)) return true;
     return sources.any((s) {
       final u = s.url.toLowerCase();
-      return u.contains('dplayer') ||
-          u.contains('rapidrame') ||
-          u.contains('closeload') ||
-          u.contains('b-cdn.net') ||
+      return u.contains('/embed') ||
+          u.contains('/player') ||
+          u.contains('/stream') ||
           u.contains('videodelivery') ||
+          u.contains('b-cdn.net') ||
+          u.contains('jwpcdn') ||
           ((s.durationSeconds ?? 0) > 180);
     });
   }
@@ -797,12 +798,30 @@ class _BrowserPageState extends _BrowserPageBase
     var iframes = document.querySelectorAll('iframe[src],iframe[data-src]');
     var best = '', area = 0;
     for (var i = 0; i < iframes.length; i++) {
-      var src = iframes[i].getAttribute('src') || iframes[i].getAttribute('data-src') || '';
+      var f = iframes[i];
+      var src = f.getAttribute('src') || f.getAttribute('data-src') || '';
       if (!src || src.indexOf('http') !== 0) continue;
-      if (!/dplayer|rapidrame|closeload|embed|player|vidmo|ok\.ru|sibnet|filemoon|voe\.|streamtape|iframe\.php/i.test(src)) continue;
-      var r = iframes[i].getBoundingClientRect();
-      var a = r.width * r.height;
-      if (a > area && r.width > 120 && r.height > 70) { area = a; best = src; }
+      var low = src.toLowerCase();
+      var w = f.offsetWidth || 0, h = f.offsetHeight || 0;
+      // Skip IAB ad slots.
+      if ((w === 728 && h === 90) || (w === 300 && h === 250) || (w === 160 && h === 600) ||
+          (w === 336 && h === 280) || (w === 320 && (h === 50 || h === 100))) continue;
+      if (/doubleclick|googlesyndication|pagead|popads|exoclick/.test(low)) continue;
+      var looks = /embed|player|video|watch|stream|live|channel|youtube|vimeo|hls|iframe\.php|media/.test(low);
+      var a = w * h;
+      if (!looks && a < 40000) continue;
+      if (a > area && w > 120 && h > 70) { area = a; best = src; }
+    }
+    // Fallback: largest non-ad iframe on the page.
+    if (!best) {
+      for (var j = 0; j < iframes.length; j++) {
+        var f2 = iframes[j];
+        var src2 = f2.getAttribute('src') || f2.getAttribute('data-src') || '';
+        if (!src2 || src2.indexOf('http') !== 0) continue;
+        var r = f2.getBoundingClientRect();
+        var a2 = r.width * r.height;
+        if (a2 > area && r.width > 200 && r.height > 120) { area = a2; best = src2; }
+      }
     }
     return best || '';
   } catch (e) { return ''; }
@@ -936,7 +955,7 @@ class _BrowserPageState extends _BrowserPageBase
     final frame = frameReferer == null || frameReferer.isEmpty ? null : Uri.tryParse(frameReferer);
     final mediaHost = media?.host.toLowerCase() ?? '';
     final pageHost = page?.host.toLowerCase() ?? '';
-    // dplayer / embed CDNs usually require the player iframe origin as Referer.
+    // Embed CDNs usually require the player iframe origin as Referer.
     String referer;
     if (frame != null &&
         frame.host.isNotEmpty &&

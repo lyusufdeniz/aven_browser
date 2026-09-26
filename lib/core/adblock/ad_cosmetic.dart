@@ -1,5 +1,5 @@
 /// Generic banner / ad cosmetics for all sites (TV WebView).
-/// Keep selectors conservative: hide ads, not article chrome.
+/// Conservative: hide known ad networks and IAB slots, not page chrome.
 const avenBannerHide =
     '{display:none!important;visibility:hidden!important;height:0!important;'
     'max-height:0!important;min-height:0!important;width:0!important;'
@@ -25,6 +25,7 @@ const avenBannerSelectors = [
   "iframe[src*='advert']",
   "iframe[id*='google_ads']",
   "iframe[name*='google_ads']",
+  // IAB display sizes
   "iframe[width='728'][height='90']",
   "iframe[width='970'][height='90']",
   "iframe[width='970'][height='250']",
@@ -41,7 +42,7 @@ const avenBannerSelectors = [
   "[id^='google_ads_']",
   "[id^='div-gpt-ad']",
   "[id^='ads-']",
-  "[class^='ads-']",
+  // Avoid [class^='ads-'] — some players wrap media in class names starting with ads-.
   "[class*='adsbygoogle']",
   "[class*='ad-banner']",
   "[class*='ad_banner']",
@@ -55,15 +56,6 @@ const avenBannerSelectors = [
   "[class*='float-ad']",
   "[class*='popup-ad']",
   "[class*='pop-ad']",
-  "[id*='reklam']",
-  "[class*='reklam']",
-  // Streaming-site display banners — keep light; heavy host scrapes broke players.
-  '.banner-slot',
-  '#footerFixedDiv',
-  '#psContainer',
-  'iframe#psContainer',
-  '#cts_test',
-  '#ad_ctd',
   '.adsbox',
   '.textads',
   '.banner_ads',
@@ -77,6 +69,7 @@ const avenBannerSelectors = [
   '.afs_ads',
   '.ad-zone',
   '.ad-space',
+  '.banner-slot',
 ];
 
 const avenAdblockExtraSelectors = [

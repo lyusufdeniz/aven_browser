@@ -953,15 +953,22 @@ bool isAdMediaUrl(String url) {
   return false;
 }
 
-/// Lower is better. Prefer TR embed CDNs and real playlists over ad MP4s.
+/// Lower is better. Prefer real playlists / CDN streams over short ad MP4s.
 int contentHostScore(String url) {
   final u = url.toLowerCase();
-  if (u.contains('dplayer') || u.contains('rapidrame') || u.contains('closeload')) return 0;
-  if (u.contains('b-cdn.net') || u.contains('bunny') || u.contains('videodelivery')) return 1;
-  if (u.contains('cloudflarestream') || u.contains('cdn77') || u.contains('jwpcdn')) return 2;
-  if (u.contains('.m3u8') && u.contains('master')) return 3;
-  if (u.contains('.m3u8')) return 4;
-  if (u.contains('.mpd')) return 5;
+  if (u.contains('.m3u8') && (u.contains('master') || u.contains('index') || u.contains('playlist'))) {
+    return 0;
+  }
+  if (u.contains('.m3u8') || u.contains('/hls/')) return 1;
+  if (u.contains('.mpd') || u.contains('dash')) return 2;
+  if (u.contains('videodelivery') ||
+      u.contains('cloudflarestream') ||
+      u.contains('b-cdn.net') ||
+      u.contains('jwpcdn') ||
+      u.contains('cdn77')) {
+    return 3;
+  }
+  if (u.contains('/embed') || u.contains('/player') || u.contains('/stream')) return 4;
   if (u.contains('.mp4')) return 6;
   return 8;
 }

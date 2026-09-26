@@ -83,6 +83,50 @@ internal val speedStyleScript = """
 })();
 """.trimIndent()
 
+/** Same-origin document/CSS prefetch + DNS warm — never touches media CDNs. */
+internal val speedPrefetchScript = """
+(function(){
+  if (window.__avenPrefetch) return;
+  window.__avenPrefetch = true;
+  var head = document.head || document.documentElement;
+  function sameOrigin(u) {
+    try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; }
+  }
+  function add(rel, href, asType) {
+    if (!href || !sameOrigin(href)) return false;
+    try {
+      var l = document.createElement('link');
+      l.rel = rel;
+      l.href = href;
+      if (asType) l.as = asType;
+      l.setAttribute('data-aven', '1');
+      head.appendChild(l);
+      return true;
+    } catch (e) { return false; }
+  }
+  try {
+    add('dns-prefetch', location.origin, null);
+    add('preconnect', location.origin, null);
+  } catch (e) {}
+  var n = 0;
+  try {
+    document.querySelectorAll('link[rel="stylesheet"][href]').forEach(function(el){
+      if (n >= 4) return;
+      if (add('prefetch', el.getAttribute('href'), 'style')) n++;
+    });
+  } catch (e) {}
+  try {
+    document.querySelectorAll('a[href]').forEach(function(a){
+      if (n >= 8) return;
+      var href = a.getAttribute('href');
+      if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+      if (/\.(mp4|webm|m3u8|mpd|ts)(\?|#|$)/i.test(href)) return;
+      if (add('prefetch', href, 'document')) n++;
+    });
+  } catch (e) {}
+})();
+""".trimIndent()
+
 internal fun speedNetworkHookScript(): String {
     val suffixes = speedHostSuffixes.joinToString(",") { "\"$it\"" }
     return """
@@ -134,7 +178,7 @@ internal fun speedNetworkHookScript(): String {
 internal fun isSpeedBlocked(host: String, path: String, url: String): Boolean {
     val name = host.lowercase()
     if (name.isEmpty()) return false
-    // Never block media / player CDNs.
+    // Never block media / player CDNs or playlist/segment fetches.
     if (isAllowedHost(name) ||
         name.contains("live-video.net") ||
         name.contains("googlevideo.com") ||
@@ -149,8 +193,10 @@ internal fun isSpeedBlocked(host: String, path: String, url: String): Boolean {
         name.contains("jwpcdn") ||
         name.contains("jwplayer") ||
         name.contains("cdn77") ||
-        name.contains("dplayer") ||
-        name.contains("rapidrame") ||
+        name.contains("videodelivery") ||
+        name.contains("cloudflarestream") ||
+        path.contains("/embed") ||
+        path.contains("/hls/") ||
         path.endsWith(".m3u8") ||
         path.endsWith(".mpd") ||
         path.endsWith(".mp4") ||

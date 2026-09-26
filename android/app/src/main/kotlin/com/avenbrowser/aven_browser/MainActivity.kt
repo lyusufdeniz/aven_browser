@@ -11,6 +11,8 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -157,11 +159,7 @@ class MainActivity : FlutterActivity() {
     private fun attachMediaWatch() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val webView = findWebView(window.decorView) ?: return
-        try {
-            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-            webView.settings.mediaPlaybackRequiresUserGesture = false
-        } catch (_: Exception) {
-        }
+        tuneWebViewForTv(webView)
         try {
             AdBlockLists.ensureLoaded(applicationContext)
             webView.removeJavascriptInterface("AvenAdblock")
@@ -176,6 +174,40 @@ class MainActivity : FlutterActivity() {
             { speedMode },
         ) { url ->
             channel.invokeMethod("media", url)
+        }
+    }
+
+    /**
+     * Engine-level TV tuning (Puffin / BrowserHere style) — not site CSS.
+     * Faster paint, less background work, disk cache, no force-dark double pass.
+     */
+    private fun tuneWebViewForTv(webView: WebView) {
+        WebViewEngine.installEarly(applicationContext)
+        try {
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            try {
+                WebView::class.java
+                    .getMethod("setOffscreenPreRaster", Boolean::class.javaPrimitiveType)
+                    .invoke(webView, true)
+            } catch (_: Exception) {
+            }
+            webView.overScrollMode = View.OVER_SCROLL_NEVER
+            webView.isVerticalScrollBarEnabled = false
+            webView.isHorizontalScrollBarEnabled = false
+            WebViewEngine.setActivePriority(webView, active = true)
+        } catch (_: Exception) {
+        }
+        try {
+            val s = webView.settings
+            WebViewEngine.tuneSettings(s)
+            // Avoid algorithmic darkening re-tint cost on leanback.
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(s, false)
+            } else if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+                @Suppress("DEPRECATION")
+                WebSettingsCompat.setForceDark(s, WebSettingsCompat.FORCE_DARK_OFF)
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -260,6 +292,15 @@ class MainActivity : FlutterActivity() {
             } catch (_: Exception) {
             }
             try {
+                WebViewEngine.setActivePriority(webView, active = false)
+            } catch (_: Exception) {
+            }
+            try {
+                // Drop GPU layer while ExoPlayer owns the screen.
+                webView.setLayerType(View.LAYER_TYPE_NONE, null)
+            } catch (_: Exception) {
+            }
+            try {
                 webView.onPause()
             } catch (_: Exception) {
             }
@@ -279,6 +320,14 @@ class MainActivity : FlutterActivity() {
         webView.post {
             try {
                 webView.visibility = View.VISIBLE
+            } catch (_: Exception) {
+            }
+            try {
+                webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            } catch (_: Exception) {
+            }
+            try {
+                WebViewEngine.setActivePriority(webView, active = true)
             } catch (_: Exception) {
             }
             try {

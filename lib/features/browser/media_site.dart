@@ -6,9 +6,12 @@ bool isAvenWebUrl(String? url) {
 
 bool isAvenMediaSite(String? url) {
   final raw = url ?? '';
-  final host = Uri.tryParse(raw)?.host.toLowerCase() ?? '';
-  final path = Uri.tryParse(raw)?.path.toLowerCase() ?? '';
+  final uri = Uri.tryParse(raw);
+  final host = uri?.host.toLowerCase() ?? '';
+  final path = uri?.path.toLowerCase() ?? '';
   if (host.isEmpty) return false;
+
+  // Well-known global media / social platforms.
   const markers = [
     'youtube.com',
     'youtu.be',
@@ -35,40 +38,31 @@ bool isAvenMediaSite(String? url) {
   for (final m in markers) {
     if (host == m || host.endsWith('.$m')) return true;
   }
-  // TR / pirate stream hosts — slug pages like /movie-name-2026/ embed players.
-  const hostHints = [
-    'film',
-    'dizi',
-    'izle',
-    'movie',
-    'stream',
-    'anime',
-    'dailymotion',
-    'player',
-    'sever',
-    'pal',
-  ];
-  for (final h in hostHints) {
-    if (host.contains(h)) return true;
-  }
+
+  // Universal watch/stream path shapes (any language / region).
   const watchPaths = [
-    '/bolum/',
-    '/izle',
     '/watch',
     '/embed',
     '/episode',
     '/video/',
+    '/videos/',
     '/play/',
     '/player',
-    '/film',
+    '/stream',
+    '/live',
+    '/channel',
+    '/clip',
     '/movie',
-    '/dizi',
-    '/sezon',
+    '/film',
+    '/series',
+    '/season',
+    '/trailer',
   ];
   for (final p in watchPaths) {
     if (path.contains(p)) return true;
   }
-  // /slug-title-2024/ style watch pages (single path segment with a year).
+
+  // /slug-title-2024/ style single-segment watch pages.
   final seg = path.replaceAll(RegExp(r'^/+|/$'), '');
   if (seg.isNotEmpty &&
       !seg.contains('/') &&

@@ -9,7 +9,7 @@
 
     <application
         android:label="Aven Browser"
-        android:name="${applicationName}"
+        android:name=".AvenApplication"
         android:icon="@mipmap/ic_launcher"
         android:banner="@drawable/tv_banner"
         android:largeHeap="true"

@@ -1,7 +1,6 @@
 package com.avenbrowser.aven_browser
 
 import android.webkit.WebResourceResponse
-import java.io.ByteArrayInputStream
 
 internal val ublockSuffixes = listOf(
     "doubleclick.net",
@@ -71,7 +70,7 @@ internal val ublockSuffixes = listOf(
     "pushengage.com",
     "pushnami.com",
     "zeropark.com",
-    // TR / regional ad networks (turk-adfilter + local publishers).
+    // Regional ad networks (in addition to global list above).
     "admatic.com.tr",
     "adnet.com.tr",
     "admax.com.tr",
@@ -84,7 +83,7 @@ internal val ublockSuffixes = listOf(
     "reklm.com",
     "doganburda.com",
     // Do NOT block video-ad / stream CDNs here (viralize, teads, spotx,
-    // cdnhipter, affiliate hop domains) — TR film players hang without them.
+    // affiliate hop domains) — site players hang without them.
 )
 
 internal val blockedPathMarkers = listOf(
@@ -155,15 +154,12 @@ internal fun networkHookScript(): String {
 }
 
 internal fun emptyBlockedResponse(): WebResourceResponse {
-    // Prefer stream failure with no HTTP status: a 403/404 body makes no-cors
-    // HEAD fetch resolve as "Accessible" on obfusgated-style ad-block tests.
-    val failing = object : java.io.InputStream() {
-        override fun available(): Int = 0
-        override fun read(): Int = throw java.io.IOException("Blocked by Aven")
-        override fun read(b: ByteArray, off: Int, len: Int): Int =
-            throw java.io.IOException("Blocked by Aven")
-    }
-    return WebResourceResponse("text/plain", "utf-8", failing)
+    return emptyBlockedResponse("", "")
+}
+
+/** Instant local stub — no network round-trip for trackers/fonts/widgets. */
+internal fun emptyBlockedResponse(url: String, path: String): WebResourceResponse {
+    return WebViewEngine.stubResponse(url, path)
 }
 
 /**
@@ -213,24 +209,21 @@ internal fun isBlockedPath(path: String): Boolean {
 }
 
 internal fun isAllowedHost(host: String): Boolean {
-    // Narrow allowlist — do NOT allow analytics / webfont CDNs (speed mode blocks those).
+    // Keep player / CDN infra reachable even if a hosts list over-blocks.
+    // No per-site domains — match global player products and static CDNs only.
     return when {
         host == "www.gstatic.com" || host == "gstatic.com" || host.endsWith(".gstatic.com") -> true
         host == "www.google.com" || host == "google.com" || host == "accounts.google.com" -> true
         host.endsWith(".ytimg.com") || host.endsWith(".ggpht.com") -> true
-        host.endsWith(".jsdelivr.net") || host.endsWith(".jquery.com") -> true
-        // TR stream posters + ad/poster CDN (blocking any of these blanks players).
-        host.endsWith(".cdnhipter.xyz") || host == "cdnhipter.xyz" -> true
-        // JW Player + common HLS CDNs — blocking these blanks site players.
+        host.endsWith(".jsdelivr.net") || host.endsWith(".jquery.com") || host.endsWith(".cloudflare.com") -> true
         host == "jwpcdn.com" || host.endsWith(".jwpcdn.com") -> true
         host == "jwplayer.com" || host.endsWith(".jwplayer.com") -> true
         host == "jwplatform.com" || host.endsWith(".jwplatform.com") -> true
         host == "jwpltx.com" || host.endsWith(".jwpltx.com") -> true
         host == "cdn77.org" || host.endsWith(".cdn77.org") -> true
-        host.endsWith(".hdfilmcehennemi.mobi") || host == "hdfilmcehennemi.mobi" -> true
-        host.endsWith(".hdfilmcehennemi.nl") || host == "hdfilmcehennemi.nl" -> true
-        // Rapidrame / alternate embeds used by TR film sites.
-        host.contains("dplayer") || host.contains("rapidrame") || host.contains("closeload") -> true
+        host.endsWith(".b-cdn.net") || host.contains("videodelivery") || host.contains("cloudflarestream") -> true
+        // Common embed/player CDN host shapes (not site allowlists).
+        host.contains("jwpcdn") || host.contains("jwplayer") -> true
         // AdGuard / Mullvad DNS endpoints must stay reachable while VPN is on.
         host == "dns.adguard.com" || host == "dns.adguard-dns.com" -> true
         host == "dns-family.adguard.com" || host == "dns-family.adguard-dns.com" -> true

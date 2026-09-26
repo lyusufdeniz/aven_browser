@@ -24,12 +24,13 @@ mixin _BrowserNavigation on _BrowserPageBase {
     if (isAvenWebUrl(url) && _webSuspended) {
       unawaited(_resumeWebPage());
     }
+    // Lightweight reset only — do not inject calm/MutationObserver while the
+    // document is still parsing sync scripts (deadlocks TV WebView loads).
     unawaited(
       _controller.runJavaScript(
-        'window.__avenPool=[];window.__avenWantPlay=false;window.__avenLastPayload=null;',
+        'window.__avenPool=[];window.__avenWantPlay=false;window.__avenLastPayload=null;window.__avenArmedPlay=false;',
       ),
     );
-    _installHooks();
     _input.watchMedia();
   }
 

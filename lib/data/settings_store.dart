@@ -128,7 +128,7 @@ class BrowserStore {
 
   Future<AdBlock> loadAdBlock() async {
     final prefs = await SharedPreferences.getInstance();
-    // One-shot: mega host lists broke film/dizi players — force off once.
+    // One-shot: mega host lists broke some media players — force off once.
     if (prefs.getBool('ad_block_safe_v1') != true) {
       await prefs.setBool('ad_block_safe_v1', true);
       await prefs.setString(_adBlockKey, AdBlock.off.name);
