@@ -101,22 +101,26 @@ internal val blockedPathMarkers = listOf(
 )
 
 internal fun networkHookScript(): String {
-    val hosts = AdBlockLists.hosts.joinToString(",") { "\"$it\"" }
-    val suffixes = ublockSuffixes.joinToString(",") { "\"$it\"" }
+    // Mega host list stays native (AdBlockLists) + AvenAdblock.isBlocked bridge.
+    // Embedding 100k+ domains into evaluateJavascript freezes TV WebView.
+    // Include speed-trackers too so one hard-fail hook covers both when adblock is on.
+    val suffixes = (ublockSuffixes + speedHostSuffixes).distinct().joinToString(",") { "\"$it\"" }
     return """
 (function(){
-  if (window.__avenNetHook) return;
-  window.__avenNetHook = true;
-  var hosts = new Set([$hosts]);
+  if (window.__avenAdNetHook) return;
+  window.__avenAdNetHook = true;
+  window.__avenSpeedHook = true;
   var suffixes = [$suffixes];
   function blockedHost(host) {
     host = String(host || '').toLowerCase();
     if (!host) return false;
-    if (hosts.has(host)) return true;
     for (var i = 0; i < suffixes.length; i++) {
       var s = suffixes[i];
       if (host === s || host.endsWith('.' + s)) return true;
     }
+    try {
+      if (window.AvenAdblock && AvenAdblock.isBlocked(host)) return true;
+    } catch (e) {}
     return false;
   }
   function blockedUrl(url) {
@@ -126,8 +130,7 @@ internal fun networkHookScript(): String {
   window.fetch = function(input, init) {
     var url = typeof input === 'string' ? input : (input && input.url);
     if (url && blockedUrl(url)) {
-      // Soft-fail: players that await preroll continue instead of hanging.
-      return Promise.resolve(new Response('', {status: 204, statusText: 'No Content'}));
+      return Promise.reject(new TypeError('Failed to fetch'));
     }
     return ofetch.apply(this, arguments);
   };
@@ -152,14 +155,44 @@ internal fun networkHookScript(): String {
 }
 
 internal fun emptyBlockedResponse(): WebResourceResponse {
-    return WebResourceResponse(
-        "text/plain",
-        "utf-8",
-        403,
-        "Blocked",
-        emptyMap(),
-        ByteArrayInputStream(ByteArray(0)),
-    )
+    // Prefer stream failure with no HTTP status: a 403/404 body makes no-cors
+    // HEAD fetch resolve as "Accessible" on obfusgated-style ad-block tests.
+    val failing = object : java.io.InputStream() {
+        override fun available(): Int = 0
+        override fun read(): Int = throw java.io.IOException("Blocked by Aven")
+        override fun read(b: ByteArray, off: Int, len: Int): Int =
+            throw java.io.IOException("Blocked by Aven")
+    }
+    return WebResourceResponse("text/plain", "utf-8", failing)
+}
+
+/**
+ * True when a synthetic HTTP response would make the request look "Accessible"
+ * on obfusgated-style tests (no-cors HEAD resolves on any completed response).
+ * Image/script GET still use a failing native body so onerror fires.
+ */
+internal fun shouldDeferBlockToJs(request: android.webkit.WebResourceRequest): Boolean {
+    val method = request.method?.uppercase() ?: "GET"
+    if (method == "HEAD" || method == "OPTIONS") return true
+    val dest = request.requestHeaders["Sec-Fetch-Dest"]?.lowercase()
+    if (dest == "image" || dest == "script" || dest == "iframe" ||
+        dest == "frame" || dest == "embed" || dest == "video" || dest == "audio"
+    ) {
+        return false
+    }
+    val mode = request.requestHeaders["Sec-Fetch-Mode"]?.lowercase()
+    return mode == "cors" || mode == "no-cors"
+}
+
+/** JS bridge: full host list check without embedding 100k domains in evaluateJavascript. */
+internal class AdBlockJsBridge(private val mode: () -> String) {
+    @android.webkit.JavascriptInterface
+    fun isBlocked(host: String?): Boolean {
+        if (host.isNullOrBlank()) return false
+        val current = mode()
+        if (current == "off") return false
+        return isBlockedHost(host.lowercase(), current)
+    }
 }
 
 internal fun isBlockedAdScriptPath(path: String): Boolean {
@@ -198,13 +231,25 @@ internal fun isAllowedHost(host: String): Boolean {
         host.endsWith(".hdfilmcehennemi.nl") || host == "hdfilmcehennemi.nl" -> true
         // Rapidrame / alternate embeds used by TR film sites.
         host.contains("dplayer") || host.contains("rapidrame") || host.contains("closeload") -> true
+        // AdGuard / Mullvad DNS endpoints must stay reachable while VPN is on.
+        host == "dns.adguard.com" || host == "dns.adguard-dns.com" -> true
+        host == "dns-family.adguard.com" || host == "dns-family.adguard-dns.com" -> true
+        host.endsWith(".adguard-dns.com") || host.endsWith(".adguard.com") -> true
+        host.endsWith(".mullvad.net") || host == "mullvad.net" -> true
         else -> false
     }
 }
 
 internal fun matchesLocalList(host: String): Boolean {
     if (isAllowedHost(host)) return false
-    if (AdBlockLists.hosts.contains(host)) return true
+    // Exact + parent labels (hosts files list registrable / leaf domains).
+    var cursor = host
+    while (true) {
+        if (AdBlockLists.hosts.contains(cursor)) return true
+        val dot = cursor.indexOf('.')
+        if (dot <= 0 || dot >= cursor.length - 1) break
+        cursor = cursor.substring(dot + 1)
+    }
     for (suffix in ublockSuffixes) {
         if (host == suffix || host.endsWith(".$suffix")) return true
     }
@@ -213,7 +258,14 @@ internal fun matchesLocalList(host: String): Boolean {
 
 internal fun isBlockedHost(host: String, mode: String): Boolean {
     val name = host.lowercase()
-    if (name.isEmpty() || name == "dns.adguard-dns.com") return false
+    if (name.isEmpty()) return false
+    if (name == "dns.adguard-dns.com" ||
+        name == "dns.adguard.com" ||
+        name.endsWith(".adguard-dns.com") ||
+        name.endsWith(".mullvad.net")
+    ) {
+        return false
+    }
     if (mode == "off") return false
     return matchesLocalList(name)
 }

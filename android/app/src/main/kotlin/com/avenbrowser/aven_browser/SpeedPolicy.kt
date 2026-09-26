@@ -106,8 +106,8 @@ internal fun speedNetworkHookScript(): String {
   window.fetch = function(input, init) {
     var url = typeof input === 'string' ? input : (input && input.url);
     if (url && blockedUrl(url)) {
-      // Soft-fail: players that await preroll continue instead of hanging.
-      return Promise.resolve(new Response('', {status: 204, statusText: 'No Content'}));
+      // Hard-fail: soft 204 is counted as "Accessible" by ad-block test pages.
+      return Promise.reject(new TypeError('Failed to fetch'));
     }
     return ofetch.apply(this, arguments);
   };

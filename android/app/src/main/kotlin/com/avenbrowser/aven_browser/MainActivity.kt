@@ -1,5 +1,6 @@
 package com.avenbrowser.aven_browser
 
+import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
 import android.view.InputDevice
@@ -21,6 +22,8 @@ class MainActivity : FlutterActivity() {
     private var adBlockMode = "off"
     @Volatile private var speedMode = true
     private lateinit var channel: MethodChannel
+    private var pendingAdBlockMode: String? = null
+    private var pendingAdBlockResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -77,7 +80,8 @@ class MainActivity : FlutterActivity() {
                     }
                     "setAdBlock" -> {
                         adBlockMode = call.argument<String>("mode") ?: "off"
-                        result.success(null)
+                        val connectDns = call.argument<Boolean>("connectDns") == true
+                        applyAdBlockDns(adBlockMode, connectDns, result)
                     }
                     "setSpeedMode" -> {
                         speedMode = call.argument<Boolean>("enabled") != false
@@ -156,6 +160,12 @@ class MainActivity : FlutterActivity() {
         try {
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
             webView.settings.mediaPlaybackRequiresUserGesture = false
+        } catch (_: Exception) {
+        }
+        try {
+            AdBlockLists.ensureLoaded(applicationContext)
+            webView.removeJavascriptInterface("AvenAdblock")
+            webView.addJavascriptInterface(AdBlockJsBridge { adBlockMode }, "AvenAdblock")
         } catch (_: Exception) {
         }
         val current = webView.webViewClient
@@ -412,8 +422,53 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun applyAdBlockDns(mode: String, connectDns: Boolean, result: MethodChannel.Result) {
+        if (mode == "off") {
+            try {
+                AdBlockDnsVpnService.stop(this)
+            } catch (_: Exception) {
+            }
+            result.success(mapOf("dns" to false, "mode" to mode))
+            return
+        }
+        // Boot / sync: apply local host intercept only — do not prompt for VPN.
+        if (!connectDns) {
+            result.success(mapOf("dns" to false, "mode" to mode))
+            return
+        }
+        val prepare = AdBlockDnsVpnService.prepareIntent(this)
+        if (prepare != null) {
+            pendingAdBlockMode = mode
+            pendingAdBlockResult = result
+            @Suppress("DEPRECATION")
+            startActivityForResult(prepare, REQ_VPN)
+            return
+        }
+        AdBlockDnsVpnService.start(this, mode)
+        result.success(mapOf("dns" to true, "mode" to mode))
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_VPN) return
+        val mode = pendingAdBlockMode
+        val pending = pendingAdBlockResult
+        pendingAdBlockMode = null
+        pendingAdBlockResult = null
+        if (mode == null || pending == null) return
+        if (resultCode == RESULT_OK) {
+            AdBlockDnsVpnService.start(this, mode)
+            pending.success(mapOf("dns" to true, "mode" to mode))
+        } else {
+            // Permission denied: local host list + cosmetics still work.
+            pending.success(mapOf("dns" to false, "mode" to mode, "vpnDenied" to true))
+        }
+    }
+
     companion object {
         private const val channelName = "com.avenbrowser/input"
+        private const val REQ_VPN = 7711
     }
 }
 

@@ -5,11 +5,15 @@ class VideoSource {
     required this.url,
     required this.label,
     this.headers = const {},
+    this.durationSeconds,
   });
 
   final String url;
   final String label;
   final Map<String, String> headers;
+
+  /// Seconds when known; `null`/0 unknown; negative means live/unbounded.
+  final double? durationSeconds;
 }
 
 class MediaTrack {
@@ -54,12 +58,19 @@ List<PageVideo> parsePageVideos(Object? raw) {
         final url = source['url'];
         if (url is! String || !_playable(url)) continue;
         final label = source['label'];
+        final durationRaw = source['duration'] ?? item['duration'];
+        final duration = switch (durationRaw) {
+          num n => n.toDouble(),
+          String s => double.tryParse(s),
+          _ => null,
+        };
         sources.add(
           VideoSource(
             url: url,
             label: label is String && label.isNotEmpty
                 ? label
                 : qualityLabelForUrl(url),
+            durationSeconds: duration,
           ),
         );
       }
@@ -198,13 +209,14 @@ const _watchScript = r'''
     if (u.indexOf('blob:') === 0 || u.indexOf('mediastream:') === 0 || u.indexOf('data:') === 0) return false;
     if (u.indexOf('doubleclick') !== -1 || u.indexOf('googlesyndication') !== -1 || u.indexOf('imasdk') !== -1) return false;
     if (u.indexOf('vast') !== -1 && u.indexOf('ad') !== -1) return false;
+    if (u.indexOf('/ads/') !== -1 || u.indexOf('adserver') !== -1 || u.indexOf('preroll') !== -1) return false;
     var path = u.split('?')[0].split('#')[0];
     if (path.length > 3 && path.slice(-3) === '.ts') return false;
-    if (/\.(m3u8|mpd|mp4|webm|mkv|mov)(\?|#|$)/i.test(u)) return true;
+    if (path.slice(-4) === '.m4s' || path.slice(-4) === '.aac') return false;
+    if (/\.(m3u8|mpd|mp4|webm|mkv|mov|m4v)(\?|#|$)/i.test(u)) return true;
     if (u.indexOf('.m3u8') !== -1 || u.indexOf('.mpd') !== -1) return true;
-    if (/[?&](type|format|ext|video_format)=(m3u8|mpd|mp4|hls|dash)/i.test(u)) return true;
-    if (u.indexOf('/hls/') !== -1 || u.indexOf('/dash/') !== -1) return true;
-    // Kick/IVS: only real playlists, not bare /stream/ API endpoints.
+    if (/[?&](type|format|ext|video_format|media)=(m3u8|mpd|mp4|hls|dash|video)/i.test(u)) return true;
+    if (u.indexOf('/hls/') !== -1 || u.indexOf('/dash/') !== -1 || u.indexOf('/hds/') !== -1) return true;
     if (u.indexOf('live-video.net') !== -1 &&
         (u.indexOf('.m3u8') !== -1 || u.indexOf('/hls') !== -1 || u.indexOf('playlist') !== -1 || u.indexOf('master') !== -1)) {
       return true;
@@ -214,38 +226,69 @@ const _watchScript = r'''
     if (u.indexOf('manifest') !== -1 && (u.indexOf('video') !== -1 || u.indexOf('dash') !== -1 || u.indexOf('hls') !== -1)) return true;
     if (u.indexOf('googlevideo.com') !== -1 && u.indexOf('mime=video') !== -1) return true;
     if (u.indexOf('videoplayback') !== -1 && u.indexOf('http') === 0) return true;
+    // Common embed / CDN hosts that serve progressive or HLS without extension in path.
+    if (/[?&](file|source|src|media|mp4|hls|stream)=https?%3a/i.test(u)) return true;
+    if (u.indexOf('videodelivery.net') !== -1 || u.indexOf('cloudflarestream.com') !== -1) return true;
+    if (u.indexOf('vz-') !== -1 && u.indexOf('.b-cdn.net') !== -1) return true;
+    if ((u.indexOf('okcdn') !== -1 || u.indexOf('vkvd') !== -1 || u.indexOf('mycdn.me') !== -1) &&
+        (u.indexOf('video') !== -1 || u.indexOf('.mp4') !== -1 || u.indexOf('hls') !== -1)) return true;
     return false;
   }
   window.__avenPool = window.__avenPool || [];
-  function remember(url, label) {
+  function remember(url, label, duration) {
     url = abs(url);
     if (!looksMedia(url)) return;
     for (var i = 0; i < window.__avenPool.length; i++) {
-      if (window.__avenPool[i].url === url) return;
+      if (window.__avenPool[i].url === url) {
+        if (duration && (!window.__avenPool[i].duration || Math.abs(duration) > Math.abs(window.__avenPool[i].duration || 0))) {
+          window.__avenPool[i].duration = duration;
+        }
+        return;
+      }
     }
-    window.__avenPool.push({url: url, label: label || 'Net'});
-    if (window.__avenPool.length > 48) window.__avenPool.shift();
+    window.__avenPool.push({url: url, label: label || 'Net', duration: duration || 0});
+    if (window.__avenPool.length > 64) window.__avenPool.shift();
   }
-  function pushSource(list, url, label) {
+  function pushSource(list, url, label, duration) {
     url = abs(url);
     if (!url || url.indexOf('blob:') === 0 || url.indexOf('mediastream:') === 0) return;
     if (url.indexOf('http:') !== 0 && url.indexOf('https:') !== 0) return;
     if (!looksMedia(url)) return;
-    remember(url, label);
-    for (var i = 0; i < list.length; i++) if (list[i].url === url) return;
-    list.push({url: url, label: label || 'Kaynak'});
+    remember(url, label, duration);
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].url === url) {
+        if (duration && (!list[i].duration || Math.abs(duration) > Math.abs(list[i].duration || 0))) {
+          list[i].duration = duration;
+        }
+        return;
+      }
+    }
+    list.push({url: url, label: label || 'Kaynak', duration: duration || 0});
   }
   function scrapeText(text, list, label) {
     if (!text || text.length > 2500000) return;
+    try {
+      if (text.indexOf('\\u') !== -1 || text.indexOf('\\/') !== -1) {
+        text = text.replace(/\\u([0-9a-fA-F]{4})/g, function(_, h) {
+          return String.fromCharCode(parseInt(h, 16));
+        }).replace(/\\\//g, '/');
+      }
+    } catch (e) {}
     var re = /https?:\/\/[^"'\\\s<>]+/gi;
     var m;
     while ((m = re.exec(text))) {
       var raw = m[0].replace(/[),;]+$/, '');
       if (looksMedia(raw)) pushSource(list, raw, label || 'Sayfa');
     }
-    var fileRe = /(?:file|source|src|url|link|stream|video|hls|playlist|fileUrl|videoUrl)\s*[:=]\s*["']([^"']+)["']/gi;
+    var fileRe = /(?:file|source|src|url|link|stream|video|hls|playlist|fileUrl|videoUrl|file_url|mediaUrl|playbackUrl|contentUrl|srcUrl)\s*[:=]\s*["']([^"']+)["']/gi;
     while ((m = fileRe.exec(text))) {
-      if (looksMedia(m[1]) || /\.(m3u8|mp4|webm|mpd)/i.test(m[1])) pushSource(list, m[1], label || 'Oyuncu');
+      if (looksMedia(m[1]) || /\.(m3u8|mp4|webm|mpd|mkv)/i.test(m[1])) pushSource(list, m[1], label || 'Oyuncu');
+    }
+    var encRe = /(?:file|source|src|url)=((?:https?|HTTPS?)(?::|%3A|%3a)(?:\/\/|%2F%2F|%2f%2f)[^"'&\s]+)/g;
+    while ((m = encRe.exec(text))) {
+      var decoded = m[1];
+      try { decoded = decodeURIComponent(decoded); } catch (e) {}
+      if (looksMedia(decoded)) pushSource(list, decoded, label || 'Param');
     }
   }
   function describe(video) {
@@ -266,50 +309,105 @@ const _watchScript = r'''
       }
     }
     var seconds = video ? videoSeconds(video) : 0;
+    if (seconds) {
+      for (var i = 0; i < sources.length; i++) {
+        if (!sources[i].duration) sources[i].duration = seconds;
+      }
+    }
     return JSON.stringify({sources: sources, tracks: tracks, duration: seconds});
   }
   function collectPlayable(video) {
     var sources = [];
     if (video) {
       var cur = video.currentSrc || video.src || '';
+      var seconds = videoSeconds(video);
       if (cur && cur.indexOf('blob:') !== 0 && cur.indexOf('mediastream:') !== 0) {
-        pushSource(sources, cur, 'Oynatilan');
+        pushSource(sources, cur, 'Oynatilan', seconds);
       }
       var sourceNodes = video.querySelectorAll('source');
       for (var s = 0; s < sourceNodes.length; s++) {
         var node = sourceNodes[s];
         var nodeSrc = node.src || node.getAttribute('src') || '';
         if (nodeSrc.indexOf('blob:') === 0) continue;
-        pushSource(sources, nodeSrc, node.getAttribute('label') || node.getAttribute('res') || node.getAttribute('type') || ('Kaynak ' + (s + 1)));
+        pushSource(sources, nodeSrc, node.getAttribute('label') || node.getAttribute('res') || node.getAttribute('type') || ('Kaynak ' + (s + 1)), seconds);
       }
     }
     for (var i = window.__avenPool.length - 1; i >= 0; i--) {
-      pushSource(sources, window.__avenPool[i].url, window.__avenPool[i].label);
+      pushSource(sources, window.__avenPool[i].url, window.__avenPool[i].label, window.__avenPool[i].duration);
     }
     harvestPage(sources);
+    harvestPlayers(sources);
     return sources;
   }
   function harvestPage(list) {
-    var attrs = document.querySelectorAll('[data-src],[data-file],[data-video],[data-url],[data-link],[data-hls],[data-stream]');
+    var attrs = document.querySelectorAll('[data-src],[data-file],[data-video],[data-url],[data-link],[data-hls],[data-stream],[data-source],[data-mp4],[data-playlist],[data-setup]');
     for (var a = 0; a < attrs.length; a++) {
       var el = attrs[a];
-      ['data-src','data-file','data-video','data-url','data-link','data-hls','data-stream'].forEach(function(key) {
+      ['data-src','data-file','data-video','data-url','data-link','data-hls','data-stream','data-source','data-mp4','data-playlist'].forEach(function(key) {
         pushSource(list, el.getAttribute(key), 'GÃ¶mÃ¼lÃ¼');
       });
+      var setup = el.getAttribute('data-setup');
+      if (setup) scrapeText(setup, list, 'Setup');
     }
-    var iframes = document.querySelectorAll('iframe[src]');
+    var iframes = document.querySelectorAll('iframe[src],iframe[data-src]');
     for (var f = 0; f < iframes.length; f++) {
-      var src = iframes[f].getAttribute('src') || '';
+      var src = iframes[f].getAttribute('src') || iframes[f].getAttribute('data-src') || '';
       if (looksMedia(src)) pushSource(list, src, 'Iframe');
+      else if (src) scrapeText(src, list, 'Iframe');
     }
     if (window.performance && performance.getEntriesByType) {
       var entries = performance.getEntriesByType('resource');
       for (var e = 0; e < entries.length; e++) pushSource(list, entries[e].name || '', 'Net');
     }
     var scripts = document.querySelectorAll('script:not([src])');
-    for (var i = 0; i < Math.min(scripts.length, 40); i++) {
+    for (var i = 0; i < Math.min(scripts.length, 60); i++) {
       scrapeText(scripts[i].textContent || '', list, 'Script');
     }
+  }
+  function harvestPlayers(list) {
+    try {
+      if (typeof window.jwplayer === 'function') {
+        var nodes = document.querySelectorAll('.jwplayer, [id]');
+        for (var i = 0; i < nodes.length && i < 12; i++) {
+          try {
+            var id = nodes[i].id;
+            if (!id) continue;
+            var p = window.jwplayer(id);
+            if (!p || typeof p.getPlaylist !== 'function') continue;
+            var pl = p.getPlaylist() || [];
+            for (var j = 0; j < pl.length; j++) {
+              var item = pl[j] || {};
+              var dur = item.duration || 0;
+              var sources = item.sources || [];
+              for (var k = 0; k < sources.length; k++) {
+                var s = sources[k] || {};
+                pushSource(list, s.file || s.src || '', s.label || 'JW', dur);
+              }
+              if (item.file) pushSource(list, item.file, 'JW', dur);
+            }
+            if (typeof p.getConfig === 'function') {
+              var cfg = p.getConfig() || {};
+              if (cfg.file) pushSource(list, cfg.file, 'JW', cfg.duration || 0);
+              scrapeText(JSON.stringify(cfg), list, 'JW');
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    try {
+      if (window.videojs) {
+        var vjs = document.querySelectorAll('.video-js, video');
+        for (var v = 0; v < vjs.length && v < 8; v++) {
+          try {
+            var player = window.videojs.getPlayer ? window.videojs.getPlayer(vjs[v]) : null;
+            if (!player) continue;
+            var cache = player.cache_ || {};
+            if (cache.src) pushSource(list, cache.src, 'VideoJS', player.duration && player.duration());
+            if (typeof player.currentSrc === 'function') pushSource(list, player.currentSrc(), 'VideoJS', player.duration && player.duration());
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
   }
   function videoSeconds(video) {
     var duration = video.duration;
@@ -459,21 +557,22 @@ const _watchScript = r'''
   function report(video) {
     prepare(video);
   }
-  function offerUrl(url, label) {
+  function offerUrl(url, label, duration) {
     if (!looksMedia(url)) return;
     url = abs(url);
-    remember(url, label || 'Video');
+    remember(url, label || 'Video', duration);
     var target = focusedPlayer() || largestPlayer();
     if (!target || target === document.body) return;
     var payload = target.__avenBadge && target.__avenBadge.__avenPayload;
-    var data = {sources: [], tracks: []};
+    var data = {sources: [], tracks: [], duration: 0};
     try { if (payload) data = JSON.parse(payload); } catch (e) {}
     if (!data.sources) data.sources = [];
     for (var s = 0; s < data.sources.length; s++) if (data.sources[s].url === url) {
+      if (duration && !data.sources[s].duration) data.sources[s].duration = duration;
       placeBadge(target, JSON.stringify(data));
       return;
     }
-    data.sources.push({url: url, label: label || 'Video'});
+    data.sources.push({url: url, label: label || 'Video', duration: duration || 0});
     placeBadge(target, JSON.stringify(data));
   }
   window.__avenOffer = function(url) {
@@ -483,7 +582,7 @@ const _watchScript = r'''
   function hook(video) {
     if (!video || video.__avenHook) return;
     video.__avenHook = true;
-    // Do not strip autoplay/preload — site players (HLS/preroll) need them.
+    // Do not strip autoplay/preload â€” site players (HLS/preroll) need them.
     video.addEventListener('play', function() { prepare(video); }, true);
     video.addEventListener('playing', function() { prepare(video); }, true);
     video.addEventListener('loadeddata', function() { prepare(video); });
@@ -552,8 +651,9 @@ const _watchScript = r'''
     scanPageMedia();
   }
   function hookNetwork() {
-    if (window.__avenNetHook) return;
-    window.__avenNetHook = true;
+    // Separate flag from adblock (__avenAdNetHook) so both wrappers can chain.
+    if (window.__avenMediaNetHook) return;
+    window.__avenMediaNetHook = true;
     try {
       var ofetch = window.fetch;
       if (typeof ofetch === 'function') {
@@ -569,6 +669,11 @@ const _watchScript = r'''
           return ofetch.apply(this, args).then(function(res) {
             try {
               if (res && res.url && looksMedia(res.url)) offerUrl(res.url, 'Net');
+              var ct = '';
+              try { ct = (res.headers && res.headers.get && res.headers.get('content-type')) || ''; } catch (e) {}
+              if (ct && (ct.indexOf('mpegurl') !== -1 || ct.indexOf('dash+xml') !== -1 || ct.indexOf('application/vnd.apple.mpegurl') !== -1)) {
+                if (res.url) offerUrl(res.url, 'Net');
+              }
             } catch (e) {}
             return res;
           });
@@ -595,12 +700,24 @@ const _watchScript = r'''
               if (text && text.length < 400000) {
                 var found = [];
                 scrapeText(text, found, 'XHR');
-                for (var i = 0; i < found.length; i++) offerUrl(found[i].url, 'XHR');
+                for (var i = 0; i < found.length; i++) offerUrl(found[i].url, 'XHR', found[i].duration);
+                if (text.indexOf('#EXTM3U') === 0 && xhr.__avenUrl) offerUrl(xhr.__avenUrl, 'HLS');
               }
             } catch (e) {}
           });
           return send.apply(this, arguments);
         };
+      }
+    } catch (e) {}
+    try {
+      if (window.PerformanceObserver) {
+        var po = new PerformanceObserver(function(list) {
+          var entries = list.getEntries();
+          for (var i = 0; i < entries.length; i++) {
+            if (looksMedia(entries[i].name)) offerUrl(entries[i].name, 'Net');
+          }
+        });
+        po.observe({type: 'resource', buffered: true});
       }
     } catch (e) {}
   }
@@ -640,7 +757,7 @@ const _watchScript = r'''
         return;
       }
       if (debounce) return;
-      // Heavier debounce while lite browsing — fewer full DOM walks on TV.
+      // Heavier debounce while lite browsing â€” fewer full DOM walks on TV.
       var wait = window.__avenLite ? 1800 : 900;
       debounce = setTimeout(function() {
         debounce = null;
@@ -726,7 +843,21 @@ String qualityLabelForUrl(String url) {
   }
   if (lower.contains('.mpd') || lower.contains('dash')) return 'DASH';
   if (lower.contains('.mp4')) return 'MP4';
-  return 'Akış';
+  return 'AkÄ±ÅŸ';
+}
+
+/// Human-readable duration for source rows (`1:42:05`, `12:03`, or `CanlÄ±`).
+String formatSourceDuration(double? seconds) {
+  if (seconds == null || seconds == 0) return '';
+  if (seconds < 0 || !seconds.isFinite) return 'CanlÄ±';
+  final total = seconds.round();
+  final h = total ~/ 3600;
+  final m = (total % 3600) ~/ 60;
+  final s = total % 60;
+  if (h > 0) {
+    return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+  return '$m:${s.toString().padLeft(2, '0')}';
 }
 
 bool _playable(String url) {
@@ -738,12 +869,20 @@ bool _playable(String url) {
 }
 
 List<VideoSource> _uniqueSources(List<VideoSource> sources) {
-  final seen = <String>{};
-  final unique = <VideoSource>[];
+  final seen = <String, VideoSource>{};
   for (final source in sources) {
-    if (seen.add(source.url)) unique.add(source);
+    final prev = seen[source.url];
+    if (prev == null) {
+      seen[source.url] = source;
+      continue;
+    }
+    final prevDur = prev.durationSeconds ?? 0;
+    final nextDur = source.durationSeconds ?? 0;
+    if (nextDur.abs() > prevDur.abs()) {
+      seen[source.url] = source;
+    }
   }
-  return unique;
+  return seen.values.toList();
 }
 
 Object? _decode(Object? raw) {

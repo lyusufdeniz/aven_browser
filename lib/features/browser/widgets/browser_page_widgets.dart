@@ -36,24 +36,24 @@ class _PageError {
 
   factory _PageError.fromHttp(int code, String url) {
     final title = switch (code) {
-      400 => 'Ge├ğersiz istek',
-      401 => 'Giri┼ş gerekli',
-      403 => 'Eri┼şim engellendi',
-      404 => 'Sayfa bulunamad─▒',
-      408 => '─░stek zaman a┼ş─▒m─▒',
-      410 => 'Sayfa kald─▒r─▒ld─▒',
-      429 => '├çok fazla istek',
-      500 => 'Sunucu hatas─▒',
-      502 => 'A─ş ge├ğidi hatas─▒',
-      503 => 'Servis kullan─▒lam─▒yor',
-      504 => 'A─ş ge├ğidi zaman a┼ş─▒m─▒',
-      _ when code >= 500 => 'Sunucu hatas─▒',
-      _ => 'Sayfa y├╝klenemedi',
+      400 => 'Geçersiz istek',
+      401 => 'Giriş gerekli',
+      403 => 'Erişim engellendi',
+      404 => 'Sayfa bulunamadı',
+      408 => 'İstek zaman aşımı',
+      410 => 'Sayfa kaldırıldı',
+      429 => 'Çok fazla istek',
+      500 => 'Sunucu hatası',
+      502 => 'Ağ geçidi hatası',
+      503 => 'Servis kullanılamıyor',
+      504 => 'Ağ geçidi zaman aşımı',
+      _ when code >= 500 => 'Sunucu hatası',
+      _ => 'Sayfa yüklenemedi',
     };
     return _PageError(
       code: code,
       title: title,
-      detail: 'Sunucu $code kodu d├Ând├╝rd├╝.',
+      detail: 'Sunucu $code kodu döndürdü.',
       url: url,
     );
   }
@@ -61,16 +61,16 @@ class _PageError {
   factory _PageError.fromResource(WebResourceError error) {
     final type = error.errorType;
     final title = switch (type) {
-      WebResourceErrorType.hostLookup => 'Site bulunamad─▒',
-      WebResourceErrorType.timeout => 'Ba─şlant─▒ zaman a┼ş─▒m─▒',
-      WebResourceErrorType.connect => 'Ba─şlant─▒ kurulamad─▒',
-      WebResourceErrorType.failedSslHandshake => 'G├╝venli ba─şlant─▒ ba┼şar─▒s─▒z',
-      WebResourceErrorType.tooManyRequests => '├çok fazla istek',
-      WebResourceErrorType.unsafeResource => 'G├╝vensiz kaynak',
-      WebResourceErrorType.webContentProcessTerminated => 'Sayfa ├ğ├Âkt├╝',
-      WebResourceErrorType.badUrl => 'Ge├ğersiz adres',
-      WebResourceErrorType.fileNotFound => 'Sayfa bulunamad─▒',
-      _ => 'Sayfa y├╝klenemedi',
+      WebResourceErrorType.hostLookup => 'Site bulunamadı',
+      WebResourceErrorType.timeout => 'Bağlantı zaman aşımı',
+      WebResourceErrorType.connect => 'Bağlantı kurulamadı',
+      WebResourceErrorType.failedSslHandshake => 'Güvenli bağlantı başarısız',
+      WebResourceErrorType.tooManyRequests => 'Çok fazla istek',
+      WebResourceErrorType.unsafeResource => 'Güvensiz kaynak',
+      WebResourceErrorType.webContentProcessTerminated => 'Sayfa çöktü',
+      WebResourceErrorType.badUrl => 'Geçersiz adres',
+      WebResourceErrorType.fileNotFound => 'Sayfa bulunamadı',
+      _ => 'Sayfa yüklenemedi',
     };
     return _PageError(
       title: title,
@@ -324,7 +324,7 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                           order: const NumericFocusOrder(1),
                           child: _ErrorAction(
                             focusNode: _homeFocus,
-                            label: 'Ba┼şlang─▒├ğ',
+                            label: 'Başlangıç',
                             icon: Icons.home_outlined,
                             onPressed: widget.onHome,
                             onKeyEvent: (event) => _onKey(1, event),
@@ -824,7 +824,7 @@ class _StartPageState extends State<_StartPage> {
                           child: _StartAction(
                             focusNode: _actionFocus[0],
                             icon: Icons.history,
-                            label: 'Ge├ğmi┼ş',
+                            label: 'Geçmiş',
                             onPressed: widget.onOpenHistory,
                             onKeyEvent: (event) => _onActionKey(0, event),
                           ),
@@ -857,7 +857,7 @@ class _StartPageState extends State<_StartPage> {
                     const Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        '├ûneriler',
+                          'Öneriler',
                         style: TextStyle(fontSize: 16, color: AvenColors.textMuted),
                       ),
                     ),
@@ -1614,21 +1614,21 @@ class _MenuBarState extends State<_MenuBar> {
   Widget build(BuildContext context) {
     final items = <(IconData?, String, bool, VoidCallback?, String?)>[
       (Icons.arrow_back, 'Geri', widget.canBack, widget.onBack, null),
-      (Icons.arrow_forward, '─░leri', widget.canForward, widget.onForward, null),
+      (Icons.arrow_forward, 'İleri', widget.canForward, widget.onForward, null),
       (Icons.refresh, 'Yenile', true, widget.onReload, null),
-      (Icons.home, 'Ba┼şlang─▒├ğ', true, widget.onHome, null),
+      (Icons.home, 'Başlangıç', true, widget.onHome, null),
       (widget.saved ? Icons.star : Icons.star_border, 'Yer imi', true, widget.onBookmark, null),
-      (Icons.history, 'Kitapl─▒k', true, widget.onLibrary, null),
+      (Icons.history, 'Kitaplık', true, widget.onLibrary, null),
       (
         widget.adBlockOn ? Icons.shield : Icons.shield_outlined,
-        widget.adBlockOn ? 'Engelleme a├ğ─▒k' : 'Engelleme kapal─▒',
+        widget.adBlockOn ? 'Engelleme açık' : 'Engelleme kapalı',
         true,
         widget.onToggleAdBlock,
         null,
       ),
-      (Icons.remove, 'Uzakla┼şt─▒r', true, widget.onZoomOut, null),
-      (null, 'Yak─▒nla┼şt─▒rma', true, widget.onZoomReset, '%${widget.zoom}'),
-      (Icons.add, 'Yak─▒nla┼şt─▒r', true, widget.onZoomIn, null),
+      (Icons.remove, 'Uzaklaştır', true, widget.onZoomOut, null),
+      (null, 'Yakınlaştırma', true, widget.onZoomReset, '%${widget.zoom}'),
+      (Icons.add, 'Yakınlaştır', true, widget.onZoomIn, null),
       (Icons.settings, 'Ayarlar', true, widget.onSettings, null),
     ];
     return LayoutBuilder(
@@ -1790,7 +1790,7 @@ class _WebViewWarning extends StatelessWidget {
       child: const Padding(
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Text(
-          'Bu kutunun WebView s├╝r├╝m├╝ eski. Android System WebView g├╝ncellenirse siteler daha d├╝zg├╝n a├ğ─▒l─▒r.',
+          'Bu kutunun WebView sürümü eski. Android System WebView güncellenirse siteler daha düzgün açılır.',
         ),
       ),
     );

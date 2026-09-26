@@ -64,8 +64,12 @@ internal class MediaWatchClient(
         }
         val origin = pageHost
         val firstParty = origin != null && (host == origin || host.endsWith(".$origin"))
+        val deferToJs = shouldDeferBlockToJs(request)
         // Puffin-style speed path: always cut trackers/fonts/widgets (even if adblock off).
         if (!firstParty && speed() && isSpeedBlocked(host, path, requestUrl)) {
+            // HEAD / no-cors: any synthetic HTTP response = "Accessible" on ad-block tests.
+            // JS hook rejects those; native still blocks img/script GET bodies.
+            if (deferToJs) return null
             return emptyBlockedResponse()
         }
         val current = mode()
@@ -73,11 +77,13 @@ internal class MediaWatchClient(
         if (firstParty) {
             // Only known same-origin ad scripts (e.g. turtlecute ads.js / pagead.js).
             if (!isBlockedAdScriptPath(path)) return null
+            if (deferToJs) return null
             return emptyBlockedResponse()
         }
         // Never stall the network thread (HEAD sleep broke page load/scroll).
-        // Host probes are failed via JS fetch hook instead.
+        // Host probes are failed via JS fetch hook + AvenAdblock bridge.
         if (isBlockedPath(path) || isBlockedHost(host, current)) {
+            if (deferToJs) return null
             return emptyBlockedResponse()
         }
         return null
@@ -92,11 +98,15 @@ internal class MediaWatchClient(
 
     private fun injectSpeed(view: WebView) {
         if (!speed()) return
+        val adblockOn = mode() != "off"
         view.post {
             try {
                 view.evaluateJavascript(speedStyleScript, null)
                 view.evaluateJavascript(bannerCosmeticScript, null)
-                view.evaluateJavascript(speedNetworkHookScript(), null)
+                // When adblock is on, networkHookScript already hard-fails both lists.
+                if (!adblockOn) {
+                    view.evaluateJavascript(speedNetworkHookScript(), null)
+                }
             } catch (_: Exception) {
             }
         }

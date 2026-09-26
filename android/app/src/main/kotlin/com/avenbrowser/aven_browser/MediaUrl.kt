@@ -31,7 +31,7 @@ internal fun isPlayableMedia(url: String): Boolean {
         return true
     }
     if (lower.contains("/stream/") && lower.contains(".m3u8")) return true
-    if (Regex("[?&](type|format|ext|video_format)=(m3u8|mpd|mp4|hls|dash)").containsMatchIn(lower)) {
+    if (Regex("[?&](type|format|ext|video_format|media)=(m3u8|mpd|mp4|hls|dash|video)").containsMatchIn(lower)) {
         return true
     }
     if (lower.contains("manifest") &&
@@ -41,9 +41,20 @@ internal fun isPlayableMedia(url: String): Boolean {
     }
     if (lower.contains("googlevideo.com") && lower.contains("mime=video")) return true
     if (lower.contains("videoplayback") && lower.contains("http")) return true
+    if (lower.contains("videodelivery.net") || lower.contains("cloudflarestream.com")) return true
+    if (lower.contains("vz-") && lower.contains(".b-cdn.net")) return true
+    if ((lower.contains("okcdn") || lower.contains("vkvd") || lower.contains("mycdn.me")) &&
+        (lower.contains("video") || lower.contains(".mp4") || lower.contains("hls"))
+    ) {
+        return true
+    }
+    if (Regex("[?&](file|source|src|media|mp4|hls|stream)=https?%3a").containsMatchIn(lower)) {
+        return true
+    }
     val path = lower.substringBefore('?').substringBefore('#')
     return path.endsWith(".mp4") ||
         path.endsWith(".webm") ||
         path.endsWith(".mkv") ||
-        path.endsWith(".mov")
+        path.endsWith(".mov") ||
+        path.endsWith(".m4v")
 }

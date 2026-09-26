@@ -65,7 +65,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _selectBlock(AdBlock block) async {
     await widget.store.saveAdBlock(block);
-    await widget.input.setAdBlock(block.name);
+    // VPN/DNS only for AdGuard — yerel liste VPN istemez.
+    await widget.input.setAdBlock(block.name, connectDns: block.usesDns);
     if (!mounted) return;
     setState(() => _block = block);
   }
@@ -257,8 +258,10 @@ class _SettingsPageState extends State<SettingsPage> {
             AdBlock.values[index].label,
             switch (AdBlock.values[index]) {
               AdBlock.off => 'Sistem DNS. Reklamlar engellenmez (film siteleri için önerilir).',
-              AdBlock.adguard => 'Bilinen reklam ağları + kozmetik filtre (yerel mega liste yok).',
-              AdBlock.ublock => 'Bilinen reklam ağları + kozmetik filtre (yerel mega liste yok).',
+              AdBlock.local =>
+                'Yalnızca yerel host listesi (StevenBlack + AdGuard DNS filtresi) + kozmetik CSS. VPN/DNS yok.',
+              AdBlock.adguard =>
+                'Yerel host listesi + AdGuard DNS (94.140.14.14) + kozmetik CSS. VPN izni ister.',
             },
             _block == AdBlock.values[index],
           ),

@@ -16,7 +16,12 @@ internal object AdBlockLists {
             if (loaded) return
             hosts = try {
                 context.assets.open("adblock_hosts.txt").bufferedReader().useLines { lines ->
-                    lines.map { it.trim().lowercase() }
+                    lines.map { line ->
+                        var t = line.trim().lowercase()
+                        if (t.startsWith("0.0.0.0 ")) t = t.removePrefix("0.0.0.0 ").trim()
+                        if (t.startsWith("127.0.0.1 ")) t = t.removePrefix("127.0.0.1 ").trim()
+                        t
+                    }
                         .filter { it.isNotEmpty() && !it.startsWith("#") && !isAllowedHost(it) }
                         .toSet()
                 }

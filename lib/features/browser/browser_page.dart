@@ -233,7 +233,7 @@ class _BrowserPageState extends _BrowserPageBase
     final platform = _controller.platform;
     if (platform is! AndroidWebViewController) return;
     await platform.setMediaPlaybackRequiresUserGesture(enabled);
-    // Keep images on Ãƒâ€Ãƒâ€¡ÃƒÂ¶ lite mode trims motion/media instead.
+    // Keep images on - lite mode trims motion/media instead.
     await _input.setLoadsImages(true);
   }
 
@@ -270,7 +270,7 @@ class _BrowserPageState extends _BrowserPageBase
     } catch (_) {}
     await platform.setCustomWidgetCallbacks(
       onShowCustomWidget: (widget, onHide) {
-        // Refuse in-WebView fullscreen Ãƒâ€Ãƒâ€¡ÃƒÂ¶ it stalls the TV. Hijack to Aven player.
+        // Refuse in-WebView fullscreen - it stalls the TV. Hijack to Aven player.
         onHide();
         unawaited(_hijackPageVideos());
       },
@@ -279,7 +279,7 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _hijackPageVideos() async {
-    // Fullscreen is refused on TV; only offer the opt-in badge Ãƒâ€Ãƒâ€¡ÃƒÂ¶ never auto-open.
+    // Fullscreen is refused on TV; only offer the opt-in badge - never auto-open.
     try {
       await _controller.runJavaScript(r'''
 (function(){
@@ -296,7 +296,7 @@ class _BrowserPageState extends _BrowserPageBase
 
   Future<void> _onWatchedMedia(String url) async {
     if (!mounted || !isAvenWebUrl(url)) return;
-    // Feed the media pool / focused badge only Ãƒâ€Ãƒâ€¡ÃƒÂ¶ do not auto-open Aven player.
+    // Feed the media pool / focused badge only - do not auto-open Aven player.
     try {
       await _controller.runJavaScript(
         'window.__avenOffer && window.__avenOffer(${jsonEncode(url)});',
@@ -520,8 +520,8 @@ class _BrowserPageState extends _BrowserPageBase
   Future<void> _toggleAdBlock() async {
     final next = _adBlock == AdBlock.off ? _adBlockProvider : AdBlock.off;
     await _store.saveAdBlock(next);
-    await _input.setAdBlock(next.name);
-    if (next != AdBlock.off) await _installAdblockCss();
+    await _input.setAdBlock(next.name, connectDns: next.usesDns);
+    if (next.isEnabled) await _installAdblockCss();
     if (!mounted) return;
     setState(() => _adBlock = next);
   }
@@ -606,7 +606,7 @@ class _BrowserPageState extends _BrowserPageBase
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Pencere aÃ¢â€Å“Ã„Å¸Ã¢â€â‚¬Ã¢â€“â€™lsÃ¢â€â‚¬Ã¢â€“â€™n mÃ¢â€â‚¬Ã¢â€“â€™?', style: TextStyle(fontSize: 26)),
+                        const Text('Pencere açılsın mı?', style: TextStyle(fontSize: 26)),
                         const SizedBox(height: 12),
                         Text(
                           url,
@@ -627,7 +627,7 @@ class _BrowserPageState extends _BrowserPageBase
                                 textStyle: const TextStyle(fontSize: 16),
                               ),
                               onPressed: () => Navigator.pop(context, false),
-                              child: const Text('Ã¢â€â‚¬Ã¢â€“â€˜ptal'),
+                              child: const Text('İptal'),
                             ),
                             const SizedBox(width: 12),
                             FilledButton(
@@ -640,7 +640,7 @@ class _BrowserPageState extends _BrowserPageBase
                                 textStyle: const TextStyle(fontSize: 16),
                               ),
                               onPressed: () => Navigator.pop(context, true),
-                              child: const Text('AÃ¢â€Å“Ã„Å¸'),
+                              child: const Text('Aç'),
                             ),
                           ],
                         ),
@@ -671,6 +671,7 @@ class _BrowserPageState extends _BrowserPageBase
             url: source.url,
             label: source.label,
             headers: _mediaHeadersFor(source.url),
+            durationSeconds: source.durationSeconds,
           ),
     ]);
     // Kick/IVS often opens before the master playlist hits the pool.
@@ -688,6 +689,7 @@ class _BrowserPageState extends _BrowserPageBase
                 url: item.url,
                 label: item.label,
                 headers: _mediaHeadersFor(item.url),
+                durationSeconds: item.duration,
               ),
         ];
         sources = _preferPlayable(_dedupeSources(merged));
@@ -720,7 +722,7 @@ class _BrowserPageState extends _BrowserPageBase
     );
     _openingVideo = false;
     if (_onStart) {
-      // Home stays on top Ãƒâ€Ãƒâ€¡ÃƒÂ¶ keep the page frozen underneath.
+      // Home stays on top - keep the page frozen underneath.
       return;
     }
     await _resumeWebPage();
@@ -758,13 +760,13 @@ class _BrowserPageState extends _BrowserPageBase
     return out;
   }
 
-  Future<List<({String url, String label})>> _readMediaPool() async {
+  Future<List<({String url, String label, double? duration})>> _readMediaPool() async {
     try {
       final raw = await _controller.runJavaScriptReturningResult(r'''
 (function(){
   try {
     return JSON.stringify((window.__avenPool || []).map(function(item){
-      return {url: item.url || '', label: item.label || 'Net'};
+      return {url: item.url || '', label: item.label || 'Net', duration: item.duration || 0};
     }));
   } catch (e) { return '[]'; }
 })();
@@ -796,7 +798,15 @@ class _BrowserPageState extends _BrowserPageBase
       return [
         for (final item in decoded)
           if (item is Map && item['url'] is String && (item['url'] as String).isNotEmpty)
-            (url: item['url'] as String, label: (item['label'] as String?) ?? 'Net'),
+            (
+              url: item['url'] as String,
+              label: (item['label'] as String?) ?? 'Net',
+              duration: switch (item['duration']) {
+                num n => n.toDouble(),
+                String s => double.tryParse(s),
+                _ => null,
+              },
+            ),
       ];
     } catch (_) {
       return const [];
@@ -810,11 +820,11 @@ class _BrowserPageState extends _BrowserPageBase
       return false;
     }
     if (!(lower.startsWith('http://') || lower.startsWith('https://'))) return false;
-    // Only hand ExoPlayer real playlists / progressive files Ãƒâ€Ãƒâ€¡ÃƒÂ¶ Kick's bare
+    // Only hand ExoPlayer real playlists / progressive files - Kick's bare
     // `/stream/` API hits and similar junk cause progressive 404s.
     if (lower.contains('.m3u8') || lower.contains('mpegurl')) return true;
     if (lower.contains('.mpd')) return true;
-    if (RegExp(r'\.(mp4|webm|mkv|mov)([?#]|$)').hasMatch(lower)) return true;
+    if (RegExp(r'\.(mp4|webm|mkv|mov|m4v)([?#]|$)').hasMatch(lower)) return true;
     if (lower.contains('live-video.net') &&
         (lower.contains('/hls') ||
             lower.contains('playlist') ||
@@ -824,6 +834,14 @@ class _BrowserPageState extends _BrowserPageBase
     }
     if (lower.contains('googlevideo.com') && lower.contains('mime=video')) return true;
     if (lower.contains('/hls/') && !lower.contains('/stream/')) return true;
+    if (lower.contains('videodelivery.net') || lower.contains('cloudflarestream.com')) {
+      return true;
+    }
+    if (lower.contains('vz-') && lower.contains('.b-cdn.net')) return true;
+    if ((lower.contains('okcdn') || lower.contains('vkvd') || lower.contains('mycdn.me')) &&
+        (lower.contains('video') || lower.contains('.mp4') || lower.contains('hls'))) {
+      return true;
+    }
     return false;
   }
 
@@ -1045,7 +1063,7 @@ class _BrowserPageState extends _BrowserPageBase
                 canBack: _canBack,
                 canForward: _canForward,
                 saved: _saved,
-                adBlockOn: _adBlock != AdBlock.off,
+                adBlockOn: _adBlock.isEnabled,
                 zoom: _zoom,
                 onTapField: () => setState(() => _addressEditing = true),
                 onSubmit: _openInput,

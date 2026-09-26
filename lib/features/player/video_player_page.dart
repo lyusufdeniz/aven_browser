@@ -54,20 +54,24 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   }
 
   List<VideoSource> _uniqueSources(List<VideoSource> sources) {
-    final seen = <String>{};
-    final out = <VideoSource>[];
+    final seen = <String, VideoSource>{};
     for (final source in sources) {
-      if (seen.add(source.url)) {
-        out.add(
-          VideoSource(
-            url: source.url,
-            label: _displayLabel(source),
-            headers: source.headers,
-          ),
-        );
+      final labeled = VideoSource(
+        url: source.url,
+        label: _displayLabel(source),
+        headers: source.headers,
+        durationSeconds: source.durationSeconds,
+      );
+      final prev = seen[source.url];
+      if (prev == null) {
+        seen[source.url] = labeled;
+        continue;
       }
+      final prevDur = prev.durationSeconds?.abs() ?? 0;
+      final nextDur = labeled.durationSeconds?.abs() ?? 0;
+      if (nextDur > prevDur) seen[source.url] = labeled;
     }
-    return out;
+    return seen.values.toList();
   }
 
   String _displayLabel(VideoSource source) {
@@ -82,13 +86,47 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         label == 'XHR' ||
         label == 'Sayfa' ||
         label == 'Gömülü' ||
-        label == 'Iframe') {
+        label == 'Iframe' ||
+        label == 'JW' ||
+        label == 'VideoJS' ||
+        label == 'Param' ||
+        label == 'Setup' ||
+        label == 'HLS') {
       return hint;
     }
     if (hint != 'Akış' && !label.contains(hint)) return '$hint · $label';
     return label;
   }
 
+
+  void _rememberDuration(VideoSource source, Duration duration) {
+    if (!mounted || duration <= Duration.zero) return;
+    final seconds = duration.inMilliseconds / 1000.0;
+    final known = source.durationSeconds?.abs() ?? 0;
+    if (known >= seconds - 0.5) return;
+    setState(() {
+      _sources = [
+        for (final item in _sources)
+          if (item.url == source.url)
+            VideoSource(
+              url: item.url,
+              label: item.label,
+              headers: item.headers,
+              durationSeconds: seconds,
+            )
+          else
+            item,
+      ];
+      if (_source?.url == source.url) {
+        _source = VideoSource(
+          url: source.url,
+          label: source.label,
+          headers: source.headers,
+          durationSeconds: seconds,
+        );
+      }
+    });
+  }
   Future<void> _open(VideoSource source) async {
     final previous = _controller;
     final resumeAt = previous?.value.isInitialized == true
@@ -147,6 +185,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           _displayedCue = null;
         });
         _revealControls();
+        _rememberDuration(source, next.value.duration);
         unawaited(_expandHlsQualities(source));
         return;
       } catch (error) {
@@ -193,6 +232,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
             _error = null;
           });
           _revealControls();
+          _rememberDuration(other, next.value.duration);
           unawaited(_expandHlsQualities(other));
           return;
         } catch (error) {
@@ -271,7 +311,14 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         if (uriLine.isEmpty) continue;
         final abs = Uri.parse(source.url).resolve(uriLine).toString();
         final label = _labelFromStreamInf(line) ?? qualityLabelForUrl(abs);
-        out.add(VideoSource(url: abs, label: label, headers: source.headers));
+        out.add(
+          VideoSource(
+            url: abs,
+            label: label,
+            headers: source.headers,
+            durationSeconds: source.durationSeconds,
+          ),
+        );
       }
       return out.isEmpty ? [source] : out;
     } catch (_) {
@@ -677,16 +724,29 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         for (var i = 0; i < sources.length; i++)
           _PickerOption(
             value: sources[i],
-            title: sources[i].label.isEmpty
-                ? qualityLabelForUrl(sources[i].url)
-                : sources[i].label,
-            subtitle: qualityLabelForUrl(sources[i].url),
+            title: _sourceTitle(sources[i]),
+            subtitle: _sourceSubtitle(sources[i]),
             selected: sources[i].url == _source?.url,
             autofocus: sources[i].url == _source?.url || (i == 0 && _source == null),
           ),
       ],
     );
     if (picked != null && picked.url != _source?.url) await _open(picked);
+  }
+
+  String _sourceTitle(VideoSource source) {
+    final label = source.label.isEmpty ? qualityLabelForUrl(source.url) : source.label;
+    final duration = formatSourceDuration(source.durationSeconds);
+    if (duration.isEmpty) return label;
+    return '$label · $duration';
+  }
+
+  String _sourceSubtitle(VideoSource source) {
+    final quality = qualityLabelForUrl(source.url);
+    final duration = formatSourceDuration(source.durationSeconds);
+    if (duration.isEmpty) return quality;
+    if (source.label.contains(quality) || quality == 'Akış') return duration;
+    return '$quality · $duration';
   }
 
   Future<void> _pickSubtitle() async {

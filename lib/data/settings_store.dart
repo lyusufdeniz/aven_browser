@@ -39,18 +39,26 @@ class WebLink {
 
 enum AdBlock {
   off,
-  adguard,
-  ublock;
+  local,
+  adguard;
 
   static AdBlock fromName(String? name) {
+    // Legacy "ublock" preference maps to AdGuard (option removed).
+    if (name == 'ublock') return AdBlock.adguard;
     return AdBlock.values.firstWhere((item) => item.name == name, orElse: () => AdBlock.off);
   }
 
   String get label => switch (this) {
     AdBlock.off => 'Kapalı',
+    AdBlock.local => 'Yerel liste',
     AdBlock.adguard => 'AdGuard',
-    AdBlock.ublock => 'uBlock',
   };
+
+  /// True when host intercept / cosmetics should run.
+  bool get isEnabled => this != AdBlock.off;
+
+  /// True when AdGuard DNS VPN should be requested.
+  bool get usesDns => this == AdBlock.adguard;
 }
 
 enum BrowserAgent {
@@ -128,7 +136,12 @@ class BrowserStore {
     }
     final raw = prefs.getString(_adBlockKey);
     if (raw == null || raw.isEmpty) return AdBlock.off;
-    return AdBlock.fromName(raw);
+    final mode = AdBlock.fromName(raw);
+    if (raw == 'ublock') {
+      await prefs.setString(_adBlockKey, mode.name);
+      await prefs.setString(_adBlockLastKey, mode.name);
+    }
+    return mode;
   }
 
   Future<AdBlock> loadAdBlockProvider() async {
