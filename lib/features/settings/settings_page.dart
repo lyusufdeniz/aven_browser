@@ -257,11 +257,12 @@ class _SettingsPageState extends State<SettingsPage> {
           (
             AdBlock.values[index].label,
             switch (AdBlock.values[index]) {
-              AdBlock.off => 'Sistem DNS. Reklamlar engellenmez (film siteleri için önerilir).',
+              AdBlock.off =>
+                'Engelleme yok. Film ve dizi sitelerinde oynat\u0131c\u0131lar\u0131n bozulmamas\u0131 i\u00e7in \u00f6nerilir.',
               AdBlock.local =>
-                'Yalnızca yerel host listesi (StevenBlack + AdGuard DNS filtresi) + kozmetik CSS. VPN/DNS yok.',
+                'Uygulama i\u00e7i host listesi ve gizli reklam CSS. DNS de\u011fi\u015fmez, VPN istemez.',
               AdBlock.adguard =>
-                'Yerel host listesi + AdGuard DNS (94.140.14.14) + kozmetik CSS. VPN izni ister.',
+                'Yerel listeye ek olarak AdGuard DNS. VPN izni ister; daha agresif engeller.',
             },
             _block == AdBlock.values[index],
           ),

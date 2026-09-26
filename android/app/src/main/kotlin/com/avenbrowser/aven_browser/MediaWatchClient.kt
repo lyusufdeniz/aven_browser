@@ -20,22 +20,25 @@ internal class MediaWatchClient(
     private val seen = HashSet<String>()
     private val seenLimit = 500
     @Volatile private var pageHost: String? = null
+    @Volatile private var injectGen = 0
+    @Volatile private var injectedGen = -1
 
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         seen.clear()
+        injectGen += 1
+        injectedGen = -1
         pageHost = try {
             android.net.Uri.parse(url).host?.lowercase()
         } catch (_: Exception) {
             null
         }
-        injectSpeed(view)
-        if (mode() != "off") injectCosmetic(view)
+        injectPageHooks(view, injectGen, force = false)
         inner.onPageStarted(view, url, favicon)
     }
 
     override fun onPageFinished(view: WebView, url: String) {
-        injectSpeed(view)
-        if (mode() != "off") injectCosmetic(view)
+        // Second pass once document.head exists; JS hooks are idempotent.
+        injectPageHooks(view, injectGen, force = true)
         inner.onPageFinished(view, url)
     }
 
@@ -96,27 +99,34 @@ internal class MediaWatchClient(
         return seen.add(url)
     }
 
-    private fun injectSpeed(view: WebView) {
-        if (!speed()) return
-        val adblockOn = mode() != "off"
+    private fun injectPageHooks(view: WebView, gen: Int, force: Boolean) {
+        if (!speed() && mode() == "off") return
         view.post {
+            if (gen != injectGen) return@post
+            if (!force && injectedGen == gen) return@post
+            injectedGen = gen
             try {
-                view.evaluateJavascript(speedStyleScript, null)
-                view.evaluateJavascript(bannerCosmeticScript, null)
-                // When adblock is on, networkHookScript already hard-fails both lists.
-                if (!adblockOn) {
-                    view.evaluateJavascript(speedNetworkHookScript(), null)
+                val adblockOn = mode() != "off"
+                val script = buildString {
+                    if (speed()) {
+                        append(speedStyleScript)
+                        append('\n')
+                        append(bannerCosmeticScript)
+                        append('\n')
+                        if (!adblockOn) {
+                            append(speedNetworkHookScript())
+                            append('\n')
+                        }
+                    }
+                    if (adblockOn) {
+                        append(cosmeticScript)
+                        append('\n')
+                        append(networkHookScript())
+                    }
                 }
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    private fun injectCosmetic(view: WebView) {
-        view.post {
-            try {
-                view.evaluateJavascript(cosmeticScript, null)
-                view.evaluateJavascript(networkHookScript(), null)
+                if (script.isNotEmpty()) {
+                    view.evaluateJavascript(script, null)
+                }
             } catch (_: Exception) {
             }
         }

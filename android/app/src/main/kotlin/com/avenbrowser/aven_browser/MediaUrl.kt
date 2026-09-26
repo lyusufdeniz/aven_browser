@@ -1,20 +1,27 @@
 package com.avenbrowser.aven_browser
 
 
+internal fun isAdMediaUrl(url: String): Boolean {
+    val lower = url.lowercase()
+    val marks = listOf(
+        "doubleclick", "googlesyndication", "googleads", "imasdk", "pagead", "adsbygoogle",
+        "adservice", "adserver", "adnxs", "adsrvr", "advertising.com", "adsystem",
+        "spotx", "teads.", "teads.tv", "exoclick", "exosrv", "popads", "popcash",
+        "propellerads", "propellerclick", "juicyads", "hilltopads", "adsterra",
+        "trafficjunky", "serving-sys", "adsafeprotected", "moatads", "amazon-adsystem",
+        "preroll", "midroll", "postroll", "vmap", "pubmatic", "rubiconproject",
+        "openx.net", "casalemedia", "taboola", "outbrain", "criteo",
+    )
+    if (marks.any { lower.contains(it) }) return true
+    if (lower.contains("/ads/") || lower.contains("/ad/")) return true
+    if (lower.contains("vast") && (lower.contains("ad") || lower.contains(".xml"))) return true
+    return false
+}
+
 internal fun isPlayableMedia(url: String): Boolean {
     val lower = url.lowercase()
     if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false
-    if (lower.contains("doubleclick") ||
-        lower.contains("googlesyndication") ||
-        lower.contains("googleads") ||
-        lower.contains("imasdk") ||
-        lower.contains("/ads/") ||
-        lower.contains("adserver") ||
-        lower.contains("preroll") ||
-        (lower.contains("vast") && lower.contains("ad"))
-    ) {
-        return false
-    }
+    if (isAdMediaUrl(lower)) return false
     if (lower.contains(".m3u8") || lower.contains(".mpd")) return true
     if (lower.contains("/hls/") || lower.contains("/dash/") ||
         lower.contains("playlist.m3u8") ||

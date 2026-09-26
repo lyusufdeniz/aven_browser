@@ -170,7 +170,7 @@ const _probeScript = r'''
   for (var a = 0; a < attrs.length; a++) {
     var el = attrs[a];
     ['data-src','data-file','data-video','data-url','data-link','data-hls','data-stream'].forEach(function(key) {
-      pushSource(pageSources, el.getAttribute(key), 'GÃ¶mÃ¼lÃ¼');
+      pushSource(pageSources, el.getAttribute(key), 'Gömülü');
     });
   }
   var scripts = document.querySelectorAll('script');
@@ -207,9 +207,7 @@ const _watchScript = r'''
     if (!url) return false;
     var u = String(url).toLowerCase();
     if (u.indexOf('blob:') === 0 || u.indexOf('mediastream:') === 0 || u.indexOf('data:') === 0) return false;
-    if (u.indexOf('doubleclick') !== -1 || u.indexOf('googlesyndication') !== -1 || u.indexOf('imasdk') !== -1) return false;
-    if (u.indexOf('vast') !== -1 && u.indexOf('ad') !== -1) return false;
-    if (u.indexOf('/ads/') !== -1 || u.indexOf('adserver') !== -1 || u.indexOf('preroll') !== -1) return false;
+    if (isAdMedia(u)) return false;
     var path = u.split('?')[0].split('#')[0];
     if (path.length > 3 && path.slice(-3) === '.ts') return false;
     if (path.slice(-4) === '.m4s' || path.slice(-4) === '.aac') return false;
@@ -226,13 +224,43 @@ const _watchScript = r'''
     if (u.indexOf('manifest') !== -1 && (u.indexOf('video') !== -1 || u.indexOf('dash') !== -1 || u.indexOf('hls') !== -1)) return true;
     if (u.indexOf('googlevideo.com') !== -1 && u.indexOf('mime=video') !== -1) return true;
     if (u.indexOf('videoplayback') !== -1 && u.indexOf('http') === 0) return true;
-    // Common embed / CDN hosts that serve progressive or HLS without extension in path.
     if (/[?&](file|source|src|media|mp4|hls|stream)=https?%3a/i.test(u)) return true;
     if (u.indexOf('videodelivery.net') !== -1 || u.indexOf('cloudflarestream.com') !== -1) return true;
     if (u.indexOf('vz-') !== -1 && u.indexOf('.b-cdn.net') !== -1) return true;
     if ((u.indexOf('okcdn') !== -1 || u.indexOf('vkvd') !== -1 || u.indexOf('mycdn.me') !== -1) &&
         (u.indexOf('video') !== -1 || u.indexOf('.mp4') !== -1 || u.indexOf('hls') !== -1)) return true;
     return false;
+  }
+  function isAdMedia(u) {
+    if (!u) return true;
+    var marks = [
+      'doubleclick', 'googlesyndication', 'googleads', 'imasdk', 'pagead', 'adsbygoogle',
+      'adservice', 'adserver', 'adnxs', 'adsrvr', 'advertising.com', 'adsystem',
+      'spotx', 'teads.', 'teads.tv', 'exoclick', 'exosrv', 'popads', 'popcash',
+      'propellerads', 'propellerclick', 'juicyads', 'hilltopads', 'adsterra',
+      'trafficjunky', 'serving-sys', 'adsafeprotected', 'moatads', 'amazon-adsystem',
+      'preroll', 'midroll', 'postroll', 'vmap', 'pubmatic', 'rubiconproject',
+      'openx.net', 'casalemedia', 'taboola', 'outbrain', 'criteo'
+    ];
+    for (var i = 0; i < marks.length; i++) if (u.indexOf(marks[i]) !== -1) return true;
+    if (u.indexOf('/ads/') !== -1 || u.indexOf('/ad/') !== -1) return true;
+    if (u.indexOf('vast') !== -1 && (u.indexOf('ad') !== -1 || u.indexOf('.xml') !== -1)) return true;
+    return false;
+  }
+  function notePlayerFrame() {
+    try {
+      var iframes = document.querySelectorAll('iframe[src],iframe[data-src]');
+      var best = '', area = 0;
+      for (var i = 0; i < iframes.length; i++) {
+        var src = iframes[i].getAttribute('src') || iframes[i].getAttribute('data-src') || '';
+        if (!src || src.indexOf('http') !== 0) continue;
+        if (!/dplayer|rapidrame|closeload|embed|player|vidmo|ok\.ru|sibnet|filemoon|voe\.|streamtape|iframe\.php/i.test(src)) continue;
+        var r = iframes[i].getBoundingClientRect();
+        var a = r.width * r.height;
+        if (a > area && r.width > 120 && r.height > 70) { area = a; best = abs(src); }
+      }
+      if (best) window.__avenPlayerFrame = best;
+    } catch (e) {}
   }
   window.__avenPool = window.__avenPool || [];
   function remember(url, label, duration) {
@@ -344,7 +372,7 @@ const _watchScript = r'''
     for (var a = 0; a < attrs.length; a++) {
       var el = attrs[a];
       ['data-src','data-file','data-video','data-url','data-link','data-hls','data-stream','data-source','data-mp4','data-playlist'].forEach(function(key) {
-        pushSource(list, el.getAttribute(key), 'GÃ¶mÃ¼lÃ¼');
+        pushSource(list, el.getAttribute(key), 'Gömülü');
       });
       var setup = el.getAttribute('data-setup');
       if (setup) scrapeText(setup, list, 'Setup');
@@ -359,8 +387,10 @@ const _watchScript = r'''
       var entries = performance.getEntriesByType('resource');
       for (var e = 0; e < entries.length; e++) pushSource(list, entries[e].name || '', 'Net');
     }
+    if (window.__avenPool && window.__avenPool.length >= 4) return;
     var scripts = document.querySelectorAll('script:not([src])');
-    for (var i = 0; i < Math.min(scripts.length, 60); i++) {
+    var limit = window.__avenLite ? 20 : 40;
+    for (var i = 0; i < Math.min(scripts.length, limit); i++) {
       scrapeText(scripts[i].textContent || '', list, 'Script');
     }
   }
@@ -592,9 +622,10 @@ const _watchScript = r'''
     if (!root || !root.querySelectorAll) return;
     var nodes = root.querySelectorAll('video');
     for (var i = 0; i < nodes.length; i++) out.push(nodes[i]);
-    var all = root.querySelectorAll('*');
-    for (var j = 0; j < all.length; j++) {
-      if (all[j].shadowRoot) collect(all[j].shadowRoot, out);
+    // Only probe known player hosts for shadow roots — walking every element freezes TV WebView.
+    var hosts = root.querySelectorAll('.jwplayer, .video-js, [data-player], .plyr, plyr, media-controller');
+    for (var j = 0; j < Math.min(hosts.length, 12); j++) {
+      if (hosts[j].shadowRoot) collect(hosts[j].shadowRoot, out);
     }
   }
   function scanPageMedia() {
@@ -633,6 +664,7 @@ const _watchScript = r'''
     }
   }
   function scan() {
+    notePlayerFrame();
     if (anyPlaying()) {
       var focus = focusedPlayer();
       if (focus) prepare(focus);
@@ -696,12 +728,19 @@ const _watchScript = r'''
           } catch (e) {}
           xhr.addEventListener('load', function() {
             try {
+              var url = String(xhr.__avenUrl || '');
+              var ct = '';
+              try { ct = (xhr.getResponseHeader && xhr.getResponseHeader('content-type')) || ''; } catch (e) {}
+              var worth = looksMedia(url) ||
+                /mpegurl|dash\+xml|json|javascript|text\/plain|text\/html/i.test(ct) ||
+                /\.m3u8|\.mpd|playlist|manifest/i.test(url);
+              if (!worth) return;
               var text = xhr.responseText || '';
               if (text && text.length < 400000) {
                 var found = [];
                 scrapeText(text, found, 'XHR');
                 for (var i = 0; i < found.length; i++) offerUrl(found[i].url, 'XHR', found[i].duration);
-                if (text.indexOf('#EXTM3U') === 0 && xhr.__avenUrl) offerUrl(xhr.__avenUrl, 'HLS');
+                if (text.indexOf('#EXTM3U') === 0 && url) offerUrl(url, 'HLS');
               }
             } catch (e) {}
           });
@@ -710,7 +749,7 @@ const _watchScript = r'''
       }
     } catch (e) {}
     try {
-      if (window.PerformanceObserver) {
+      if (!window.__avenLite && window.PerformanceObserver) {
         var po = new PerformanceObserver(function(list) {
           var entries = list.getEntries();
           for (var i = 0; i < entries.length; i++) {
@@ -757,8 +796,8 @@ const _watchScript = r'''
         return;
       }
       if (debounce) return;
-      // Heavier debounce while lite browsing â€” fewer full DOM walks on TV.
-      var wait = window.__avenLite ? 1800 : 900;
+      // Heavier debounce while lite browsing — fewer full DOM walks on TV.
+      var wait = window.__avenLite ? 2200 : 1200;
       debounce = setTimeout(function() {
         debounce = null;
         if (scrolling) return;
@@ -785,7 +824,7 @@ const _watchScript = r'''
         scrollQuiet = null;
         if (anyPlaying()) lightScan();
         else scheduleScan();
-      }, window.__avenLite ? 900 : 400);
+      }, window.__avenLite ? 1100 : 500);
       if (anyPlaying()) lightScan();
     }, {passive: true, capture: true});
     document.addEventListener('play', function(event) {
@@ -812,7 +851,7 @@ const _watchScript = r'''
         ensureObserver(true);
         scan();
       }
-    }, window.__avenLite ? 8000 : 4500);
+    }, window.__avenLite ? 10000 : 6000);
   }
   install();
 })();
@@ -843,13 +882,13 @@ String qualityLabelForUrl(String url) {
   }
   if (lower.contains('.mpd') || lower.contains('dash')) return 'DASH';
   if (lower.contains('.mp4')) return 'MP4';
-  return 'AkÄ±ÅŸ';
+  return 'Ak\u0131\u015f';
 }
 
-/// Human-readable duration for source rows (`1:42:05`, `12:03`, or `CanlÄ±`).
+/// Human-readable duration for source rows (`1:42:05`, `12:03`, or `Canl\u0131`).
 String formatSourceDuration(double? seconds) {
   if (seconds == null || seconds == 0) return '';
-  if (seconds < 0 || !seconds.isFinite) return 'CanlÄ±';
+  if (seconds < 0 || !seconds.isFinite) return 'Canl\u0131';
   final total = seconds.round();
   final h = total ~/ 3600;
   final m = (total % 3600) ~/ 60;
@@ -860,8 +899,75 @@ String formatSourceDuration(double? seconds) {
   return '$m:${s.toString().padLeft(2, '0')}';
 }
 
+
+/// Preroll / VAST / ad-network media that should not open in Aven player.
+bool isAdMediaUrl(String url) {
+  final u = url.toLowerCase();
+  const marks = <String>[
+    'doubleclick',
+    'googlesyndication',
+    'googleads',
+    'imasdk',
+    'pagead',
+    'adsbygoogle',
+    'adservice',
+    'adserver',
+    'adnxs',
+    'adsrvr',
+    'advertising.com',
+    'adsystem',
+    'spotx',
+    'teads.',
+    'teads.tv',
+    'exoclick',
+    'exosrv',
+    'popads',
+    'popcash',
+    'propellerads',
+    'propellerclick',
+    'juicyads',
+    'hilltopads',
+    'adsterra',
+    'trafficjunky',
+    'serving-sys',
+    'adsafeprotected',
+    'moatads',
+    'amazon-adsystem',
+    'preroll',
+    'midroll',
+    'postroll',
+    'vmap',
+    'pubmatic',
+    'rubiconproject',
+    'openx.net',
+    'casalemedia',
+    'taboola',
+    'outbrain',
+    'criteo',
+  ];
+  for (final m in marks) {
+    if (u.contains(m)) return true;
+  }
+  if (u.contains('/ads/') || u.contains('/ad/')) return true;
+  if (u.contains('vast') && (u.contains('ad') || u.contains('.xml'))) return true;
+  return false;
+}
+
+/// Lower is better. Prefer TR embed CDNs and real playlists over ad MP4s.
+int contentHostScore(String url) {
+  final u = url.toLowerCase();
+  if (u.contains('dplayer') || u.contains('rapidrame') || u.contains('closeload')) return 0;
+  if (u.contains('b-cdn.net') || u.contains('bunny') || u.contains('videodelivery')) return 1;
+  if (u.contains('cloudflarestream') || u.contains('cdn77') || u.contains('jwpcdn')) return 2;
+  if (u.contains('.m3u8') && u.contains('master')) return 3;
+  if (u.contains('.m3u8')) return 4;
+  if (u.contains('.mpd')) return 5;
+  if (u.contains('.mp4')) return 6;
+  return 8;
+}
 bool _playable(String url) {
   if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  if (isAdMediaUrl(url)) return false;
   final lower = url.toLowerCase();
   final path = lower.split('?').first.split('#').first;
   if (path.endsWith('.ts')) return false;

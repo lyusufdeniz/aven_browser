@@ -35,6 +35,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   bool _exiting = false;
   bool _pickerOpen = false;
   Timer? _hideControls;
+  int _probeEpoch = 0;
+  final _progressPulse = ValueNotifier<int>(0);
   final _rootFocus = FocusNode();
   late final List<FocusNode> _barFocus = List.generate(8, (_) => FocusNode());
   // 0 progress, 1 play, 2 -10, 3 +10, 4 speed, 5 quality, 6 subtitle, 7 close
@@ -186,7 +188,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         });
         _revealControls();
         _rememberDuration(source, next.value.duration);
-        unawaited(_expandHlsQualities(source));
+        // Defer background work so first seconds of playback stay smooth on TV.
+        unawaited(_scheduleBackgroundCatalog(source));
         return;
       } catch (error) {
         lastError = error;
@@ -233,7 +236,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           });
           _revealControls();
           _rememberDuration(other, next.value.duration);
-          unawaited(_expandHlsQualities(other));
+          unawaited(_scheduleBackgroundCatalog(other));
           return;
         } catch (error) {
           lastError = error;
@@ -253,6 +256,66 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       debugPrint('Aven player open failed: $lastError');
       return true;
     }());
+  }
+
+
+  Future<void> _scheduleBackgroundCatalog(VideoSource source) async {
+    final epoch = ++_probeEpoch;
+    await Future<void>.delayed(const Duration(milliseconds: 1800));
+    if (!mounted || epoch != _probeEpoch) return;
+    await _expandHlsQualities(source);
+    if (!mounted || epoch != _probeEpoch) return;
+    await _probeDurationsHttp(epoch);
+  }
+
+  /// HTTP-only duration probe — never spins up a second ExoPlayer while playing.
+  Future<void> _probeDurationsHttp(int epoch) async {
+    final pending = [
+      for (final s in _sources)
+        if ((s.durationSeconds ?? 0).abs() < 1 && s.url != _source?.url) s,
+    ].take(4).toList();
+    for (final source in pending) {
+      if (!mounted || epoch != _probeEpoch) return;
+      final seconds = await _httpPlaylistDuration(source);
+      if (seconds != null && seconds > 0) {
+        _rememberDuration(source, Duration(milliseconds: (seconds * 1000).round()));
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
+  Future<double?> _httpPlaylistDuration(VideoSource source) async {
+    final lower = source.url.toLowerCase();
+    if (!(lower.contains('.m3u8') || lower.contains('mpegurl') || lower.contains('/hls/'))) {
+      return null;
+    }
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 6);
+      final request = await client.getUrl(Uri.parse(source.url));
+      source.headers.forEach(request.headers.set);
+      final response = await request.close().timeout(const Duration(seconds: 8));
+      if (response.statusCode < 200 || response.statusCode >= 300) return null;
+      final body = await response.transform(utf8.decoder).join();
+      if (body.contains('#EXT-X-STREAM-INF')) {
+        // Master playlist: duration lives on media playlists; skip heavy chase.
+        return null;
+      }
+      var total = 0.0;
+      for (final raw in const LineSplitter().convert(body)) {
+        final line = raw.trim();
+        if (!line.startsWith('#EXTINF:')) continue;
+        final value = line.substring(8).split(',').first.trim();
+        final secs = double.tryParse(value);
+        if (secs != null && secs > 0) total += secs;
+      }
+      return total > 0 ? total : null;
+    } catch (_) {
+      return null;
+    } finally {
+      client?.close(force: true);
+    }
   }
 
   Future<void> _expandHlsQualities(VideoSource source) async {
@@ -433,13 +496,18 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final playChanged = playing != _displayedPlaying;
     final now = DateTime.now();
     final needProgress = _controls &&
-        now.difference(_lastProgressUi) >= const Duration(milliseconds: 250);
+        now.difference(_lastProgressUi) >= const Duration(milliseconds: 500);
 
     if (!cueChanged && !playChanged && !needProgress) return;
 
+    if (needProgress) {
+      _lastProgressUi = now;
+      _progressPulse.value++;
+    }
+    if (!cueChanged && !playChanged) return;
+
     _displayedCue = cue;
     _displayedPlaying = playing;
-    if (needProgress) _lastProgressUi = now;
     setState(() {});
   }
 
@@ -503,7 +571,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   void _revealControls({bool grabPlay = true}) {
     if (_pickerOpen) return;
-    setState(() => _controls = true);
+    if (!_controls) {
+      setState(() => _controls = true);
+    }
     _scheduleHide();
     if (!grabPlay) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -791,7 +861,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   @override
   void dispose() {
+    _probeEpoch++;
     _hideControls?.cancel();
+    _progressPulse.dispose();
     _rootFocus.dispose();
     for (final node in _barFocus) {
       node.dispose();
@@ -804,9 +876,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    final playing = controller?.value.isPlaying ?? false;
-    final position = controller?.value.position ?? Duration.zero;
-    final duration = controller?.value.duration ?? Duration.zero;
+    final playing = _displayedPlaying;
     final cue = _displayedCue;
 
     return Scaffold(
@@ -880,7 +950,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                       aspectRatio: controller.value.aspectRatio == 0
                           ? 16 / 9
                           : controller.value.aspectRatio,
-                      child: VideoPlayer(controller),
+                      child: RepaintBoundary(
+                        child: VideoPlayer(controller),
+                      ),
                     )
                   : const SizedBox.shrink(),
             ),
@@ -992,26 +1064,41 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                                         const SizedBox(height: 8),
                                         Row(
                                           children: [
-                                            Text(
-                                              _format(position),
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: progressFocused
-                                                    ? AvenColors.mist
-                                                    : AvenColors.textMuted,
-                                              ),
-                                            ),
-                                            const Spacer(),
-                                            Text(
-                                              progressFocused
-                                                  ? '◀︎ 10sn  ·  10sn ▶︎'
-                                                  : _format(duration),
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: progressFocused
-                                                    ? AvenColors.mist
-                                                    : AvenColors.textMuted,
-                                              ),
+                                            ValueListenableBuilder<int>(
+                                              valueListenable: _progressPulse,
+                                              builder: (context, _, __) {
+                                                final pos = _controller?.value.position ??
+                                                    Duration.zero;
+                                                final dur = _controller?.value.duration ??
+                                                    Duration.zero;
+                                                return Expanded(
+                                                  child: Row(
+                                                    children: [
+                                                      Text(
+                                                        _format(pos),
+                                                        style: TextStyle(
+                                                          fontSize: 14,
+                                                          color: progressFocused
+                                                              ? AvenColors.mist
+                                                              : AvenColors.textMuted,
+                                                        ),
+                                                      ),
+                                                      const Spacer(),
+                                                      Text(
+                                                        progressFocused
+                                                            ? '◀︎ 10sn  ·  10sn ▶︎'
+                                                            : _format(dur),
+                                                        style: TextStyle(
+                                                          fontSize: 14,
+                                                          color: progressFocused
+                                                              ? AvenColors.mist
+                                                              : AvenColors.textMuted,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                              },
                                             ),
                                           ],
                                         ),

@@ -270,32 +270,43 @@ class _BrowserPageState extends _BrowserPageBase
     } catch (_) {}
     await platform.setCustomWidgetCallbacks(
       onShowCustomWidget: (widget, onHide) {
-        // Refuse in-WebView fullscreen - it stalls the TV. Hijack to Aven player.
-        onHide();
-        unawaited(_hijackPageVideos());
+        if (!mounted) {
+          onHide();
+          return;
+        }
+        if (_menuOpen) {
+          setState(() {
+            _menuOpen = false;
+            _addressEditing = false;
+          });
+        }
+        setState(() {
+          _fullscreenVideo = widget;
+          _exitFullscreen = onHide;
+          _onStart = false;
+        });
+        _syncChrome();
+        _cursorVisible.value = true;
+        _bumpCursor();
+        // Keep taps going to the fullscreen surface, not Flutter chrome.
+        unawaited(_input.setChromeOpen(false));
+        unawaited(_input.prepareForInput());
       },
-      onHideCustomWidget: () {},
+      onHideCustomWidget: () {
+        if (!mounted) return;
+        setState(() {
+          _fullscreenVideo = null;
+          _exitFullscreen = null;
+        });
+        _syncChrome();
+        _cursorVisible.value = true;
+        _cursorHide?.cancel();
+      },
     );
   }
 
-  Future<void> _hijackPageVideos() async {
-    // Fullscreen is refused on TV; only offer the opt-in badge - never auto-open.
-    try {
-      await _controller.runJavaScript(r'''
-(function(){
-  try {
-    if (window.__avenPrepare) {
-      var videos = document.querySelectorAll('video');
-      for (var i = 0; i < videos.length; i++) window.__avenPrepare(videos[i]);
-    }
-  } catch(e) {}
-})();
-''');
-    } catch (_) {}
-  }
-
   Future<void> _onWatchedMedia(String url) async {
-    if (!mounted || !isAvenWebUrl(url)) return;
+    if (!mounted || !isAvenWebUrl(url) || isAdMediaUrl(url)) return;
     // Feed the media pool / focused badge only - do not auto-open Aven player.
     try {
       await _controller.runJavaScript(
@@ -528,6 +539,12 @@ class _BrowserPageState extends _BrowserPageBase
 
   @override
   void _syncChrome() {
+    if (_fullscreenVideo != null) {
+      // Fullscreen surface owns input; Flutter chrome must not intercept.
+      _input.setChromeOpen(false);
+      _input.prepareForInput();
+      return;
+    }
     final open = _onStart || _menuOpen;
     _input.setChromeOpen(open);
     if (open) {
@@ -664,36 +681,37 @@ class _BrowserPageState extends _BrowserPageBase
     final parsed = parsePlayedVideo(message.message);
     if (parsed == null || !mounted || _openingVideo) return;
     final epoch = _mediaEpoch;
+    final frameReferer = await _readPlayerFrame();
     var sources = _preferPlayable([
       for (final source in parsed.sources)
-        if (_isStreamUrl(source.url))
+        if (_isStreamUrl(source.url) && !isAdMediaUrl(source.url))
           VideoSource(
             url: source.url,
             label: source.label,
-            headers: _mediaHeadersFor(source.url),
+            headers: _mediaHeadersFor(source.url, frameReferer: frameReferer),
             durationSeconds: source.durationSeconds,
           ),
     ]);
-    // Kick/IVS often opens before the master playlist hits the pool.
-    if (!_hasHls(sources)) {
-      for (var i = 0; i < 10 && mounted && !_openingVideo; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+    // Embed players (dplayer etc.) often fire ad MP4s first; wait for real HLS/content.
+    if (!_hasContentStream(sources)) {
+      for (var i = 0; i < 14 && mounted && !_openingVideo; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
         if (epoch != _mediaEpoch) return;
         final pooled = await _readMediaPool();
         if (pooled.isEmpty) continue;
         final merged = <VideoSource>[
           ...sources,
           for (final item in pooled)
-            if (_isStreamUrl(item.url))
+            if (_isStreamUrl(item.url) && !isAdMediaUrl(item.url))
               VideoSource(
                 url: item.url,
                 label: item.label,
-                headers: _mediaHeadersFor(item.url),
+                headers: _mediaHeadersFor(item.url, frameReferer: frameReferer),
                 durationSeconds: item.duration,
               ),
         ];
         sources = _preferPlayable(_dedupeSources(merged));
-        if (_hasHls(sources)) break;
+        if (_hasContentStream(sources)) break;
       }
     }
     if (epoch != _mediaEpoch || sources.isEmpty || !mounted || _openingVideo) return;
@@ -703,8 +721,14 @@ class _BrowserPageState extends _BrowserPageBase
       final u = source.url.toLowerCase();
       if (u.contains('.m3u8')) {
         initial = source;
-        if (u.contains('live-video.net') || u.contains('master')) break;
+        if (u.contains('live-video.net') || u.contains('master') || u.contains('dplayer')) break;
       }
+    }
+    // Prefer longest known duration over short preroll leftovers.
+    for (final source in video.sources) {
+      final d = source.durationSeconds ?? 0;
+      final best = initial.durationSeconds ?? 0;
+      if (d > 180 && d > best) initial = source;
     }
     _openingVideo = true;
     _resetPointerState();
@@ -749,6 +773,49 @@ class _BrowserPageState extends _BrowserPageBase
       final u = s.url.toLowerCase();
       return u.contains('.m3u8') || u.contains('mpegurl') || u.contains('live-video.net');
     });
+  }
+
+  bool _hasContentStream(List<VideoSource> sources) {
+    if (_hasHls(sources)) return true;
+    return sources.any((s) {
+      final u = s.url.toLowerCase();
+      return u.contains('dplayer') ||
+          u.contains('rapidrame') ||
+          u.contains('closeload') ||
+          u.contains('b-cdn.net') ||
+          u.contains('videodelivery') ||
+          ((s.durationSeconds ?? 0) > 180);
+    });
+  }
+
+  Future<String?> _readPlayerFrame() async {
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(r'''
+(function(){
+  try {
+    if (window.__avenPlayerFrame) return String(window.__avenPlayerFrame);
+    var iframes = document.querySelectorAll('iframe[src],iframe[data-src]');
+    var best = '', area = 0;
+    for (var i = 0; i < iframes.length; i++) {
+      var src = iframes[i].getAttribute('src') || iframes[i].getAttribute('data-src') || '';
+      if (!src || src.indexOf('http') !== 0) continue;
+      if (!/dplayer|rapidrame|closeload|embed|player|vidmo|ok\.ru|sibnet|filemoon|voe\.|streamtape|iframe\.php/i.test(src)) continue;
+      var r = iframes[i].getBoundingClientRect();
+      var a = r.width * r.height;
+      if (a > area && r.width > 120 && r.height > 70) { area = a; best = src; }
+    }
+    return best || '';
+  } catch (e) { return ''; }
+})();
+''');
+      final text = raw is String
+          ? raw.replaceAll(r'\"', '"').replaceAll(RegExp(r'^"|"$'), '')
+          : raw.toString();
+      if (text.isEmpty || text == 'null') return null;
+      return text;
+    } catch (_) {
+      return null;
+    }
   }
 
   List<VideoSource> _dedupeSources(List<VideoSource> sources) {
@@ -849,33 +916,51 @@ class _BrowserPageState extends _BrowserPageBase
     final ranked = [...sources];
     ranked.sort((a, b) {
       int score(VideoSource s) {
-        final u = s.url.toLowerCase();
-        if (u.contains('live-video.net') && u.contains('.m3u8')) return 0;
-        if (u.contains('.m3u8') && u.contains('master')) return 1;
-        if (u.contains('.m3u8')) return 2;
-        if (u.contains('.mpd')) return 3;
-        if (u.contains('.mp4')) return 4;
-        return 5;
+        final dur = s.durationSeconds ?? 0;
+        // Short clips are almost always preroll leftovers.
+        final durPenalty = (dur > 0 && dur < 90) ? 40 : (dur > 180 ? -10 : 0);
+        return contentHostScore(s.url) + durPenalty;
       }
       return score(a).compareTo(score(b));
     });
     return ranked;
   }
 
-  Map<String, String> _mediaHeadersFor(String mediaUrl) {
+  Map<String, String> _mediaHeadersFor(String mediaUrl, {String? frameReferer}) {
     const fallbackUa =
         'Mozilla/5.0 (Linux; Android 12; SHIELD Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
     final ua = (_userAgent != null && _userAgent!.trim().isNotEmpty) ? _userAgent! : fallbackUa;
     final pageUrl = _pageUrl;
     final page = pageUrl == null ? null : Uri.tryParse(pageUrl);
     final media = Uri.tryParse(mediaUrl);
-    final referer = (pageUrl != null && pageUrl.isNotEmpty)
-        ? pageUrl
-        : (media != null ? '${media.scheme}://${media.host}/' : '');
+    final frame = frameReferer == null || frameReferer.isEmpty ? null : Uri.tryParse(frameReferer);
+    final mediaHost = media?.host.toLowerCase() ?? '';
+    final pageHost = page?.host.toLowerCase() ?? '';
+    // dplayer / embed CDNs usually require the player iframe origin as Referer.
+    String referer;
+    if (frame != null &&
+        frame.host.isNotEmpty &&
+        mediaHost.isNotEmpty &&
+        mediaHost != pageHost) {
+      referer = '${frame.scheme}://${frame.host}/';
+    } else if (pageUrl != null && pageUrl.isNotEmpty) {
+      referer = pageUrl;
+    } else if (media != null) {
+      referer = '${media.scheme}://${media.host}/';
+    } else {
+      referer = '';
+    }
+    final originHost = frame?.host.isNotEmpty == true && mediaHost != pageHost
+        ? frame!.host
+        : page?.host;
+    final originScheme = frame?.host.isNotEmpty == true && mediaHost != pageHost
+        ? frame!.scheme
+        : page?.scheme;
     return {
       'User-Agent': ua,
       if (referer.isNotEmpty) 'Referer': referer,
-      if (page != null && page.host.isNotEmpty) 'Origin': '${page.scheme}://${page.host}',
+      if (originHost != null && originHost.isNotEmpty)
+        'Origin': '${originScheme ?? 'https'}://$originHost',
       'Accept': '*/*',
       'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
     };

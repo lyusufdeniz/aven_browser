@@ -26,6 +26,18 @@ class WebScripts {
       });
       return;
     }
+    function unlockFullscreen(f) {
+      try {
+        f.setAttribute('allowfullscreen', '');
+        f.setAttribute('webkitallowfullscreen', '');
+        f.setAttribute('mozallowfullscreen', '');
+        f.setAttribute('playsinline', 'false');
+        var allow = f.getAttribute('allow') || '';
+        if (allow.indexOf('fullscreen') === -1) {
+          f.setAttribute('allow', (allow ? allow + '; ' : '') + 'fullscreen; autoplay; encrypted-media; picture-in-picture');
+        }
+      } catch (e) {}
+    }
     var nodes = document.querySelectorAll('iframe[data-src],iframe[data-lazy-src],iframe[data-original]');
     for (var i = 0; i < nodes.length; i++) {
       var f = nodes[i];
@@ -35,14 +47,21 @@ class WebScripts {
         var parent = f.parentElement;
         var parentHint = parent ? ((parent.id || '') + ' ' + (parent.className || '')) : '';
         var look = (ds + ' ' + parentHint + ' ' + (f.className || '')).toLowerCase();
-        var isPlayer = /embed|player|video|rapidrame|stream|fil|dizi|watch|movie|vidmo|ok\.ru|dailymotion|youtube|jwplayer|plyr/.test(look)
+        var isPlayer = /embed|player|video|rapidrame|stream|fil|dizi|watch|movie|vidmo|ok\.ru|dailymotion|youtube|jwplayer|plyr|dplayer|iframe\.php/.test(look)
           || /video-container|player|embed/.test(parentHint.toLowerCase());
         if (!isPlayer) continue;
         if (!f.getAttribute('src')) f.setAttribute('src', ds);
         f.removeAttribute('loading');
         f.loading = 'eager';
+        unlockFullscreen(f);
       } catch (e) {}
     }
+    document.querySelectorAll('iframe[src]').forEach(function(f){
+      var look = ((f.getAttribute('src') || '') + ' ' + (f.className || '')).toLowerCase();
+      if (/embed|player|video|rapidrame|dplayer|vidmo|ok\.ru|youtube|jwplayer|iframe\.php|streamtape|filemoon/.test(look)) {
+        unlockFullscreen(f);
+      }
+    });
     document.querySelectorAll('.play-that-video,.play-icon,.video-container').forEach(function(el){
       try {
         el.style.removeProperty('display');
@@ -193,7 +212,7 @@ class WebScripts {
   function freezeGifs(root) {
     var scope = root && root.querySelectorAll ? root : document;
     var imgs = scope.querySelectorAll ? scope.querySelectorAll('img') : [];
-    var budget = 24;
+    var budget = window.__avenLite ? 8 : 16;
     for (var i = 0; i < imgs.length && budget > 0; i++) {
       var img = imgs[i];
       if (img.__avenFrozen) continue;
