@@ -1,8 +1,10 @@
 package com.avenbrowser.aven_browser
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import android.speech.RecognizerIntent
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -26,6 +28,9 @@ class MainActivity : FlutterActivity() {
     private lateinit var channel: MethodChannel
     private var pendingAdBlockMode: String? = null
     private var pendingAdBlockResult: MethodChannel.Result? = null
+    private var pendingSpeechResult: MethodChannel.Result? = null
+    /** Bumps on every pause/resume so stale posted runnables cannot invert order. */
+    @Volatile private var webViewLifecycle = 0
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -40,6 +45,15 @@ class MainActivity : FlutterActivity() {
                         } else {
                             tapWebView(floatArg(call, "x"), floatArg(call, "y"))
                         }
+                        result.success(null)
+                    }
+                    "scroll" -> {
+                        scrollWebView(
+                            floatArg(call, "x"),
+                            floatArg(call, "y"),
+                            floatArg(call, "dx"),
+                            floatArg(call, "dy"),
+                        )
                         result.success(null)
                     }
                     "lockFocus" -> {
@@ -101,9 +115,35 @@ class MainActivity : FlutterActivity() {
                         root.postDelayed({ attachMediaWatch() }, 500)
                         result.success(null)
                     }
+                    "recognizeSpeech" -> startSpeechRecognition(call, result)
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun startSpeechRecognition(call: MethodCall, result: MethodChannel.Result) {
+        if (pendingSpeechResult != null) {
+            result.error("busy", "Speech recognition already running", null)
+            return
+        }
+        val locale = call.argument<String>("locale") ?: "tr-TR"
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Konuşun")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        pendingSpeechResult = result
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQ_SPEECH)
+        } catch (_: Exception) {
+            pendingSpeechResult = null
+            result.error("unavailable", "Speech recognition is not available", null)
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -232,11 +272,31 @@ class MainActivity : FlutterActivity() {
 
     private fun showKeyboard() {
         val flutterView = findFlutterView(window.decorView) ?: return
+        flutterView.isFocusable = true
+        flutterView.isFocusableInTouchMode = true
         flutterView.post {
             flutterView.requestFocus()
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(flutterView, InputMethodManager.SHOW_IMPLICIT)
+            try {
+                imm.restartInput(flutterView)
+            } catch (_: Exception) {
+            }
+            // SHOW_IMPLICIT is often ignored on Android TV / Leanback.
+            val shown = imm.showSoftInput(flutterView, InputMethodManager.SHOW_FORCED)
+            if (!shown) {
+                try {
+                    @Suppress("DEPRECATION")
+                    imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+                } catch (_: Exception) {
+                }
+            }
         }
+        // Second pass after Flutter TextField attaches the input connection.
+        flutterView.postDelayed({
+            flutterView.requestFocus()
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(flutterView, InputMethodManager.SHOW_FORCED)
+        }, 120)
     }
 
     private fun findFlutterView(root: View): View? {
@@ -253,7 +313,15 @@ class MainActivity : FlutterActivity() {
     private fun refreshSurface() {
         val webView = findWebView(window.decorView) ?: return
         webView.post {
-            webView.onResume()
+            try {
+                webView.resumeTimers()
+            } catch (_: Exception) {
+            }
+            try {
+                webView.onResume()
+            } catch (_: Exception) {
+            }
+            webView.visibility = View.VISIBLE
             webView.invalidate()
             webView.requestLayout()
             (webView.parent as? View)?.invalidate()
@@ -261,8 +329,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun pauseWebView() {
+        val generation = ++webViewLifecycle
         val webView = findWebView(window.decorView) ?: return
         webView.post {
+            if (generation != webViewLifecycle) return@post
             try {
                 webView.evaluateJavascript(
                     """
@@ -296,7 +366,6 @@ class MainActivity : FlutterActivity() {
             } catch (_: Exception) {
             }
             try {
-                // Drop GPU layer while ExoPlayer owns the screen.
                 webView.setLayerType(View.LAYER_TYPE_NONE, null)
             } catch (_: Exception) {
             }
@@ -316,8 +385,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun resumeWebView() {
+        val generation = ++webViewLifecycle
         val webView = findWebView(window.decorView) ?: return
-        webView.post {
+        // Run immediately when possible so loadRequest is not racing a paused WebView.
+        fun apply() {
+            if (generation != webViewLifecycle) return
             try {
                 webView.visibility = View.VISIBLE
             } catch (_: Exception) {
@@ -339,6 +411,8 @@ class MainActivity : FlutterActivity() {
             } catch (_: Exception) {
             }
         }
+        apply()
+        webView.post { apply() }
     }
 
     private fun tapWebView(x: Float, y: Float) {
@@ -406,6 +480,48 @@ class MainActivity : FlutterActivity() {
         target.dispatchTouchEvent(up)
         down.recycle()
         up.recycle()
+    }
+
+    /** Pixel coords relative to the WebView; dy>0 scrolls content down (finger up). */
+    private fun scrollWebView(x: Float, y: Float, dx: Float, dy: Float) {
+        val webView = findWebView(window.decorView) ?: return
+        val downTime = SystemClock.uptimeMillis()
+        val props = arrayOf(
+            MotionEvent.PointerProperties().apply {
+                id = 0
+                toolType = MotionEvent.TOOL_TYPE_MOUSE
+            },
+        )
+        val coords = arrayOf(
+            MotionEvent.PointerCoords().apply {
+                this.x = x
+                this.y = y
+                // AXIS_*SCROLL: positive VSCROLL moves content up (finger down).
+                setAxisValue(MotionEvent.AXIS_HSCROLL, -dx / 48f)
+                setAxisValue(MotionEvent.AXIS_VSCROLL, -dy / 48f)
+            },
+        )
+        val event = MotionEvent.obtain(
+            downTime,
+            downTime,
+            MotionEvent.ACTION_SCROLL,
+            1,
+            props,
+            coords,
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_CLASS_POINTER or InputDevice.SOURCE_MOUSE,
+            0,
+        )
+        try {
+            webView.onGenericMotionEvent(event)
+        } finally {
+            event.recycle()
+        }
     }
 
     private fun setWebViewFocusable(focusable: Boolean, requestFocus: Boolean = focusable) {
@@ -499,6 +615,20 @@ class MainActivity : FlutterActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_SPEECH) {
+            val pending = pendingSpeechResult
+            pendingSpeechResult = null
+            if (pending == null) return
+            if (resultCode != Activity.RESULT_OK) {
+                pending.success(null)
+                return
+            }
+            val spoken = data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+            pending.success(spoken)
+            return
+        }
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_VPN) return
         val mode = pendingAdBlockMode
@@ -518,6 +648,7 @@ class MainActivity : FlutterActivity() {
     companion object {
         private const val channelName = "com.avenbrowser/input"
         private const val REQ_VPN = 7711
+        private const val REQ_SPEECH = 9911
     }
 }
 

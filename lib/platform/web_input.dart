@@ -11,6 +11,16 @@ class WebInput {
     return _channel.invokeMethod<void>('tap', {'x': x, 'y': y, 'screen': screen});
   }
 
+  /// Injects a mouse-wheel style scroll into the WebView (SPA-friendly).
+  Future<void> scroll(double x, double y, double dx, double dy) {
+    return _channel.invokeMethod<void>('scroll', {
+      'x': x,
+      'y': y,
+      'dx': dx,
+      'dy': dy,
+    });
+  }
+
   Future<void> lockFocus() {
     return _channel.invokeMethod<void>('lockFocus');
   }
@@ -85,6 +95,11 @@ class WebInput {
 
   Future<void> setLoadsImages(bool enabled) {
     return _channel.invokeMethod<void>('setLoadsImages', {'enabled': enabled});
+  }
+
+  /// Opens the system speech recognizer and returns the first match.
+  Future<String?> recognizeSpeech({String locale = 'tr-TR'}) {
+    return _channel.invokeMethod<String>('recognizeSpeech', {'locale': locale});
   }
 }
 

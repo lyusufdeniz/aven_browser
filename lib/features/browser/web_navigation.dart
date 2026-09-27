@@ -21,6 +21,7 @@ mixin _BrowserNavigation on _BrowserPageBase {
     setState(() {
       _pageUrl = url;
       _pageError = null;
+      _readerOn = false;
       if (isAvenWebUrl(url)) {
         _onStart = false;
         _address.text = url;
@@ -204,7 +205,6 @@ mixin _BrowserNavigation on _BrowserPageBase {
   }
 
   Future<void> _resumeWebPage() async {
-    if (!_webSuspended) return;
     _webSuspended = false;
     try {
       await _input.resumeWebView();

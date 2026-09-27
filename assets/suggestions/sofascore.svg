@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <!-- Official Sofascore app mark: blue tile + white bracket symbol -->
+  <rect width="48" height="48" rx="11" fill="#374DF5"/>
+  <g
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="4.4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    transform="translate(1.8 1.8) scale(0.925)"
+  >
+    <path d="M42.532 5.5h-37v18.347h9.047v-9.402h27.953zm-37 37h37V24.153h-9.047v9.402H5.532z"/>
+  </g>
+</svg>

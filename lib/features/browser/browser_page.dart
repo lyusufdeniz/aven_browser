@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -20,6 +21,7 @@ import '../player/video_catalog.dart';
 import '../player/video_player_page.dart';
 import '../settings/settings_page.dart';
 import 'media_site.dart';
+import 'reader_mode.dart';
 import 'web_scripts.dart';
 
 part 'widgets/browser_page_widgets.dart';
@@ -120,6 +122,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   bool _canForward = false;
   bool _warnWebView = false;
   bool _lite = false;
+  bool _homeSuggestions = true;
   bool _saved = false;
   String? _pageUrl;
   String? _pageTitle;
@@ -127,7 +130,8 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   List<WebLink> _bookmarks = const [];
   List<WebLink> _history = const [];
   AdBlock _adBlock = AdBlock.off;
-  AdBlock _adBlockProvider = AdBlock.adguard;
+  AdBlock _adBlockProvider = AdBlock.local;
+  bool _readerOn = false;
   int _zoom = 100;
   int _mediaEpoch = 0;
   String? _userAgent;
@@ -207,6 +211,7 @@ class _BrowserPageState extends _BrowserPageBase
     final provider = await _store.loadAdBlockProvider();
     final agent = await _store.loadAgent();
     final lite = await _store.loadLiteBrowsing();
+    final homeSuggestions = await _store.loadHomeSuggestions();
     final version = await _input.webViewVersion();
     await _input.setAdBlock(block.name);
     await _applyAgent(agent);
@@ -220,11 +225,15 @@ class _BrowserPageState extends _BrowserPageBase
       _adBlock = block;
       _adBlockProvider = provider;
       _lite = lite;
+      _homeSuggestions = homeSuggestions;
       _warnWebView = major != null && major < 80;
     });
     // Start screen never mounts WebView; keep native side paused anyway.
     if (_onStart) {
       unawaited(_suspendWebPage());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _onStart) _startFocus.requestFocus();
+      });
     }
   }
 
@@ -370,14 +379,23 @@ class _BrowserPageState extends _BrowserPageBase
       _addressEditing = false;
       _startEditing = false;
       _pageError = null;
+      _readerOn = false;
     });
     _syncChrome();
     _addressFocus.unfocus();
     _startFocus.unfocus();
     _surfaceFocus.canRequestFocus = true;
-    await _resumeWebPage();
-    await _controller.loadRequest(Uri.parse(target));
+    // Always force-resume: a stale pauseTimers() leaves the page black forever.
+    _webSuspended = false;
+    try {
+      await _input.resumeWebView();
+    } catch (_) {}
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    try {
+      await _controller.loadRequest(Uri.parse(target));
+    } catch (_) {}
     _surfaceFocus.requestFocus();
+    unawaited(_wakeSurface());
   }
 
   void _showStart() {
@@ -392,6 +410,7 @@ class _BrowserPageState extends _BrowserPageBase
       _canBack = false;
       _canForward = false;
       _saved = false;
+      _readerOn = false;
       _fullscreenVideo = null;
       _exitFullscreen = null;
       _address.text = '';
@@ -402,7 +421,9 @@ class _BrowserPageState extends _BrowserPageBase
     _syncChrome();
     unawaited(_resetWebViewForHome());
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _startFocus.requestFocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _onStart) _startFocus.requestFocus();
+      });
     });
   }
 
@@ -412,12 +433,8 @@ class _BrowserPageState extends _BrowserPageBase
     try {
       await _controller.loadRequest(Uri.parse('about:blank'));
     } catch (_) {}
-    try {
-      await _controller.clearCache();
-    } catch (_) {}
-    try {
-      await _controller.clearLocalStorage();
-    } catch (_) {}
+    // Avoid clearCache/clearLocalStorage here — they race pauseTimers and can
+    // leave the next navigation on a black, non-loading surface.
   }
 
   Future<void> _confirmExit() async {
@@ -566,6 +583,7 @@ class _BrowserPageState extends _BrowserPageBase
     final provider = await _store.loadAdBlockProvider();
     final agent = await _store.loadAgent();
     final lite = await _store.loadLiteBrowsing();
+    final homeSuggestions = await _store.loadHomeSuggestions();
     await _input.setAdBlock(block.name);
     await _applyAgent(agent);
     await _applyLite(lite);
@@ -575,6 +593,7 @@ class _BrowserPageState extends _BrowserPageBase
       _adBlock = block;
       _adBlockProvider = provider;
       _lite = lite;
+      _homeSuggestions = homeSuggestions;
     });
     if (!_onStart && isAvenWebUrl(_pageUrl)) {
       await _controller.reload();
@@ -597,6 +616,16 @@ class _BrowserPageState extends _BrowserPageBase
     if (next.isEnabled) await _installAdblockCss();
     if (!mounted) return;
     setState(() => _adBlock = next);
+  }
+
+  Future<void> _toggleReader() async {
+    if (_onStart || _pageError != null) return;
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(readerToggleScript);
+      final text = raw.toString().replaceAll('"', '').trim().toLowerCase();
+      if (!mounted) return;
+      setState(() => _readerOn = text == 'on');
+    } catch (_) {}
   }
 
   @override
@@ -626,7 +655,9 @@ class _BrowserPageState extends _BrowserPageBase
     _syncChrome();
     _surfaceFocus.canRequestFocus = false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _menuOpen) _menuFocus.requestFocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _menuOpen) _menuFocus.requestFocus();
+      });
     });
   }
 
@@ -1153,7 +1184,11 @@ class _BrowserPageState extends _BrowserPageBase
                 engine: _engine,
                 bookmarks: _bookmarks,
                 history: _history,
+                showSuggestions: _homeSuggestions,
                 onTapField: () => setState(() => _startEditing = true),
+                onLeaveField: () {
+                  if (_startEditing) setState(() => _startEditing = false);
+                },
                 onSubmit: _openInput,
                 onOpenBookmark: _openInput,
                 onOpenBookmarks: () => _openLibrary(section: 0),
@@ -1164,6 +1199,7 @@ class _BrowserPageState extends _BrowserPageBase
               Positioned.fill(
                 child: _PageErrorOverlay(
                   error: _pageError!,
+                  menuOpen: _menuOpen,
                   onRetry: _retryPage,
                   onHome: _showStart,
                 ),
@@ -1179,19 +1215,37 @@ class _BrowserPageState extends _BrowserPageBase
                 canForward: _canForward,
                 saved: _saved,
                 adBlockOn: _adBlock.isEnabled,
+                readerOn: _readerOn,
                 zoom: _zoom,
                 onTapField: () => setState(() => _addressEditing = true),
                 onSubmit: _openInput,
                 onBack: () => _controller.goBack(),
                 onForward: () => _controller.goForward(),
                 onReload: () {
-                  setState(() => _pageError = null);
-                  _controller.reload();
+                  setState(() {
+                    _pageError = null;
+                    _readerOn = false;
+                  });
+                  unawaited(() async {
+                    await _resumeWebPage();
+                    try {
+                      await _controller.reload();
+                    } catch (_) {
+                      final url = _pageUrl ?? _address.text;
+                      if (isAvenWebUrl(url)) {
+                        try {
+                          await _controller.loadRequest(Uri.parse(url));
+                        } catch (_) {}
+                      }
+                    }
+                    await _wakeSurface();
+                  }());
                 },
                 onHome: _showStart,
                 onBookmark: _toggleBookmark,
                 onLibrary: _openLibrary,
                 onToggleAdBlock: _toggleAdBlock,
+                onToggleReader: () => unawaited(_toggleReader()),
                 onZoomOut: () => _setZoom(_zoom - 10),
                 onZoomIn: () => _setZoom(_zoom + 10),
                 onZoomReset: () => _setZoom(100),

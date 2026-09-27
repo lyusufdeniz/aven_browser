@@ -227,23 +227,94 @@ mixin _CursorInput on _BrowserPageBase {
     if (_webSize.isEmpty) return;
     final px = x.clamp(0.0, (_webSize.width - 1).clamp(0.0, double.infinity));
     final py = y.clamp(0.0, (_webSize.height - 1).clamp(0.0, double.infinity));
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    // Native wheel first — WebView / SPAs (Google News) honor this reliably.
+    unawaited(
+      _input.scroll(px * pixelRatio, py * pixelRatio, dx * pixelRatio, dy * pixelRatio),
+    );
+    // Google News / SPAs: body often overflow:hidden; real scroll is an inner
+    // pane (overflow auto/overlay) or wheel handlers. Prefer that over window.
     final script = '''
 (function() {
   var x = $px, y = $py, dx = $dx, dy = $dy;
+  function overflowScrollable(v) {
+    return v === 'auto' || v === 'scroll' || v === 'overlay';
+  }
+  function canScrollY(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.scrollHeight <= el.clientHeight + 2) return false;
+    var style = getComputedStyle(el);
+    if (overflowScrollable(style.overflowY)) return true;
+    if (style.overflowY === 'hidden' && el !== document.body &&
+        el !== document.documentElement) {
+      var before = el.scrollTop;
+      el.scrollTop = before + 1;
+      var moved = el.scrollTop !== before;
+      el.scrollTop = before;
+      return moved;
+    }
+    return false;
+  }
+  function canScrollX(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.scrollWidth <= el.clientWidth + 2) return false;
+    var style = getComputedStyle(el);
+    return overflowScrollable(style.overflowX) ||
+        (style.overflowX === 'hidden' && el !== document.body &&
+         el !== document.documentElement);
+  }
+  function tryScroll(el) {
+    if (!el) return false;
+    var moved = false;
+    if (dy !== 0 && canScrollY(el)) {
+      var by = el.scrollTop;
+      el.scrollBy(0, dy);
+      if (el.scrollTop !== by) moved = true;
+    }
+    if (dx !== 0 && canScrollX(el)) {
+      var bx = el.scrollLeft;
+      el.scrollBy(dx, 0);
+      if (el.scrollLeft !== bx) moved = true;
+    }
+    return moved;
+  }
   var el = document.elementFromPoint(x, y);
   while (el && el !== document.documentElement) {
-    var style = getComputedStyle(el);
-    var canY = (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-        el.scrollHeight > el.clientHeight + 2;
-    var canX = (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
-        el.scrollWidth > el.clientWidth + 2;
-    if ((dy !== 0 && canY) || (dx !== 0 && canX)) {
-      el.scrollBy(dx, dy);
-      return;
-    }
+    if (tryScroll(el)) return 'ancestor';
     el = el.parentElement;
   }
+  var se = document.scrollingElement || document.documentElement;
+  if (tryScroll(se)) return 'document';
+  if (tryScroll(document.body)) return 'body';
+  var best = null, bestArea = 0;
+  var nodes = document.querySelectorAll('div,main,section,article,aside,nav');
+  for (var i = 0; i < nodes.length; i++) {
+    var n = nodes[i];
+    if (!(dy !== 0 && canScrollY(n)) && !(dx !== 0 && canScrollX(n))) continue;
+    var r = n.getBoundingClientRect();
+    if (r.width < 48 || r.height < 48) continue;
+    if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue;
+    var area = r.width * r.height;
+    if (area > bestArea) { best = n; bestArea = area; }
+  }
+  if (best && tryScroll(best)) return 'best';
+  var target = document.elementFromPoint(x, y) || document.body || document.documentElement;
+  try {
+    target.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      clientX: x,
+      clientY: y,
+      deltaX: dx,
+      deltaY: dy,
+      deltaMode: 0,
+      view: window
+    }));
+    return 'wheel';
+  } catch (e) {}
   window.scrollBy(dx, dy);
+  return 'window';
 })();
 ''';
     try {

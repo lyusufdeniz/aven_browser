@@ -17,8 +17,14 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  static const _sections = ['Arama', 'Ağ', 'Tarayıcı', 'Performans'];
-  static const _icons = [Icons.search, Icons.lan, Icons.language, Icons.speed];
+  static const _sections = ['Arama', 'Ağ', 'Tarayıcı', 'Performans', 'Ana ekran'];
+  static const _icons = [
+    Icons.search,
+    Icons.lan,
+    Icons.language,
+    Icons.speed,
+    Icons.home_outlined,
+  ];
 
   int _section = 0;
   bool _onLeft = true;
@@ -26,6 +32,7 @@ class _SettingsPageState extends State<SettingsPage> {
   AdBlock _block = AdBlock.off;
   BrowserAgent _agent = BrowserAgent.defaultAgent;
   bool _lite = false;
+  bool _homeSuggestions = true;
   late final List<FocusNode> _leftFocus =
       List.generate(_sections.length, (index) => FocusNode(debugLabel: 'settings-left-$index'));
   late final List<FocusNode> _rightFocus =
@@ -54,12 +61,14 @@ class _SettingsPageState extends State<SettingsPage> {
     final block = await widget.store.loadAdBlock();
     final agent = await widget.store.loadAgent();
     final lite = await widget.store.loadLiteBrowsing();
+    final homeSuggestions = await widget.store.loadHomeSuggestions();
     if (!mounted) return;
     setState(() {
       _engine = engine;
       _block = block;
       _agent = agent;
       _lite = lite;
+      _homeSuggestions = homeSuggestions;
     });
   }
 
@@ -89,6 +98,12 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _lite = enabled);
   }
 
+  Future<void> _selectHomeSuggestions(bool enabled) async {
+    await widget.store.saveHomeSuggestions(enabled);
+    if (!mounted) return;
+    setState(() => _homeSuggestions = enabled);
+  }
+
   void _focusLeft(int index) {
     if (!_onLeft) setState(() => _onLeft = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -111,6 +126,7 @@ class _SettingsPageState extends State<SettingsPage> {
     0 => SearchEngine.values.length,
     1 => AdBlock.values.length,
     2 => BrowserAgent.values.length,
+    3 => 2,
     _ => 2,
   };
 
@@ -175,8 +191,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _selectBlock(AdBlock.values[index]);
       case 2:
         _selectAgent(BrowserAgent.values[index]);
-      default:
+      case 3:
         _selectLite(index == 0);
+      default:
+        _selectHomeSuggestions(index == 0);
     }
   }
 
@@ -275,7 +293,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _agent == BrowserAgent.values[index],
           ),
       ],
-      _ => [
+      3 => [
         (
           'Açık',
           'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
@@ -285,6 +303,18 @@ class _SettingsPageState extends State<SettingsPage> {
           'Kapalı',
           'Siteler normal yüklenir.',
           !_lite,
+        ),
+      ],
+      _ => [
+        (
+          'Göster',
+          'Ana ekranda IMDb, SofaScore ve diğer öneri kartları görünür.',
+          _homeSuggestions,
+        ),
+        (
+          'Gizle',
+          'Ana ekranda yalnızca arama, kısayollar ve yer imleri kalır.',
+          !_homeSuggestions,
         ),
       ],
     };
@@ -297,7 +327,8 @@ class _SettingsPageState extends State<SettingsPage> {
             0 => 'Varsayılan arama motoru',
             1 => 'Reklam engelleme',
             2 => 'User agent',
-            _ => 'Hafif gezinme',
+            3 => 'Hafif gezinme',
+            _ => 'Ana ekran önerileri',
           },
           style: const TextStyle(fontSize: 18),
         ),

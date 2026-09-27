@@ -108,6 +108,7 @@ class BrowserStore {
   static const _adBlockLastKey = 'ad_block_last';
   static const _agentKey = 'user_agent';
   static const _liteKey = 'lite_browsing';
+  static const _homeSuggestionsKey = 'home_suggestions';
 
   Future<SearchEngine> loadEngine() async {
     final prefs = await SharedPreferences.getInstance();
@@ -146,8 +147,11 @@ class BrowserStore {
 
   Future<AdBlock> loadAdBlockProvider() async {
     final prefs = await SharedPreferences.getInstance();
-    final stored = AdBlock.fromName(prefs.getString(_adBlockLastKey));
-    return stored == AdBlock.off ? AdBlock.adguard : stored;
+    final raw = prefs.getString(_adBlockLastKey);
+    // First enable: prefer local list (no VPN). Settings choice is remembered.
+    if (raw == null || raw.isEmpty) return AdBlock.local;
+    final stored = AdBlock.fromName(raw);
+    return stored == AdBlock.off ? AdBlock.local : stored;
   }
 
   Future<void> saveAdBlock(AdBlock mode) async {
@@ -177,6 +181,16 @@ class BrowserStore {
   Future<void> saveLiteBrowsing(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_liteKey, enabled);
+  }
+
+  Future<bool> loadHomeSuggestions() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_homeSuggestionsKey) ?? true;
+  }
+
+  Future<void> saveHomeSuggestions(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_homeSuggestionsKey, enabled);
   }
 
   Future<void> saveAccount(String? email) async {

@@ -15,6 +15,11 @@ bool _isTypingCharacter(String value) {
   return code >= 32 && code != 127;
 }
 
+/// Leaves the search field and moves focus down (overrides TextField arrows).
+class _SearchLeaveDownIntent extends Intent {
+  const _SearchLeaveDownIntent();
+}
+
 bool _jsTrue(Object value) {
   if (value is bool) return value;
   final text = value.toString().replaceAll('"', '').trim().toLowerCase();
@@ -157,11 +162,13 @@ class _PageErrorOverlay extends StatefulWidget {
     required this.error,
     required this.onRetry,
     required this.onHome,
+    this.menuOpen = false,
   });
 
   final _PageError error;
   final VoidCallback onRetry;
   final VoidCallback onHome;
+  final bool menuOpen;
 
   @override
   State<_PageErrorOverlay> createState() => _PageErrorOverlayState();
@@ -190,7 +197,20 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant _PageErrorOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.menuOpen && !oldWidget.menuOpen) {
+      _focusGuard?.cancel();
+      _retryFocus.unfocus();
+      _homeFocus.unfocus();
+    } else if (!widget.menuOpen && oldWidget.menuOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _claimFocus());
+    }
+  }
+
   void _onFocusChanged() {
+    if (widget.menuOpen) return;
     if (_retryFocus.hasFocus || _homeFocus.hasFocus) {
       _focusGuard?.cancel();
       return;
@@ -200,7 +220,7 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
   }
 
   void _claimFocus() {
-    if (!mounted) return;
+    if (!mounted || widget.menuOpen) return;
     if (_retryFocus.hasFocus || _homeFocus.hasFocus) return;
     _retryFocus.requestFocus();
   }
@@ -237,102 +257,106 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
   @override
   Widget build(BuildContext context) {
     final code = widget.error.code;
-    return FocusScope(
-      autofocus: true,
-      child: FocusTraversalGroup(
-        policy: OrderedTraversalPolicy(),
-        child: DecoratedBox(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AvenColors.background,
-                AvenColors.ink,
-                Color(0xFF101628),
-              ],
+    return ExcludeFocus(
+      excluding: widget.menuOpen,
+      child: FocusScope(
+        canRequestFocus: !widget.menuOpen,
+        autofocus: !widget.menuOpen,
+        child: FocusTraversalGroup(
+          policy: OrderedTraversalPolicy(),
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AvenColors.background,
+                  AvenColors.ink,
+                  Color(0xFF101628),
+                ],
+              ),
             ),
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (code != null)
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (code != null)
+                        Text(
+                          '$code',
+                          style: TextStyle(
+                            fontFamily: 'Cal Sans',
+                            fontSize: 88,
+                            fontWeight: FontWeight.w600,
+                            height: 1,
+                            letterSpacing: -2,
+                            color: AvenColors.error.withValues(alpha: 0.9),
+                          ),
+                        )
+                      else
+                        const Icon(Icons.wifi_off_rounded, size: 64, color: AvenColors.hover),
+                      const SizedBox(height: 18),
                       Text(
-                        '$code',
-                        style: TextStyle(
-                          fontFamily: 'Cal Sans',
-                          fontSize: 88,
-                          fontWeight: FontWeight.w600,
-                          height: 1,
-                          letterSpacing: -2,
-                          color: AvenColors.error.withValues(alpha: 0.9),
-                        ),
-                      )
-                    else
-                      const Icon(Icons.wifi_off_rounded, size: 64, color: AvenColors.hover),
-                    const SizedBox(height: 18),
-                    Text(
-                      widget.error.title,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w600,
-                        color: AvenColors.mist,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      widget.error.detail,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: AvenColors.textMuted,
-                        height: 1.4,
-                      ),
-                    ),
-                    if (widget.error.url != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        widget.error.url!,
+                        widget.error.title,
                         textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, color: AvenColors.teal),
-                      ),
-                    ],
-                    const SizedBox(height: 32),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        FocusTraversalOrder(
-                          order: const NumericFocusOrder(0),
-                          child: _ErrorAction(
-                            focusNode: _retryFocus,
-                            label: 'Yeniden dene',
-                            icon: Icons.refresh,
-                            onPressed: widget.onRetry,
-                            onKeyEvent: (event) => _onKey(0, event),
-                          ),
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w600,
+                          color: AvenColors.mist,
                         ),
-                        const SizedBox(width: 14),
-                        FocusTraversalOrder(
-                          order: const NumericFocusOrder(1),
-                          child: _ErrorAction(
-                            focusNode: _homeFocus,
-                            label: 'Başlangıç',
-                            icon: Icons.home_outlined,
-                            onPressed: widget.onHome,
-                            onKeyEvent: (event) => _onKey(1, event),
-                          ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        widget.error.detail,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: AvenColors.textMuted,
+                          height: 1.4,
+                        ),
+                      ),
+                      if (widget.error.url != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          widget.error.url!,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13, color: AvenColors.teal),
                         ),
                       ],
-                    ),
-                  ],
+                      const SizedBox(height: 32),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          FocusTraversalOrder(
+                            order: const NumericFocusOrder(0),
+                            child: _ErrorAction(
+                              focusNode: _retryFocus,
+                              label: 'Yeniden dene',
+                              icon: Icons.refresh,
+                              onPressed: widget.onRetry,
+                              onKeyEvent: (event) => _onKey(0, event),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          FocusTraversalOrder(
+                            order: const NumericFocusOrder(1),
+                            child: _ErrorAction(
+                              focusNode: _homeFocus,
+                              label: 'Başlangıç',
+                              icon: Icons.home_outlined,
+                              onPressed: widget.onHome,
+                              onKeyEvent: (event) => _onKey(1, event),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -441,7 +465,9 @@ class _StartPage extends StatefulWidget {
     required this.engine,
     required this.bookmarks,
     required this.history,
+    required this.showSuggestions,
     required this.onTapField,
+    required this.onLeaveField,
     required this.onSubmit,
     required this.onOpenBookmark,
     required this.onOpenBookmarks,
@@ -455,7 +481,9 @@ class _StartPage extends StatefulWidget {
   final SearchEngine engine;
   final List<WebLink> bookmarks;
   final List<WebLink> history;
+  final bool showSuggestions;
   final VoidCallback onTapField;
+  final VoidCallback onLeaveField;
   final ValueChanged<String> onSubmit;
   final ValueChanged<String> onOpenBookmark;
   final VoidCallback onOpenBookmarks;
@@ -471,58 +499,29 @@ class _StartPageState extends State<_StartPage> {
   static const _suggestLimit = 8;
   static const _suggestions = <_Suggestion>[
     _Suggestion(
-      title: 'YouTube TV',
-      url: 'https://www.youtube.com/tv',
-      image: 'assets/suggestions/youtube.png',
-      background: Color(0xFFFFFFFF),
+      title: 'IMDb',
+      url: 'https://www.imdb.com/',
+      logo: 'assets/suggestions/imdb.svg',
     ),
     _Suggestion(
-      title: 'Netflix',
-      url: 'https://www.netflix.com/',
-      image: 'assets/suggestions/netflix.png',
-      background: Color(0xFF101010),
+      title: 'SofaScore',
+      url: 'https://www.sofascore.com/',
+      logo: 'assets/suggestions/sofascore.svg',
     ),
     _Suggestion(
-      title: 'Prime Video',
-      url: 'https://www.primevideo.com/',
-      image: 'assets/suggestions/prime.webp',
-      background: Color(0xFF1AA1FB),
+      title: 'Wikipedia',
+      url: 'https://www.wikipedia.org/',
+      logo: 'assets/suggestions/wikipedia.svg',
     ),
     _Suggestion(
-      title: 'Max',
-      url: 'https://www.max.com/',
-      image: 'assets/suggestions/max.png',
-      background: Color(0xFF030327),
+      title: 'Google News',
+      url: 'https://news.google.com/',
+      logo: 'assets/suggestions/googlenews.svg',
     ),
     _Suggestion(
-      title: 'Disney+',
-      url: 'https://www.disneyplus.com/',
-      image: 'assets/suggestions/disney.webp',
-      background: Color(0xFF000F4C),
-    ),
-    _Suggestion(
-      title: 'Spotify',
-      url: 'https://open.spotify.com/',
-      image: 'assets/suggestions/spotify.webp',
-      background: Color(0xFF000000),
-    ),
-    _Suggestion(
-      title: 'Twitch',
-      url: 'https://www.twitch.tv/',
-      image: 'assets/suggestions/twitch.png',
-      background: Color(0xFF6441A5),
-    ),
-    _Suggestion(
-      title: 'Apple TV+',
-      url: 'https://tv.apple.com/',
-      image: 'assets/suggestions/appletv.png',
-      background: Color(0xFF000000),
-    ),
-    _Suggestion(
-      title: 'Kick',
-      url: 'https://kick.com/',
-      image: 'assets/suggestions/kick.png',
-      background: Color(0xFF000000),
+      title: 'The Weather Channel',
+      url: 'https://weather.com/',
+      logo: 'assets/suggestions/weather.svg',
     ),
   ];
 
@@ -533,6 +532,10 @@ class _StartPageState extends State<_StartPage> {
   late final List<FocusNode> _actionFocus = List.generate(3, (_) => FocusNode());
   late final List<FocusNode> _queryFocus =
       List.generate(_suggestLimit, (_) => FocusNode());
+  final _voiceFocus = FocusNode();
+  late final Listenable _suggestRailListenable = Listenable.merge(_suggestFocus);
+  late final Listenable _bookmarkRailListenable =
+      Listenable.merge(_bookmarkFocus);
   final _pageScroll = ScrollController();
   final _suggestScroll = ScrollController();
   final _bookmarkScroll = ScrollController();
@@ -544,6 +547,7 @@ class _StartPageState extends State<_StartPage> {
   Timer? _suggestDebounce;
   int _suggestEpoch = 0;
   String _lastSuggestQuery = '';
+  bool _voiceBusy = false;
 
   @override
   void initState() {
@@ -555,7 +559,6 @@ class _StartPageState extends State<_StartPage> {
         if (_suggestFocus[index].hasFocus) {
           _scrollSuggestTo(index);
         }
-        if (mounted) setState(() {});
       });
     }
     for (var i = 0; i < _bookmarkFocus.length; i++) {
@@ -564,7 +567,6 @@ class _StartPageState extends State<_StartPage> {
         if (_bookmarkFocus[index].hasFocus) {
           _scrollBookmarkTo(index);
         }
-        if (mounted) setState(() {});
       });
     }
     for (var i = 0; i < _actionFocus.length; i++) {
@@ -611,6 +613,7 @@ class _StartPageState extends State<_StartPage> {
     for (final node in _queryFocus) {
       node.dispose();
     }
+    _voiceFocus.dispose();
     super.dispose();
   }
 
@@ -716,69 +719,147 @@ class _StartPageState extends State<_StartPage> {
     bool hits(String needle) =>
         host == needle || host.endsWith('.$needle') || host.contains(needle);
 
-    if (hits('youtube.com') || hits('youtu.be')) {
-      return _suggestions.firstWhere((s) => s.title.startsWith('YouTube'));
+    if (hits('imdb.com')) {
+      return _suggestions.firstWhere((s) => s.title == 'IMDb');
     }
-    if (hits('netflix.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'Netflix');
+    if (hits('sofascore.com')) {
+      return _suggestions.firstWhere((s) => s.title == 'SofaScore');
     }
-    if (hits('primevideo.com') || hits('amazon.com') || hits('amazon.com.tr')) {
-      return _suggestions.firstWhere((s) => s.title == 'Prime Video');
+    if (hits('wikipedia.org') || hits('wikipedia.com')) {
+      return _suggestions.firstWhere((s) => s.title == 'Wikipedia');
     }
-    if (hits('max.com') || hits('hbomax.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'Max');
+    if (hits('news.google.com') || host.contains('news.google')) {
+      return _suggestions.firstWhere((s) => s.title == 'Google News');
     }
-    if (hits('disneyplus.com') || hits('disney.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'Disney+');
-    }
-    if (hits('spotify.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'Spotify');
-    }
-    if (hits('twitch.tv')) {
-      return _suggestions.firstWhere((s) => s.title == 'Twitch');
-    }
-    if (hits('tv.apple.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'Apple TV+');
-    }
-    if (hits('kick.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'Kick');
+    if (hits('weather.com') || hits('theweatherchannel.com')) {
+      return _suggestions.firstWhere((s) => s.title == 'The Weather Channel');
     }
     return null;
   }
 
   int get _bookmarkCount => widget.bookmarks.length.clamp(0, _bookmarkLimit);
   bool get _hasQuerySuggests => _querySuggestions.isNotEmpty;
+  bool get _showSiteRail => widget.showSuggestions && !_hasQuerySuggests;
 
-  void _focusAfterSearch() {
-    if (_hasQuerySuggests) {
-      _queryFocus.first.requestFocus();
+  void _leaveAddressField() {
+    widget.onLeaveField();
+    try {
+      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    } catch (_) {}
+  }
+
+  void _requestNode(FocusNode node, {int attempt = 0}) {
+    if (!mounted) return;
+    if (node.context == null) {
+      if (attempt >= 4) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _requestNode(node, attempt: attempt + 1);
+      });
       return;
     }
-    _actionFocus.first.requestFocus();
+    node.requestFocus();
+    _ensureVisible(node);
   }
 
+  /// Search → query list (if any) → action row.
+  void _focusAfterSearch({bool afterRebuild = false}) {
+    _leaveAddressField();
+    void move() {
+      if (!mounted) return;
+      if (_hasQuerySuggests) {
+        _requestNode(_queryFocus.first);
+        return;
+      }
+      _requestNode(_actionFocus.first);
+    }
+
+    if (afterRebuild || widget.editing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => move());
+    } else {
+      move();
+    }
+  }
+
+  /// Actions → site suggestions (if enabled) → bookmarks.
   void _focusAfterActions() {
-    _suggestFocus.first.requestFocus();
+    if (!mounted) return;
+    if (widget.showSuggestions && !_hasQuerySuggests) {
+      if (_suggestScroll.hasClients) _suggestScroll.jumpTo(0);
+      _requestNode(_suggestFocus.first);
+      return;
+    }
+    if (_bookmarkCount > 0) {
+      if (_bookmarkScroll.hasClients) _bookmarkScroll.jumpTo(0);
+      _requestNode(_bookmarkFocus.first);
+    }
   }
 
-  void _fromAddress(LogicalKeyboardKey key) {
-    if (key != LogicalKeyboardKey.arrowDown) return;
-    _focusAfterSearch();
+  void _focusAboveSiteRail() {
+    _requestNode(_actionFocus.first);
+  }
+
+  Future<void> _startVoiceSearch() async {
+    if (_voiceBusy) return;
+    setState(() => _voiceBusy = true);
+    try {
+      final spoken = await WebInput().recognizeSpeech();
+      if (!mounted) return;
+      final text = spoken?.trim() ?? '';
+      if (text.isEmpty) return;
+      widget.address.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+      widget.onSubmit(text);
+    } on PlatformException {
+      // Emulator / TV without a speech service — keep silent.
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _voiceBusy = false);
+    }
+  }
+
+  void _onVoiceKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _requestNode(widget.focusNode);
+      return;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      _focusAfterSearch();
+      return;
+    }
+    if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.arrowUp) {
+      return;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.space) {
+      unawaited(_startVoiceSearch());
+    }
   }
 
   void _onQueryKey(int index, KeyEvent event) {
     if (event is! KeyDownEvent) return;
     final key = event.logicalKey;
     final count = _querySuggestions.length;
-    if (key == LogicalKeyboardKey.arrowDown && index < count - 1) {
-      _queryFocus[index + 1].requestFocus();
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (index < count - 1) {
+        _requestNode(_queryFocus[index + 1]);
+      } else {
+        _requestNode(_actionFocus.first);
+      }
       return;
     }
     if (key == LogicalKeyboardKey.arrowUp) {
       if (index > 0) {
-        _queryFocus[index - 1].requestFocus();
+        _requestNode(_queryFocus[index - 1]);
       } else {
-        widget.focusNode.requestFocus();
+        _requestNode(widget.focusNode);
       }
       return;
     }
@@ -795,20 +876,20 @@ class _StartPageState extends State<_StartPage> {
     if (event is! KeyDownEvent) return;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowRight && index < _suggestions.length - 1) {
-      _suggestFocus[index + 1].requestFocus();
+      _requestNode(_suggestFocus[index + 1]);
       return;
     }
     if (key == LogicalKeyboardKey.arrowLeft && index > 0) {
-      _suggestFocus[index - 1].requestFocus();
+      _requestNode(_suggestFocus[index - 1]);
       return;
     }
     if (key == LogicalKeyboardKey.arrowUp) {
-      _actionFocus.first.requestFocus();
+      _focusAboveSiteRail();
       return;
     }
     if (key == LogicalKeyboardKey.arrowDown) {
       if (_bookmarkCount > 0) {
-        _bookmarkFocus.first.requestFocus();
+        _requestNode(_bookmarkFocus.first);
       }
       return;
     }
@@ -825,15 +906,19 @@ class _StartPageState extends State<_StartPage> {
     if (event is! KeyDownEvent) return;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowRight && index < _bookmarkCount - 1) {
-      _bookmarkFocus[index + 1].requestFocus();
+      _requestNode(_bookmarkFocus[index + 1]);
       return;
     }
     if (key == LogicalKeyboardKey.arrowLeft && index > 0) {
-      _bookmarkFocus[index - 1].requestFocus();
+      _requestNode(_bookmarkFocus[index - 1]);
       return;
     }
     if (key == LogicalKeyboardKey.arrowUp) {
-      _suggestFocus.first.requestFocus();
+      if (widget.showSuggestions) {
+        _requestNode(_suggestFocus.first);
+      } else {
+        _focusAboveSiteRail();
+      }
       return;
     }
     if (key == LogicalKeyboardKey.enter ||
@@ -849,23 +934,26 @@ class _StartPageState extends State<_StartPage> {
     if (event is! KeyDownEvent) return;
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowRight && index < 2) {
-      _actionFocus[index + 1].requestFocus();
+      _requestNode(_actionFocus[index + 1]);
       return;
     }
     if (key == LogicalKeyboardKey.arrowLeft && index > 0) {
-      _actionFocus[index - 1].requestFocus();
+      _requestNode(_actionFocus[index - 1]);
       return;
     }
     if (key == LogicalKeyboardKey.arrowUp) {
       if (_hasQuerySuggests) {
-        _queryFocus[_querySuggestions.length - 1].requestFocus();
+        _requestNode(_queryFocus[_querySuggestions.length - 1]);
       } else {
-        widget.focusNode.requestFocus();
+        _requestNode(widget.focusNode);
       }
       return;
     }
     if (key == LogicalKeyboardKey.arrowDown) {
-      _focusAfterActions();
+      if (!_hasQuerySuggests &&
+          (widget.showSuggestions || _bookmarkCount > 0)) {
+        _focusAfterActions();
+      }
       return;
     }
     if (key == LogicalKeyboardKey.enter ||
@@ -931,18 +1019,38 @@ class _StartPageState extends State<_StartPage> {
                       order: const NumericFocusOrder(0),
                       child: Center(
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 560),
+                          constraints: const BoxConstraints(maxWidth: 620),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              _AddressField(
-                                controller: widget.address,
-                                focusNode: widget.focusNode,
-                                editing: widget.editing,
-                                autofocus: true,
-                                onTap: widget.onTapField,
-                                onSubmit: widget.onSubmit,
-                                onArrow: _fromAddress,
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: _StartSearchField(
+                                      controller: widget.address,
+                                      focusNode: widget.focusNode,
+                                      editing: widget.editing,
+                                      onTap: widget.onTapField,
+                                      onLeave: widget.onLeaveField,
+                                      onSubmit: widget.onSubmit,
+                                      onArrowDown: _focusAfterSearch,
+                                      onArrowRight: () =>
+                                          _requestNode(_voiceFocus),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  FocusTraversalOrder(
+                                    order: const NumericFocusOrder(0.05),
+                                    child: _VoiceSearchButton(
+                                      focusNode: _voiceFocus,
+                                      busy: _voiceBusy,
+                                      onPressed: () =>
+                                          unawaited(_startVoiceSearch()),
+                                      onKeyEvent: _onVoiceKey,
+                                    ),
+                                  ),
+                                ],
                               ),
                               if (showQuery) ...[
                                 const SizedBox(height: 8),
@@ -1016,45 +1124,58 @@ class _StartPageState extends State<_StartPage> {
                       ],
                     ),
                     if (!showQuery) ...[
-                      const SizedBox(height: 22),
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
+                      if (_showSiteRail) ...[
+                        const SizedBox(height: 22),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
                             'Öneriler',
-                          style: TextStyle(fontSize: 16, color: AvenColors.textMuted),
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: AvenColors.textMuted,
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 168,
-                        child: ListView.separated(
-                          controller: _suggestScroll,
-                          scrollDirection: Axis.horizontal,
-                          clipBehavior: Clip.none,
-                          physics: const ClampingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(0, 14, 48, 14),
-                          itemCount: _suggestions.length,
-                          separatorBuilder: (context, index) =>
-                              const SizedBox(width: _suggestGap),
-                          itemBuilder: (context, index) {
-                            final item = _suggestions[index];
-                            final railActive =
-                                _suggestFocus.any((node) => node.hasFocus);
-                            return RepaintBoundary(
-                              child: FocusTraversalOrder(
-                                order: NumericFocusOrder(10 + index.toDouble()),
-                                child: _SuggestionPoster(
-                                  suggestion: item,
-                                  focusNode: _suggestFocus[index],
-                                  railActive: railActive,
-                                  onKeyEvent: (event) => _onSuggestKey(index, event),
-                                  onPressed: () => widget.onOpenBookmark(item.url),
-                                ),
-                              ),
-                            );
-                          },
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 168,
+                          child: SingleChildScrollView(
+                            controller: _suggestScroll,
+                            scrollDirection: Axis.horizontal,
+                            clipBehavior: Clip.none,
+                            physics: const ClampingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(0, 14, 48, 14),
+                            child: Row(
+                              children: [
+                                for (var index = 0;
+                                    index < _suggestions.length;
+                                    index++) ...[
+                                  if (index > 0)
+                                    const SizedBox(width: _suggestGap),
+                                  RepaintBoundary(
+                                    child: FocusTraversalOrder(
+                                      order: NumericFocusOrder(
+                                        10 + index.toDouble(),
+                                      ),
+                                      child: _SuggestionPoster(
+                                        suggestion: _suggestions[index],
+                                        focusNode: _suggestFocus[index],
+                                        railListenable: _suggestRailListenable,
+                                        railNodes: _suggestFocus,
+                                        onKeyEvent: (event) =>
+                                            _onSuggestKey(index, event),
+                                        onPressed: () => widget.onOpenBookmark(
+                                          _suggestions[index].url,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                       if (bookmarks.isNotEmpty) ...[
                         const SizedBox(height: 22),
                         const Align(
@@ -1070,36 +1191,45 @@ class _StartPageState extends State<_StartPage> {
                         const SizedBox(height: 10),
                         SizedBox(
                           height: 168,
-                          child: ListView.separated(
+                          child: SingleChildScrollView(
                             controller: _bookmarkScroll,
                             scrollDirection: Axis.horizontal,
                             clipBehavior: Clip.none,
                             physics: const ClampingScrollPhysics(),
                             padding: const EdgeInsets.fromLTRB(0, 14, 48, 14),
-                            itemCount: bookmarks.length,
-                            separatorBuilder: (context, index) =>
-                                const SizedBox(width: _suggestGap),
-                            itemBuilder: (context, index) {
-                              final link = bookmarks[index];
-                              final railActive = _bookmarkFocus
-                                  .take(bookmarks.length)
-                                  .any((node) => node.hasFocus);
-                              return RepaintBoundary(
-                                child: FocusTraversalOrder(
-                                  order: NumericFocusOrder(40 + index.toDouble()),
-                                  child: _BookmarkPoster(
-                                    link: link,
-                                    matched: _matchSuggestion(link.url),
-                                    focusNode: _bookmarkFocus[index],
-                                    railActive: railActive,
-                                    onKeyEvent: (event) =>
-                                        _onBookmarkKey(index, event),
-                                    onPressed: () =>
-                                        widget.onOpenBookmark(link.url),
+                            child: Row(
+                              children: [
+                                for (var index = 0;
+                                    index < bookmarks.length;
+                                    index++) ...[
+                                  if (index > 0)
+                                    const SizedBox(width: _suggestGap),
+                                  RepaintBoundary(
+                                    child: FocusTraversalOrder(
+                                      order: NumericFocusOrder(
+                                        40 + index.toDouble(),
+                                      ),
+                                      child: _BookmarkPoster(
+                                        link: bookmarks[index],
+                                        matched: _matchSuggestion(
+                                          bookmarks[index].url,
+                                        ),
+                                        focusNode: _bookmarkFocus[index],
+                                        railListenable:
+                                            _bookmarkRailListenable,
+                                        railNodes: _bookmarkFocus,
+                                        railNodeCount: bookmarks.length,
+                                        onKeyEvent: (event) =>
+                                            _onBookmarkKey(index, event),
+                                        onPressed: () => widget.onOpenBookmark(
+                                          bookmarks[index].url,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
+                                ],
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -1192,55 +1322,37 @@ class _Suggestion {
   const _Suggestion({
     required this.title,
     required this.url,
-    required this.image,
-    required this.background,
+    required this.logo,
   });
 
   final String title;
   final String url;
-  final String image;
-  final Color background;
+  final String logo;
+
+  static const faceBackground = Color(0xFF000000);
 }
 
 class _SuggestionPoster extends StatelessWidget {
   const _SuggestionPoster({
     required this.suggestion,
     required this.focusNode,
-    required this.railActive,
+    required this.railListenable,
+    required this.railNodes,
     required this.onKeyEvent,
     required this.onPressed,
   });
 
   final _Suggestion suggestion;
   final FocusNode focusNode;
-  final bool railActive;
+  final Listenable railListenable;
+  final List<FocusNode> railNodes;
   final ValueChanged<KeyEvent> onKeyEvent;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheW = (220 * dpr).round().clamp(220, 660);
-    final cacheH = (128 * dpr).round().clamp(128, 384);
-    final art = Image.asset(
-      suggestion.image,
-      fit: BoxFit.cover,
-      filterQuality: FilterQuality.low,
-      cacheWidth: cacheW,
-      cacheHeight: cacheH,
-      gaplessPlayback: true,
-      errorBuilder: (context, error, stack) => Center(
-        child: Text(
-          suggestion.title,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: suggestion.background.computeLuminance() > 0.45
-                ? Colors.black
-                : Colors.white,
-          ),
-        ),
-      ),
+    final face = _SuggestionLogo(
+      suggestion: suggestion,
     );
     return Focus(
       focusNode: focusNode,
@@ -1257,10 +1369,11 @@ class _SuggestionPoster extends StatelessWidget {
             : KeyEventResult.ignored;
       },
       child: ListenableBuilder(
-        listenable: focusNode,
-        child: art,
+        listenable: railListenable,
+        child: face,
         builder: (context, child) {
           final focused = focusNode.hasFocus;
+          final railActive = railNodes.any((node) => node.hasFocus);
           final dimmed = railActive && !focused;
           return AnimatedScale(
             scale: focused ? 1.08 : 1,
@@ -1303,7 +1416,7 @@ class _SuggestionPoster extends StatelessWidget {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          ColoredBox(color: suggestion.background),
+                          const ColoredBox(color: _Suggestion.faceBackground),
                           child!,
                           if (dimmed)
                             ColoredBox(
@@ -1323,12 +1436,64 @@ class _SuggestionPoster extends StatelessWidget {
   }
 }
 
+class _SuggestionLogo extends StatelessWidget {
+  const _SuggestionLogo({required this.suggestion});
+
+  final _Suggestion suggestion;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 48,
+              height: 48,
+              child: SvgPicture.asset(
+                suggestion.logo,
+                fit: BoxFit.contain,
+                // Keep brand fills from the SVG (no tint).
+                placeholderBuilder: (_) => const Icon(
+                  Icons.public,
+                  size: 36,
+                  color: AvenColors.text,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                suggestion.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.left,
+                style: const TextStyle(
+                  fontFamily: 'sans-serif',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.1,
+                  color: AvenColors.text,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _BookmarkPoster extends StatelessWidget {
   const _BookmarkPoster({
     required this.link,
     required this.matched,
     required this.focusNode,
-    required this.railActive,
+    required this.railListenable,
+    required this.railNodes,
+    required this.railNodeCount,
     required this.onKeyEvent,
     required this.onPressed,
   });
@@ -1336,7 +1501,9 @@ class _BookmarkPoster extends StatelessWidget {
   final WebLink link;
   final _Suggestion? matched;
   final FocusNode focusNode;
-  final bool railActive;
+  final Listenable railListenable;
+  final List<FocusNode> railNodes;
+  final int railNodeCount;
   final ValueChanged<KeyEvent> onKeyEvent;
   final VoidCallback onPressed;
 
@@ -1364,22 +1531,13 @@ class _BookmarkPoster extends StatelessWidget {
   Widget build(BuildContext context) {
     final suggestion = matched;
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheW = (220 * dpr).round().clamp(220, 660);
-    final cacheH = (128 * dpr).round().clamp(128, 384);
     final Widget face;
     if (suggestion != null) {
       face = Stack(
         fit: StackFit.expand,
         children: [
-          ColoredBox(color: suggestion.background),
-          Image.asset(
-            suggestion.image,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.low,
-            cacheWidth: cacheW,
-            cacheHeight: cacheH,
-            gaplessPlayback: true,
-          ),
+          const ColoredBox(color: _Suggestion.faceBackground),
+          _SuggestionLogo(suggestion: suggestion),
         ],
       );
     } else {
@@ -1445,10 +1603,13 @@ class _BookmarkPoster extends StatelessWidget {
             : KeyEventResult.ignored;
       },
       child: ListenableBuilder(
-        listenable: focusNode,
+        listenable: railListenable,
         child: face,
         builder: (context, child) {
           final focused = focusNode.hasFocus;
+          final railActive = railNodes
+              .take(railNodeCount)
+              .any((node) => node.hasFocus);
           final dimmed = railActive && !focused;
           return AnimatedScale(
             scale: focused ? 1.08 : 1,
@@ -1582,6 +1743,7 @@ class _FloatingMenu extends StatelessWidget {
     required this.canForward,
     required this.saved,
     required this.adBlockOn,
+    required this.readerOn,
     required this.zoom,
     required this.onTapField,
     required this.onSubmit,
@@ -1592,6 +1754,7 @@ class _FloatingMenu extends StatelessWidget {
     required this.onBookmark,
     required this.onLibrary,
     required this.onToggleAdBlock,
+    required this.onToggleReader,
     required this.onZoomOut,
     required this.onZoomIn,
     required this.onZoomReset,
@@ -1608,6 +1771,7 @@ class _FloatingMenu extends StatelessWidget {
   final bool canForward;
   final bool saved;
   final bool adBlockOn;
+  final bool readerOn;
   final int zoom;
   final VoidCallback onTapField;
   final ValueChanged<String> onSubmit;
@@ -1618,6 +1782,7 @@ class _FloatingMenu extends StatelessWidget {
   final VoidCallback onBookmark;
   final VoidCallback onLibrary;
   final VoidCallback onToggleAdBlock;
+  final VoidCallback onToggleReader;
   final VoidCallback onZoomOut;
   final VoidCallback onZoomIn;
   final VoidCallback onZoomReset;
@@ -1671,6 +1836,7 @@ class _FloatingMenu extends StatelessWidget {
                         canForward: canForward,
                         saved: saved,
                         adBlockOn: adBlockOn,
+                        readerOn: readerOn,
                         zoom: zoom,
                         onBack: onBack,
                         onForward: onForward,
@@ -1679,6 +1845,7 @@ class _FloatingMenu extends StatelessWidget {
                         onBookmark: onBookmark,
                         onLibrary: onLibrary,
                         onToggleAdBlock: onToggleAdBlock,
+                        onToggleReader: onToggleReader,
                         onZoomOut: onZoomOut,
                         onZoomIn: onZoomIn,
                         onZoomReset: onZoomReset,
@@ -1692,6 +1859,286 @@ class _FloatingMenu extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _StartSearchField extends StatelessWidget {
+  const _StartSearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.editing,
+    required this.onTap,
+    required this.onLeave,
+    required this.onSubmit,
+    required this.onArrowDown,
+    this.onArrowRight,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool editing;
+  final VoidCallback onTap;
+  final VoidCallback onLeave;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onArrowDown;
+  final VoidCallback? onArrowRight;
+
+  void _beginEditing() {
+    onTap();
+    Future<void>(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      focusNode.requestFocus();
+      try {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      } catch (_) {}
+      try {
+        await WebInput().showKeyboard();
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      if (!focusNode.hasFocus) focusNode.requestFocus();
+      try {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      } catch (_) {}
+      try {
+        await WebInput().showKeyboard();
+      } catch (_) {}
+    });
+  }
+
+  KeyEventResult _onBrowseKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown) {
+      onArrowDown();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      onArrowRight?.call();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowLeft) {
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter) {
+      if (controller.text.trim().isEmpty ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.gameButtonA) {
+        _beginEditing();
+      } else {
+        onSubmit(controller.text);
+      }
+      return KeyEventResult.handled;
+    }
+    final typed = event.character;
+    if (typed != null && _isTypingCharacter(typed)) {
+      controller.text = '${controller.text}$typed';
+      controller.selection =
+          TextSelection.collapsed(offset: controller.text.length);
+      _beginEditing();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (editing) {
+      // Shortcuts beat EditableText's arrow-key cursor handling on TV D-pad.
+      return Shortcuts(
+        shortcuts: const <ShortcutActivator, Intent>{
+          SingleActivator(LogicalKeyboardKey.arrowDown):
+              _SearchLeaveDownIntent(),
+        },
+        child: Actions(
+          actions: <Type, Action<Intent>>{
+            _SearchLeaveDownIntent: CallbackAction<_SearchLeaveDownIntent>(
+              onInvoke: (_) {
+                onLeave();
+                try {
+                  SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+                } catch (_) {}
+                onArrowDown();
+                return null;
+              },
+            ),
+          },
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            autofocus: true,
+            keyboardType: TextInputType.url,
+            textInputAction: TextInputAction.go,
+            style: const TextStyle(fontSize: 20),
+            onSubmitted: onSubmit,
+            onTap: () {
+              focusNode.requestFocus();
+              unawaited(WebInput().showKeyboard());
+            },
+            decoration: InputDecoration(
+              hintText: 'Site veya arama',
+              filled: true,
+              fillColor: AvenColors.text.withValues(alpha: 0.08),
+              isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: const BorderRadius.all(Radius.circular(10)),
+                borderSide: BorderSide(
+                  color: AvenColors.text.withValues(alpha: 0.18),
+                  width: 1.5,
+                ),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: const BorderRadius.all(Radius.circular(10)),
+                borderSide: BorderSide(
+                  color: AvenColors.text.withValues(alpha: 0.18),
+                  width: 1.5,
+                ),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(10)),
+                borderSide: BorderSide(color: AvenColors.hover, width: 3),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Browse mode: plain Focus target — TextField cannot steal D-pad.
+    return Focus(
+      focusNode: focusNode,
+      onKeyEvent: _onBrowseKey,
+      child: ListenableBuilder(
+        listenable: Listenable.merge([focusNode, controller]),
+        builder: (context, _) {
+          final focused = focusNode.hasFocus;
+          final text = controller.text.trim();
+          return AvenFocusZoom(
+            focused: focused,
+            scale: 1.04,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _beginEditing,
+                borderRadius: BorderRadius.circular(10),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: AvenColors.text.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: focused
+                          ? AvenColors.hover
+                          : AvenColors.text.withValues(alpha: 0.18),
+                      width: focused ? 3 : 1.5,
+                    ),
+                  ),
+                  child: Text(
+                    text.isEmpty ? 'Site veya arama' : text,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 20,
+                      color: text.isEmpty ? AvenColors.textMuted : AvenColors.text,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _VoiceSearchButton extends StatelessWidget {
+  const _VoiceSearchButton({
+    required this.focusNode,
+    required this.busy,
+    required this.onPressed,
+    required this.onKeyEvent,
+  });
+
+  final FocusNode focusNode;
+  final bool busy;
+  final VoidCallback onPressed;
+  final ValueChanged<KeyEvent> onKeyEvent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: focusNode,
+      onKeyEvent: (node, event) {
+        onKeyEvent(event);
+        return event is KeyDownEvent &&
+                (_isArrow(event.logicalKey) ||
+                    event.logicalKey == LogicalKeyboardKey.enter ||
+                    event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                    event.logicalKey == LogicalKeyboardKey.select ||
+                    event.logicalKey == LogicalKeyboardKey.gameButtonA ||
+                    event.logicalKey == LogicalKeyboardKey.space)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
+      },
+      child: ListenableBuilder(
+        listenable: focusNode,
+        builder: (context, _) {
+          final focused = focusNode.hasFocus;
+          return AvenFocusZoom(
+            focused: focused,
+            scale: 1.06,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: busy ? null : onPressed,
+                borderRadius: BorderRadius.circular(10),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 140),
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: focused
+                        ? AvenColors.hover
+                        : AvenColors.text.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: focused
+                          ? AvenColors.hover
+                          : AvenColors.text.withValues(alpha: 0.18),
+                      width: focused ? 3 : 1.5,
+                    ),
+                  ),
+                  child: busy
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            color: AvenColors.text,
+                          ),
+                        )
+                      : Icon(
+                          Icons.mic,
+                          size: 26,
+                          color: focused ? AvenColors.text : AvenColors.textMuted,
+                        ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1722,14 +2169,20 @@ class _AddressField extends StatelessWidget {
 
   void _beginEditing() {
     onTap();
-    // The field stays read-only until this frame finishes. Asking for the
-    // keyboard before that attaches a dummy connection and Android cancels it.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        focusNode.requestFocus();
+    Future<void>(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      focusNode.requestFocus();
+      try {
         SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-        WebInput().showKeyboard();
-      });
+      } catch (_) {}
+      try {
+        await WebInput().showKeyboard();
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      if (!focusNode.hasFocus) focusNode.requestFocus();
+      try {
+        await WebInput().showKeyboard();
+      } catch (_) {}
     });
   }
 
@@ -1852,6 +2305,7 @@ class _MenuBar extends StatefulWidget {
     required this.canForward,
     required this.saved,
     required this.adBlockOn,
+    required this.readerOn,
     required this.zoom,
     required this.onBack,
     required this.onForward,
@@ -1860,6 +2314,7 @@ class _MenuBar extends StatefulWidget {
     required this.onBookmark,
     required this.onLibrary,
     required this.onToggleAdBlock,
+    required this.onToggleReader,
     required this.onZoomOut,
     required this.onZoomIn,
     required this.onZoomReset,
@@ -1873,6 +2328,7 @@ class _MenuBar extends StatefulWidget {
   final bool canForward;
   final bool saved;
   final bool adBlockOn;
+  final bool readerOn;
   final int zoom;
   final VoidCallback onBack;
   final VoidCallback onForward;
@@ -1881,6 +2337,7 @@ class _MenuBar extends StatefulWidget {
   final VoidCallback onBookmark;
   final VoidCallback onLibrary;
   final VoidCallback onToggleAdBlock;
+  final VoidCallback onToggleReader;
   final VoidCallback onZoomOut;
   final VoidCallback onZoomIn;
   final VoidCallback onZoomReset;
@@ -1894,7 +2351,7 @@ class _MenuBar extends StatefulWidget {
 class _MenuBarState extends State<_MenuBar> {
   late final List<FocusNode> _nodes = [
     widget.firstFocus,
-    ...List.generate(11, (_) => FocusNode()),
+    ...List.generate(12, (_) => FocusNode()),
   ];
 
   @override
@@ -1929,6 +2386,13 @@ class _MenuBarState extends State<_MenuBar> {
         widget.adBlockOn ? 'Engelleme açık' : 'Engelleme kapalı',
         true,
         widget.onToggleAdBlock,
+        null,
+      ),
+      (
+        widget.readerOn ? Icons.chrome_reader_mode : Icons.chrome_reader_mode_outlined,
+        widget.readerOn ? 'Okuma açık' : 'Okuma modu',
+        true,
+        widget.onToggleReader,
         null,
       ),
       (Icons.remove, 'Uzaklaştır', true, widget.onZoomOut, null),
