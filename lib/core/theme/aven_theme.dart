@@ -37,6 +37,34 @@ abstract final class AvenColors {
       ),
       dialogTheme: const DialogThemeData(
         backgroundColor: panel,
+        titleTextStyle: TextStyle(
+          color: text,
+          fontFamily: 'Cal Sans',
+          fontSize: 28,
+          fontWeight: FontWeight.w600,
+        ),
+        contentTextStyle: TextStyle(
+          color: textMuted,
+          fontSize: 17,
+          height: 1.4,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: text,
+          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          minimumSize: const Size(120, 52),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          foregroundColor: text,
+          backgroundColor: focus,
+          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          minimumSize: const Size(120, 52),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        ),
       ),
       dividerColor: Color(0x22F3F5F7),
       textTheme: const TextTheme(

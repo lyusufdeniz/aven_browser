@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -11,6 +10,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../core/theme/aven_theme.dart';
+import '../../core/theme/aven_dialog.dart';
 import '../../core/url/url_input.dart';
 import '../../core/url/search_suggest.dart';
 import '../../data/settings_store.dart';
@@ -109,6 +109,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   bool _onStart = true;
   bool _menuOpen = false;
   DateTime _lastBack = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _exitDialogOpen = false;
   bool _openingVideo = false;
   bool _webSuspended = false;
   bool _pageTyping = false;
@@ -420,31 +421,46 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _confirmExit() async {
-    final leave = await showDialog<bool>(
-      context: context,
-      barrierColor: AvenColors.barrier,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: AvenColors.accentBlue,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: const Text('Uygulamadan çık'),
-          content: const Text('Aven Browser kapatılsın mı?'),
-          actions: [
-            TextButton(
-              autofocus: true,
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('İptal'),
+    if (_exitDialogOpen) return;
+    _exitDialogOpen = true;
+    try {
+      // Let the Back/Escape key that opened this fully finish, otherwise the
+      // new dialog route receives the same press and pops immediately.
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+      if (!mounted) return;
+      final openedAt = DateTime.now();
+      final leave = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: AvenColors.barrier,
+        builder: (context) {
+          return PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) return;
+              // Ignore the residual Back that still rides in after showDialog.
+              if (DateTime.now().difference(openedAt) <
+                  const Duration(milliseconds: 300)) {
+                return;
+              }
+              Navigator.of(context).pop(false);
+            },
+            child: AvenConfirmDialog(
+              icon: Icons.power_settings_new_rounded,
+              title: 'Uygulamadan çık',
+              message: 'Aven Browser kapatılsın mı? Açık sayfa sıfırlanır.',
+              cancelLabel: 'İptal',
+              confirmLabel: 'Çık',
+              autofocusConfirm: false,
             ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Çık'),
-            ),
-          ],
-        );
-      },
-    );
-    if (leave == true && mounted) {
-      await SystemNavigator.pop();
+          );
+        },
+      );
+      if (leave == true && mounted) {
+        await SystemNavigator.pop();
+      }
+    } finally {
+      _exitDialogOpen = false;
     }
   }
 
@@ -646,74 +662,15 @@ class _BrowserPageState extends _BrowserPageBase
     _popupOpen = true;
     final open = await showDialog<bool>(
       context: context,
-      barrierColor: Colors.transparent,
+      barrierColor: AvenColors.barrier,
       builder: (context) {
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                child: ColoredBox(color: AvenColors.scrim),
-              ),
-            ),
-            Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 640, minWidth: 420),
-                child: Material(
-                  color: AvenColors.background,
-                  elevation: 24,
-                  borderRadius: BorderRadius.circular(22),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(28, 26, 28, 20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Pencere açılsın mı?', style: TextStyle(fontSize: 26)),
-                        const SizedBox(height: 12),
-                        Text(
-                          url,
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 16, color: AvenColors.textMuted, height: 1.4),
-                        ),
-                        const SizedBox(height: 22),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              style: TextButton.styleFrom(
-                                minimumSize: const Size(120, 48),
-                                foregroundColor: AvenColors.text,
-                                backgroundColor: AvenColors.background,
-                                overlayColor: AvenColors.hover,
-                                textStyle: const TextStyle(fontSize: 16),
-                              ),
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text('İptal'),
-                            ),
-                            const SizedBox(width: 12),
-                            FilledButton(
-                              autofocus: true,
-                              style: FilledButton.styleFrom(
-                                minimumSize: const Size(120, 48),
-                                backgroundColor: AvenColors.accent,
-                                foregroundColor: AvenColors.text,
-                                overlayColor: AvenColors.hover,
-                                textStyle: const TextStyle(fontSize: 16),
-                              ),
-                              onPressed: () => Navigator.pop(context, true),
-                              child: const Text('Aç'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
+        return AvenConfirmDialog(
+          icon: Icons.open_in_new_rounded,
+          title: 'Pencere açılsın mı?',
+          message: url,
+          cancelLabel: 'İptal',
+          confirmLabel: 'Aç',
+          autofocusConfirm: true,
         );
       },
     );
@@ -1035,6 +992,7 @@ class _BrowserPageState extends _BrowserPageBase
     // One remote press can arrive both as a key and as a system back.
     final now = DateTime.now();
     if (now.difference(_lastBack) < const Duration(milliseconds: 400)) return;
+    if (_exitDialogOpen) return;
     _lastBack = now;
     if (_fullscreenVideo != null) {
       final exit = _exitFullscreen;

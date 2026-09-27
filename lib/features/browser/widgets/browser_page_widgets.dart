@@ -555,6 +555,7 @@ class _StartPageState extends State<_StartPage> {
         if (_suggestFocus[index].hasFocus) {
           _scrollSuggestTo(index);
         }
+        if (mounted) setState(() {});
       });
     }
     for (var i = 0; i < _bookmarkFocus.length; i++) {
@@ -563,6 +564,7 @@ class _StartPageState extends State<_StartPage> {
         if (_bookmarkFocus[index].hasFocus) {
           _scrollBookmarkTo(index);
         }
+        if (mounted) setState(() {});
       });
     }
     for (var i = 0; i < _actionFocus.length; i++) {
@@ -680,9 +682,15 @@ class _StartPageState extends State<_StartPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_suggestScroll.hasClients) return;
       final extent = _suggestItemWidth + _suggestGap;
-      final target = (index * extent)
-          .clamp(0.0, _suggestScroll.position.maxScrollExtent);
-      _suggestScroll.jumpTo(target);
+      final viewport = _suggestScroll.position.viewportDimension;
+      final ideal = index * extent - (viewport - _suggestItemWidth) * 0.35;
+      final target =
+          ideal.clamp(0.0, _suggestScroll.position.maxScrollExtent);
+      _suggestScroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 
@@ -690,9 +698,15 @@ class _StartPageState extends State<_StartPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_bookmarkScroll.hasClients) return;
       final extent = _suggestItemWidth + _suggestGap;
-      final target = (index * extent)
-          .clamp(0.0, _bookmarkScroll.position.maxScrollExtent);
-      _bookmarkScroll.jumpTo(target);
+      final viewport = _bookmarkScroll.position.viewportDimension;
+      final ideal = index * extent - (viewport - _suggestItemWidth) * 0.35;
+      final target =
+          ideal.clamp(0.0, _bookmarkScroll.position.maxScrollExtent);
+      _bookmarkScroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 
@@ -1012,24 +1026,27 @@ class _StartPageState extends State<_StartPage> {
                       ),
                       const SizedBox(height: 10),
                       SizedBox(
-                        height: 148,
+                        height: 168,
                         child: ListView.separated(
                           controller: _suggestScroll,
                           scrollDirection: Axis.horizontal,
                           clipBehavior: Clip.none,
                           physics: const ClampingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(0, 10, 48, 10),
+                          padding: const EdgeInsets.fromLTRB(0, 14, 48, 14),
                           itemCount: _suggestions.length,
                           separatorBuilder: (context, index) =>
                               const SizedBox(width: _suggestGap),
                           itemBuilder: (context, index) {
                             final item = _suggestions[index];
+                            final railActive =
+                                _suggestFocus.any((node) => node.hasFocus);
                             return RepaintBoundary(
                               child: FocusTraversalOrder(
                                 order: NumericFocusOrder(10 + index.toDouble()),
                                 child: _SuggestionPoster(
                                   suggestion: item,
                                   focusNode: _suggestFocus[index],
+                                  railActive: railActive,
                                   onKeyEvent: (event) => _onSuggestKey(index, event),
                                   onPressed: () => widget.onOpenBookmark(item.url),
                                 ),
@@ -1052,18 +1069,21 @@ class _StartPageState extends State<_StartPage> {
                         ),
                         const SizedBox(height: 10),
                         SizedBox(
-                          height: 148,
+                          height: 168,
                           child: ListView.separated(
                             controller: _bookmarkScroll,
                             scrollDirection: Axis.horizontal,
                             clipBehavior: Clip.none,
                             physics: const ClampingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(0, 10, 48, 10),
+                            padding: const EdgeInsets.fromLTRB(0, 14, 48, 14),
                             itemCount: bookmarks.length,
                             separatorBuilder: (context, index) =>
                                 const SizedBox(width: _suggestGap),
                             itemBuilder: (context, index) {
                               final link = bookmarks[index];
+                              final railActive = _bookmarkFocus
+                                  .take(bookmarks.length)
+                                  .any((node) => node.hasFocus);
                               return RepaintBoundary(
                                 child: FocusTraversalOrder(
                                   order: NumericFocusOrder(40 + index.toDouble()),
@@ -1071,6 +1091,7 @@ class _StartPageState extends State<_StartPage> {
                                     link: link,
                                     matched: _matchSuggestion(link.url),
                                     focusNode: _bookmarkFocus[index],
+                                    railActive: railActive,
                                     onKeyEvent: (event) =>
                                         _onBookmarkKey(index, event),
                                     onPressed: () =>
@@ -1185,12 +1206,14 @@ class _SuggestionPoster extends StatelessWidget {
   const _SuggestionPoster({
     required this.suggestion,
     required this.focusNode,
+    required this.railActive,
     required this.onKeyEvent,
     required this.onPressed,
   });
 
   final _Suggestion suggestion;
   final FocusNode focusNode;
+  final bool railActive;
   final ValueChanged<KeyEvent> onKeyEvent;
   final VoidCallback onPressed;
 
@@ -1238,26 +1261,43 @@ class _SuggestionPoster extends StatelessWidget {
         child: art,
         builder: (context, child) {
           final focused = focusNode.hasFocus;
-          return AvenFocusZoom(
-            focused: focused,
-            scale: 1.06,
-            child: SizedBox(
-              width: 220,
-              height: 128,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onPressed,
+          final dimmed = railActive && !focused;
+          return AnimatedScale(
+            scale: focused ? 1.08 : 1,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            child: AnimatedOpacity(
+              opacity: dimmed ? 0.34 : 1,
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                width: 220,
+                height: 128,
+                decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: suggestion.background,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: focused ? AvenColors.focus : Colors.transparent,
-                        width: focused ? 3 : 0,
-                      ),
-                    ),
+                  border: Border.all(
+                    color: focused
+                        ? AvenColors.text.withValues(alpha: 0.92)
+                        : Colors.transparent,
+                    width: focused ? 3 : 0,
+                  ),
+                  boxShadow: focused
+                      ? [
+                          BoxShadow(
+                            color: AvenColors.text.withValues(alpha: 0.18),
+                            blurRadius: 18,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onPressed,
+                    borderRadius: BorderRadius.circular(14),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(focused ? 11 : 14),
                       child: Stack(
@@ -1265,6 +1305,10 @@ class _SuggestionPoster extends StatelessWidget {
                         children: [
                           ColoredBox(color: suggestion.background),
                           child!,
+                          if (dimmed)
+                            ColoredBox(
+                              color: AvenColors.background.withValues(alpha: 0.45),
+                            ),
                         ],
                       ),
                     ),
@@ -1284,6 +1328,7 @@ class _BookmarkPoster extends StatelessWidget {
     required this.link,
     required this.matched,
     required this.focusNode,
+    required this.railActive,
     required this.onKeyEvent,
     required this.onPressed,
   });
@@ -1291,6 +1336,7 @@ class _BookmarkPoster extends StatelessWidget {
   final WebLink link;
   final _Suggestion? matched;
   final FocusNode focusNode;
+  final bool railActive;
   final ValueChanged<KeyEvent> onKeyEvent;
   final VoidCallback onPressed;
 
@@ -1403,30 +1449,55 @@ class _BookmarkPoster extends StatelessWidget {
         child: face,
         builder: (context, child) {
           final focused = focusNode.hasFocus;
-          final bg = suggestion?.background ?? _fallbackBg;
-          return AvenFocusZoom(
-            focused: focused,
-            scale: 1.06,
-            child: SizedBox(
-              width: 220,
-              height: 128,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: onPressed,
+          final dimmed = railActive && !focused;
+          return AnimatedScale(
+            scale: focused ? 1.08 : 1,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            child: AnimatedOpacity(
+              opacity: dimmed ? 0.34 : 1,
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                width: 220,
+                height: 128,
+                decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: bg,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: focused ? AvenColors.focus : Colors.transparent,
-                        width: focused ? 3 : 0,
-                      ),
-                    ),
+                  border: Border.all(
+                    color: focused
+                        ? AvenColors.text.withValues(alpha: 0.92)
+                        : Colors.transparent,
+                    width: focused ? 3 : 0,
+                  ),
+                  boxShadow: focused
+                      ? [
+                          BoxShadow(
+                            color: AvenColors.text.withValues(alpha: 0.18),
+                            blurRadius: 18,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: onPressed,
+                    borderRadius: BorderRadius.circular(14),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(focused ? 11 : 14),
-                      child: child,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          child!,
+                          if (dimmed)
+                            ColoredBox(
+                              color: AvenColors.background.withValues(alpha: 0.45),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
