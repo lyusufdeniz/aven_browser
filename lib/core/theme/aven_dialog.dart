@@ -248,35 +248,28 @@ class AvenDialogButton extends StatelessWidget {
         listenable: focusNode,
         builder: (context, _) {
           final focused = focusNode.hasFocus;
-          final Color fill;
-          if (focused) {
-            fill = AvenColors.focus;
-          } else if (primary) {
-            fill = AvenColors.text.withValues(alpha: 0.10);
-          } else {
-            fill = AvenColors.text.withValues(alpha: 0.05);
-          }
-          final border = focused
-              ? AvenColors.text.withValues(alpha: 0.45)
-              : AvenColors.text.withValues(alpha: primary ? 0.22 : 0.14);
+          final Color fill = primary
+              ? AvenColors.text.withValues(alpha: 0.10)
+              : AvenColors.text.withValues(alpha: 0.05);
+          final border = AvenColors.text.withValues(alpha: primary ? 0.22 : 0.14);
           return AvenFocusZoom(
             focused: focused,
             scale: 1.04,
+            borderRadius: 12,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: onPressed,
                 borderRadius: BorderRadius.circular(12),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  curve: Curves.easeOut,
+                overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+                child: Container(
                   constraints: const BoxConstraints(minHeight: 54),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
                     color: fill,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: border, width: focused ? 2.5 : 1.5),
+                    border: Border.all(color: border, width: 1.5),
                   ),
                   alignment: Alignment.center,
                   child: Text(
@@ -285,7 +278,7 @@ class AvenDialogButton extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: AvenColors.text.withValues(alpha: focused ? 1 : 0.92),
+                      color: AvenColors.text.withValues(alpha: 0.92),
                     ),
                   ),
                 ),

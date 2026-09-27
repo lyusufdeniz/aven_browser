@@ -1115,7 +1115,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   ),
                 ),
               ),
-            if (_loading && !_inPip) const Center(child: CircularProgressIndicator()),
+            if (_loading && !_inPip)
+              const Center(
+                child: CircularProgressIndicator(
+                  color: AvenColors.text,
+                ),
+              ),
             if (_error != null && !_inPip)
               Align(
                 alignment: Alignment.topCenter,
@@ -1142,7 +1147,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                         elevation: 16,
                         color: AvenColors.accentBlue.withValues(alpha: 0.96),
                         borderRadius: BorderRadius.circular(18),
-                        clipBehavior: Clip.antiAlias,
+                        clipBehavior: Clip.none,
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
                           child: ListenableBuilder(
@@ -1162,91 +1167,99 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                                     focusNode: _barFocus[_progressIndex],
                                     onKeyEvent: (node, event) =>
                                         _onBarKey(_progressIndex, event, () {}),
-                                    // No FocusZoom — full-width scale clips the panel.
-                                    child: Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        2,
-                                        4,
-                                        2,
-                                        8,
-                                      ),
-                                      child: Column(
-                                        children: [
-                                          if (controller != null &&
-                                              controller.value.isInitialized)
-                                            ClipRRect(
-                                              borderRadius:
-                                                  BorderRadius.circular(6),
-                                              child: VideoProgressIndicator(
-                                                controller,
-                                                allowScrubbing: true,
-                                                padding: EdgeInsets.zero,
-                                                colors: VideoProgressColors(
-                                                  playedColor: progressFocused
-                                                      ? AvenColors.mist
-                                                      : AvenColors.text,
-                                                  bufferedColor: AvenColors.text
-                                                      .withValues(alpha: 0.28),
-                                                  backgroundColor: AvenColors
-                                                      .text
-                                                      .withValues(alpha: 0.12),
+                                    child: AvenFocusZoom(
+                                      focused: progressFocused,
+                                      scale: 1.02,
+                                      showHalo: false,
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          8,
+                                          4,
+                                          8,
+                                          8,
+                                        ),
+                                        child: Column(
+                                          children: [
+                                            if (controller != null &&
+                                                controller.value.isInitialized)
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                child: VideoProgressIndicator(
+                                                  controller,
+                                                  allowScrubbing: true,
+                                                  padding: EdgeInsets.zero,
+                                                  colors: VideoProgressColors(
+                                                    playedColor:
+                                                        progressFocused
+                                                            ? AvenColors.mist
+                                                            : AvenColors.text,
+                                                    bufferedColor: AvenColors
+                                                        .text
+                                                        .withValues(
+                                                            alpha: 0.28),
+                                                    backgroundColor: AvenColors
+                                                        .text
+                                                        .withValues(
+                                                            alpha: 0.12),
+                                                  ),
                                                 ),
-                                              ),
-                                            )
-                                          else
+                                              )
+                                            else
+                                              const SizedBox(height: 8),
                                             const SizedBox(height: 8),
-                                          const SizedBox(height: 8),
-                                          Row(
-                                            children: [
-                                              ValueListenableBuilder<int>(
-                                                valueListenable:
-                                                    _progressPulse,
-                                                builder:
-                                                    (context, _, child) {
-                                                  final pos = _controller
-                                                          ?.value
-                                                          .position ??
-                                                      Duration.zero;
-                                                  final dur = _controller
-                                                          ?.value
-                                                          .duration ??
-                                                      Duration.zero;
-                                                  return Expanded(
-                                                    child: Row(
-                                                      children: [
-                                                        Text(
-                                                          _format(pos),
-                                                          style: TextStyle(
-                                                            fontSize: 14,
-                                                            color:
-                                                                progressFocused
-                                                                    ? AvenColors
-                                                                        .mist
-                                                                    : AvenColors
-                                                                        .textMuted,
+                                            Row(
+                                              children: [
+                                                ValueListenableBuilder<int>(
+                                                  valueListenable:
+                                                      _progressPulse,
+                                                  builder:
+                                                      (context, _, child) {
+                                                    final pos = _controller
+                                                            ?.value
+                                                            .position ??
+                                                        Duration.zero;
+                                                    final dur = _controller
+                                                            ?.value
+                                                            .duration ??
+                                                        Duration.zero;
+                                                    return Expanded(
+                                                      child: Row(
+                                                        children: [
+                                                          Text(
+                                                            _format(pos),
+                                                            style: TextStyle(
+                                                              fontSize: 14,
+                                                              color:
+                                                                  progressFocused
+                                                                      ? AvenColors
+                                                                          .mist
+                                                                      : AvenColors
+                                                                          .textMuted,
+                                                            ),
                                                           ),
-                                                        ),
-                                                        const Spacer(),
-                                                        Text(
-                                                          _format(dur),
-                                                          style: TextStyle(
-                                                            fontSize: 14,
-                                                            color:
-                                                                progressFocused
-                                                                    ? AvenColors
-                                                                        .mist
-                                                                    : AvenColors
-                                                                        .textMuted,
+                                                          const Spacer(),
+                                                          Text(
+                                                            _format(dur),
+                                                            style: TextStyle(
+                                                              fontSize: 14,
+                                                              color:
+                                                                  progressFocused
+                                                                      ? AvenColors
+                                                                          .mist
+                                                                      : AvenColors
+                                                                          .textMuted,
+                                                            ),
                                                           ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        ],
+                                                        ],
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1429,28 +1442,18 @@ class _MenuChip extends StatelessWidget {
       child: ExcludeFocus(
         child: AvenFocusZoom(
           focused: focused,
-          scale: 1.1,
+          scale: 1.05,
+          borderRadius: 14,
           child: Material(
-            color: focused
-                ? AvenColors.hover
-                : AvenColors.background.withValues(alpha: 0.35),
+            color: AvenColors.background.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(14),
             child: InkWell(
               onTap: onPressed,
               borderRadius: BorderRadius.circular(14),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 120),
+              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+              child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: focused
-                        ? AvenColors.focus
-                        : AvenColors.text.withValues(alpha: 0.12),
-                    width: focused ? 2 : 1,
-                  ),
-                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [

@@ -453,30 +453,41 @@ const _watchScript = r'''
     if (!btn || !btn.isConnected) {
       btn = document.createElement('button');
       btn.type = 'button';
-      btn.style.cssText = 'position:fixed;z-index:2147483646;display:inline-flex;align-items:center;gap:10px;padding:12px 16px;border:1px solid #0B1838;border-radius:14px;background:#080A0B;color:#F3F5F7;font:600 17px sans-serif;box-shadow:0 10px 28px rgba(8,10,11,.65);cursor:pointer;';
+      btn.style.cssText = 'position:fixed;z-index:2147483646;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:52px;padding:0 16px;border:2px solid rgba(243,245,247,0.18);border-radius:12px;background:rgba(243,245,247,0.08);color:#F3F5F7;font:600 15px sans-serif;box-shadow:none;cursor:pointer;transition:border-color .16s ease,background .16s ease;';
       var icon = document.createElement('span');
-      icon.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#0B1838;flex:0 0 auto';
-      icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#F3F5F7"><path d="M8 5v14l11-7z"/></svg>';
+      icon.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 auto';
+      icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#F3F5F7"><path d="M8 5v14l11-7z"/></svg>';
       var label = document.createElement('span');
       label.textContent = 'Aven oynat\u0131c\u0131 ile oynat';
       btn.appendChild(icon);
       btn.appendChild(label);
-      btn.onmouseenter = function() { btn.style.borderColor = '#0B1838'; btn.style.background = '#0B1838'; };
-      btn.onmouseleave = function() { btn.style.borderColor = '#0B1838'; btn.style.background = '#080A0B'; };
+      btn.onmouseenter = function() {
+        btn.style.borderColor = 'rgba(243,245,247,0.82)';
+        btn.style.background = 'rgba(8,10,11,0.96)';
+      };
+      btn.onmouseleave = function() {
+        if (btn.__avenBusy) return;
+        btn.style.borderColor = 'rgba(243,245,247,0.18)';
+        btn.style.background = 'rgba(243,245,247,0.08)';
+      };
       btn.addEventListener('click', function(event) {
         event.preventDefault();
         event.stopPropagation();
         if (btn.__avenBusy) return;
         btn.__avenBusy = true;
         btn.style.opacity = '0.92';
+        btn.style.borderColor = 'rgba(243,245,247,0.82)';
+        btn.style.background = 'rgba(8,10,11,0.96)';
         label.textContent = 'Açılıyor…';
-        icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F3F5F7" stroke-width="2.5"><circle cx="12" cy="12" r="9" opacity="0.35"/><path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>';
+        icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F3F5F7" stroke-width="2.5"><circle cx="12" cy="12" r="9" opacity="0.35"/><path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>';
         openFocused(anchor, btn.__avenPayload);
         setTimeout(function() {
           btn.__avenBusy = false;
           btn.style.opacity = '1';
+          btn.style.borderColor = 'rgba(243,245,247,0.18)';
+          btn.style.background = 'rgba(243,245,247,0.08)';
           label.textContent = 'Aven oynat\u0131c\u0131 ile oynat';
-          icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#F3F5F7"><path d="M8 5v14l11-7z"/></svg>';
+          icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#F3F5F7"><path d="M8 5v14l11-7z"/></svg>';
         }, 10000);
       }, true);
       document.documentElement.appendChild(btn);

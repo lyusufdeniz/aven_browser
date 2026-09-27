@@ -270,15 +270,16 @@ class _LibraryPageState extends State<LibraryPage> {
           AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             curve: Curves.easeOutCubic,
-            width: _onLeft ? 240 : 84,
-            child: ClipRect(
-              child: Material(
-                color: AvenColors.surface,
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  children: [
+            width: _onLeft ? 272 : 96,
+            child: Material(
+              color: AvenColors.surface,
+              clipBehavior: Clip.none,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+                clipBehavior: Clip.none,
+                children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
                       child: SizedBox(
                         height: 22,
                         child: Align(
@@ -311,8 +312,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         leading: Icon(_icons[index], size: 24),
                         title: _sections[index],
                       ),
-                  ],
-                ),
+                ],
               ),
             ),
           ),
@@ -327,6 +327,7 @@ class _LibraryPageState extends State<LibraryPage> {
     final links = _visibleLinks;
     return ListView(
       padding: const EdgeInsets.all(28),
+      clipBehavior: Clip.none,
       children: [
         Text(
           _section == 0 ? 'Yer imleri' : 'Geçmiş',
@@ -441,18 +442,19 @@ class _DeleteButton extends StatelessWidget {
           return AvenFocusZoom(
             focused: focused,
             child: Material(
-            color: focused ? AvenColors.danger : Colors.transparent,
+            color: Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             child: InkWell(
               onTap: onTap,
               borderRadius: BorderRadius.circular(8),
-              hoverColor: AvenColors.danger.withValues(alpha: 0.35),
+              hoverColor: Colors.transparent,
+              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               child: Padding(
                 padding: const EdgeInsets.all(8),
                 child: Icon(
                   Icons.delete_outline,
                   size: 22,
-                  color: focused ? AvenColors.mist : AvenColors.textMuted,
+                  color: AvenColors.textMuted,
                 ),
               ),
             ),
@@ -506,13 +508,14 @@ class _LibraryTile extends StatelessWidget {
           final focused = focusNode.hasFocus;
           return AvenFocusZoom(
             focused: focused,
-            scale: 1.05,
+            scale: 1.0,
+            borderRadius: 10,
             child: Material(
-            color: focused
-                ? AvenColors.hover
-                : selected
-                ? AvenColors.row
+            color: selected
+                ? AvenColors.text.withValues(alpha: 0.08)
                 : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            clipBehavior: Clip.none,
             child: IconTheme(
               data: IconThemeData(
                 color: AvenColors.text,
@@ -523,14 +526,19 @@ class _LibraryTile extends StatelessWidget {
                 ),
                 child: InkWell(
                   onTap: onTap,
-                  hoverColor: AvenColors.hover,
+                  borderRadius: BorderRadius.circular(10),
+                  hoverColor: Colors.transparent,
+                  overlayColor: const WidgetStatePropertyAll(Colors.transparent),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: compact ? 10 : 12,
+                      vertical: 12,
+                    ),
                     child: Row(
                       children: [
                         SizedBox(width: 28, height: 28, child: Center(child: leading)),
                         if (title != null && !compact) ...[
-                          const SizedBox(width: 14),
+                          const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -548,11 +556,9 @@ class _LibraryTile extends StatelessWidget {
                                       subtitle!,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
+                                      style: const TextStyle(
                                         fontSize: 13,
-                                        color: focused
-                                            ? AvenColors.text.withValues(alpha: 0.75)
-                                            : AvenColors.textMuted,
+                                        color: AvenColors.textMuted,
                                       ),
                                     ),
                                   ),

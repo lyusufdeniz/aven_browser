@@ -103,7 +103,7 @@ class _PageLoadingOverlay extends StatelessWidget {
               painter: _RingProgressPainter(
                 progress: progress.clamp(0.04, 1.0),
                 track: AvenColors.row,
-                fill: AvenColors.hover,
+                fill: AvenColors.elevated,
               ),
             ),
           ),
@@ -293,11 +293,11 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                             fontWeight: FontWeight.w600,
                             height: 1,
                             letterSpacing: -2,
-                            color: AvenColors.error.withValues(alpha: 0.9),
+                            color: AvenColors.text.withValues(alpha: 0.9),
                           ),
                         )
                       else
-                        const Icon(Icons.wifi_off_rounded, size: 64, color: AvenColors.hover),
+                        const Icon(Icons.wifi_off_rounded, size: 64, color: AvenColors.textMuted),
                       const SizedBox(height: 18),
                       Text(
                         widget.error.title,
@@ -393,18 +393,23 @@ class _ErrorAction extends StatelessWidget {
           final focused = focusNode.hasFocus;
           return AvenFocusZoom(
             focused: focused,
+            scale: 1.04,
+            borderRadius: 12,
             child: ExcludeFocus(
             child: TextButton.icon(
               onPressed: onPressed,
               icon: Icon(icon),
               label: Text(label),
               style: TextButton.styleFrom(
-                foregroundColor: focused ? AvenColors.mist : AvenColors.text,
-                backgroundColor: focused ? AvenColors.hover : AvenColors.accentBlue,
-                overlayColor: AvenColors.hover,
-                side: focused
-                    ? const BorderSide(color: AvenColors.hover, width: 2)
-                    : const BorderSide(color: AvenColors.row),
+                foregroundColor: AvenColors.text,
+                backgroundColor: AvenColors.text.withValues(alpha: 0.08),
+                overlayColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                side: BorderSide(
+                  color: AvenColors.text.withValues(alpha: 0.18),
+                ),
                 minimumSize: const Size(160, 52),
                 textStyle: const TextStyle(fontSize: 16),
               ),
@@ -436,22 +441,33 @@ class _CursorDot extends StatelessWidget {
     return IgnorePointer(
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
-        width: 32,
-        height: 32,
+        width: scrolling ? 28 : 26,
+        height: scrolling ? 28 : 26,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(scrolling ? 10 : 16),
-          color: scrolling
-              ? AvenColors.hover
-              : AvenColors.hover.withValues(alpha: 0.9),
-          border: Border.all(color: AvenColors.text, width: scrolling ? 2 : 3),
-          boxShadow: const [
-            BoxShadow(color: AvenColors.scrim, blurRadius: 6),
+          borderRadius: BorderRadius.circular(scrolling ? 9 : 12),
+          color: AvenColors.background.withValues(alpha: 0.94),
+          border: Border.all(
+            color: AvenColors.text.withValues(alpha: scrolling ? 0.85 : 0.7),
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AvenColors.scrim,
+              blurRadius: scrolling ? 8 : 6,
+            ),
           ],
         ),
         alignment: Alignment.center,
         child: _icon == null
-            ? null
-            : Icon(_icon, size: 22, color: AvenColors.text),
+            ? Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: AvenColors.text.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              )
+            : Icon(_icon, size: 16, color: AvenColors.text),
       ),
     );
   }
@@ -993,6 +1009,7 @@ class _StartPageState extends State<_StartPage> {
             return SingleChildScrollView(
               controller: _pageScroll,
               physics: const ClampingScrollPhysics(),
+              clipBehavior: Clip.none,
               padding: const EdgeInsets.fromLTRB(28, 16, 28, 48),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
@@ -1138,13 +1155,13 @@ class _StartPageState extends State<_StartPage> {
                         ),
                         const SizedBox(height: 10),
                         SizedBox(
-                          height: 168,
+                          height: 188,
                           child: SingleChildScrollView(
                             controller: _suggestScroll,
                             scrollDirection: Axis.horizontal,
                             clipBehavior: Clip.none,
                             physics: const ClampingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(0, 14, 48, 14),
+                            padding: const EdgeInsets.fromLTRB(4, 18, 48, 18),
                             child: Row(
                               children: [
                                 for (var index = 0;
@@ -1190,13 +1207,13 @@ class _StartPageState extends State<_StartPage> {
                         ),
                         const SizedBox(height: 10),
                         SizedBox(
-                          height: 168,
+                          height: 188,
                           child: SingleChildScrollView(
                             controller: _bookmarkScroll,
                             scrollDirection: Axis.horizontal,
                             clipBehavior: Clip.none,
                             physics: const ClampingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(0, 14, 48, 14),
+                            padding: const EdgeInsets.fromLTRB(4, 18, 48, 18),
                             child: Row(
                               children: [
                                 for (var index = 0;
@@ -1283,7 +1300,7 @@ class _QuerySuggestTile extends StatelessWidget {
           final focused = focusNode.hasFocus;
           return Material(
             color: focused
-                ? AvenColors.focus.withValues(alpha: 0.55)
+                ? AvenColors.text.withValues(alpha: 0.10)
                 : Colors.transparent,
             child: InkWell(
               onTap: onPressed,
@@ -1376,57 +1393,71 @@ class _SuggestionPoster extends StatelessWidget {
           final railActive = railNodes.any((node) => node.hasFocus);
           final dimmed = railActive && !focused;
           return AnimatedScale(
-            scale: focused ? 1.08 : 1,
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
-            child: AnimatedOpacity(
-              opacity: dimmed ? 0.34 : 1,
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutCubic,
-                width: 220,
-                height: 128,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: focused
-                        ? AvenColors.text.withValues(alpha: 0.92)
-                        : Colors.transparent,
-                    width: focused ? 3 : 0,
-                  ),
-                  boxShadow: focused
-                      ? [
-                          BoxShadow(
-                            color: AvenColors.text.withValues(alpha: 0.18),
-                            blurRadius: 18,
-                            spreadRadius: 1,
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: onPressed,
-                    borderRadius: BorderRadius.circular(14),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(focused ? 11 : 14),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          const ColoredBox(color: _Suggestion.faceBackground),
-                          child!,
-                          if (dimmed)
-                            ColoredBox(
-                              color: AvenColors.background.withValues(alpha: 0.45),
+            scale: focused ? 1.04 : 1,
+            duration: AvenFocusMotion.duration,
+            curve: AvenFocusMotion.curve,
+            child: SizedBox(
+              width: 228,
+              height: 136,
+              child: Stack(
+                fit: StackFit.expand,
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: onPressed,
+                        borderRadius: BorderRadius.circular(14),
+                        overlayColor:
+                            const WidgetStatePropertyAll(Colors.transparent),
+                        child: AnimatedOpacity(
+                          opacity: dimmed ? 0.34 : 1,
+                          duration: const Duration(milliseconds: 260),
+                          curve: Curves.easeOutCubic,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                const ColoredBox(
+                                  color: _Suggestion.faceBackground,
+                                ),
+                                child!,
+                                if (dimmed)
+                                  ColoredBox(
+                                    color: AvenColors.background
+                                        .withValues(alpha: 0.45),
+                                  ),
+                              ],
                             ),
-                        ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  Positioned(
+                    left: 2,
+                    top: 2,
+                    right: 2,
+                    bottom: 2,
+                    child: IgnorePointer(
+                      child: AnimatedContainer(
+                        duration: AvenFocusMotion.duration,
+                        curve: AvenFocusMotion.curve,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: focused
+                                ? AvenColors.text.withValues(alpha: 0.88)
+                                : Colors.transparent,
+                            width: 2.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -1612,56 +1643,68 @@ class _BookmarkPoster extends StatelessWidget {
               .any((node) => node.hasFocus);
           final dimmed = railActive && !focused;
           return AnimatedScale(
-            scale: focused ? 1.08 : 1,
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
-            child: AnimatedOpacity(
-              opacity: dimmed ? 0.34 : 1,
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutCubic,
-                width: 220,
-                height: 128,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: focused
-                        ? AvenColors.text.withValues(alpha: 0.92)
-                        : Colors.transparent,
-                    width: focused ? 3 : 0,
-                  ),
-                  boxShadow: focused
-                      ? [
-                          BoxShadow(
-                            color: AvenColors.text.withValues(alpha: 0.18),
-                            blurRadius: 18,
-                            spreadRadius: 1,
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: onPressed,
-                    borderRadius: BorderRadius.circular(14),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(focused ? 11 : 14),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          child!,
-                          if (dimmed)
-                            ColoredBox(
-                              color: AvenColors.background.withValues(alpha: 0.45),
+            scale: focused ? 1.04 : 1,
+            duration: AvenFocusMotion.duration,
+            curve: AvenFocusMotion.curve,
+            child: SizedBox(
+              width: 228,
+              height: 136,
+              child: Stack(
+                fit: StackFit.expand,
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: onPressed,
+                        borderRadius: BorderRadius.circular(14),
+                        overlayColor:
+                            const WidgetStatePropertyAll(Colors.transparent),
+                        child: AnimatedOpacity(
+                          opacity: dimmed ? 0.34 : 1,
+                          duration: const Duration(milliseconds: 260),
+                          curve: Curves.easeOutCubic,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                child!,
+                                if (dimmed)
+                                  ColoredBox(
+                                    color: AvenColors.background
+                                        .withValues(alpha: 0.45),
+                                  ),
+                              ],
                             ),
-                        ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                  Positioned(
+                    left: 2,
+                    top: 2,
+                    right: 2,
+                    bottom: 2,
+                    child: IgnorePointer(
+                      child: AnimatedContainer(
+                        duration: AvenFocusMotion.duration,
+                        curve: AvenFocusMotion.curve,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: focused
+                                ? AvenColors.text.withValues(alpha: 0.88)
+                                : Colors.transparent,
+                            width: 2.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           );
@@ -1706,25 +1749,50 @@ class _StartAction extends StatelessWidget {
         listenable: focusNode,
         builder: (context, _) {
           final focused = focusNode.hasFocus;
-          return AvenFocusZoom(
-            focused: focused,
-            child: ExcludeFocus(
-            child: TextButton.icon(
-              onPressed: onPressed,
-              icon: Icon(icon),
-              label: Text(label),
-              style: TextButton.styleFrom(
-                foregroundColor: AvenColors.text,
-                backgroundColor: focused ? AvenColors.hover : AvenColors.accentBlue,
-                overlayColor: AvenColors.hover,
-                side: focused
-                    ? const BorderSide(color: AvenColors.hover, width: 2)
-                    : BorderSide.none,
-                minimumSize: const Size(150, 52),
-                textStyle: const TextStyle(fontSize: 16),
+          const radius = 12.0;
+          return Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onPressed,
+              borderRadius: BorderRadius.circular(radius),
+              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+              child: AnimatedContainer(
+                duration: AvenFocusMotion.duration,
+                curve: AvenFocusMotion.curve,
+                width: 168,
+                height: 52,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: AvenColors.text.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(radius),
+                  border: Border.all(
+                    color: focused
+                        ? AvenColors.text.withValues(alpha: 0.82)
+                        : AvenColors.text.withValues(alpha: 0.18),
+                    width: 2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, size: 20, color: AvenColors.text),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: AvenColors.text,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
           );
         },
       ),
@@ -1812,7 +1880,7 @@ class _FloatingMenu extends StatelessWidget {
               borderRadius: BorderRadius.circular(18),
               clipBehavior: Clip.none,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 28, 12, 6),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
                 child: FocusTraversalGroup(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -1829,6 +1897,7 @@ class _FloatingMenu extends StatelessWidget {
                           onSubmit: onSubmit,
                         ),
                       ),
+                      const SizedBox(height: 10),
                       _MenuBar(
                         firstFocus: menuFocus,
                         addressFocus: addressFocus,
@@ -2032,10 +2101,8 @@ class _StartSearchFieldState extends State<_StartSearchField> {
           listenable: Listenable.merge([widget.focusNode, widget.controller]),
           builder: (context, _) {
             final focused = widget.focusNode.hasFocus;
-            return AvenFocusZoom(
-              focused: focused,
-              scale: 1.04,
-              child: TextField(
+            // No zoom wrapper — field already has its own focused border.
+            return TextField(
                 controller: widget.controller,
                 focusNode: widget.focusNode,
                 // Same field always — only unlock input when editing.
@@ -2053,7 +2120,9 @@ class _StartSearchFieldState extends State<_StartSearchField> {
                   hintText: 'Site veya arama',
                   hintStyle: const TextStyle(color: AvenColors.textMuted),
                   filled: true,
-                  fillColor: AvenColors.text.withValues(alpha: 0.08),
+                  fillColor: focused
+                      ? AvenColors.text.withValues(alpha: 0.11)
+                      : AvenColors.text.withValues(alpha: 0.08),
                   isDense: true,
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -2081,13 +2150,12 @@ class _StartSearchFieldState extends State<_StartSearchField> {
                   focusedBorder: OutlineInputBorder(
                     borderRadius: const BorderRadius.all(Radius.circular(10)),
                     borderSide: BorderSide(
-                      color: focused ? AvenColors.hover : AvenColors.text.withValues(alpha: 0.18),
-                      width: focused ? 3 : 1.5,
+                      color: AvenColors.text.withValues(alpha: 0.45),
+                      width: 2,
                     ),
                   ),
                 ),
-              ),
-            );
+              );
           },
         ),
       ),
@@ -2130,27 +2198,24 @@ class _VoiceSearchButton extends StatelessWidget {
           final focused = focusNode.hasFocus;
           return AvenFocusZoom(
             focused: focused,
-            scale: 1.06,
+            scale: 1.05,
+            borderRadius: 10,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: busy ? null : onPressed,
                 borderRadius: BorderRadius.circular(10),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
+                overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+                child: Container(
                   width: 56,
                   height: 56,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: focused
-                        ? AvenColors.hover
-                        : AvenColors.text.withValues(alpha: 0.08),
+                    color: AvenColors.text.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: focused
-                          ? AvenColors.hover
-                          : AvenColors.text.withValues(alpha: 0.18),
-                      width: focused ? 3 : 1.5,
+                      color: AvenColors.text.withValues(alpha: 0.18),
+                      width: 1.5,
                     ),
                   ),
                   child: busy
@@ -2162,10 +2227,10 @@ class _VoiceSearchButton extends StatelessWidget {
                             color: AvenColors.text,
                           ),
                         )
-                      : Icon(
+                      : const Icon(
                           Icons.mic,
                           size: 26,
-                          color: focused ? AvenColors.text : AvenColors.textMuted,
+                          color: AvenColors.textMuted,
                         ),
                 ),
               ),
@@ -2281,10 +2346,7 @@ class _AddressField extends StatelessWidget {
       listenable: focusNode,
       builder: (context, _) {
         final focused = focusNode.hasFocus;
-        return AvenFocusZoom(
-          focused: focused,
-          scale: 1.04,
-          child: TextField(
+        return TextField(
       controller: controller,
       focusNode: focusNode,
       autofocus: autofocus,
@@ -2298,7 +2360,9 @@ class _AddressField extends StatelessWidget {
       decoration: InputDecoration(
         hintText: 'Site veya arama',
         filled: true,
-        fillColor: AvenColors.text.withValues(alpha: 0.08),
+        fillColor: focused
+            ? AvenColors.text.withValues(alpha: 0.11)
+            : AvenColors.text.withValues(alpha: 0.08),
         isDense: true,
         contentPadding: EdgeInsets.symmetric(
           horizontal: compact ? 12 : 16,
@@ -2318,13 +2382,15 @@ class _AddressField extends StatelessWidget {
             width: 1.5,
           ),
         ),
-        focusedBorder: const OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(10)),
-          borderSide: BorderSide(color: AvenColors.hover, width: 3),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          borderSide: BorderSide(
+            color: AvenColors.text.withValues(alpha: 0.45),
+            width: 2,
+          ),
         ),
       ),
-    ),
-        );
+    );
       },
     );
   }
@@ -2505,78 +2571,99 @@ class _BarButton extends StatelessWidget {
       listenable: node,
       builder: (context, _) {
         final focused = node.hasFocus;
-        return AvenFocusZoom(
-          focused: focused,
-          scale: 1.12,
-          child: SizedBox(
-          width: label != null ? 58 : 48,
-          height: 72,
+        final button = Focus(
+          focusNode: node,
+          onKeyEvent: _onKey,
+          child: ExcludeFocus(
+            child: label != null
+                ? TextButton(
+                    onPressed: enabled ? onPressed : () {},
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(44, 44),
+                      fixedSize: const Size(44, 44),
+                      padding: EdgeInsets.zero,
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: AvenColors.text,
+                      overlayColor: Colors.transparent,
+                      side: BorderSide.none,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: Text(
+                      label!,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  )
+                : IconButton(
+                    onPressed: enabled ? onPressed : () {},
+                    icon: Icon(icon),
+                    iconSize: 22,
+                    padding: EdgeInsets.zero,
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(44, 44),
+                      fixedSize: const Size(44, 44),
+                      backgroundColor: Colors.transparent,
+                      overlayColor: Colors.transparent,
+                      foregroundColor: !enabled
+                          ? AvenColors.textMuted
+                          : AvenColors.text,
+                      side: BorderSide.none,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+          ),
+        );
+
+        return SizedBox(
+          width: label != null ? 52 : 48,
+          height: 70,
           child: Stack(
             clipBehavior: Clip.none,
             alignment: Alignment.bottomCenter,
             children: [
+              AvenFocusZoom(
+                focused: focused,
+                scale: 1.0,
+                borderRadius: 10,
+                child: button,
+              ),
               if (focused)
                 Positioned(
-                  bottom: 54,
+                  bottom: 50,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: AvenColors.background.withValues(alpha: 0.93),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AvenColors.hover),
+                      color: AvenColors.background.withValues(alpha: 0.97),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: AvenColors.text.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       child: Text(
                         tooltip,
                         maxLines: 1,
                         softWrap: false,
-                        style: const TextStyle(fontSize: 13),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          height: 1.15,
+                          color: AvenColors.text,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              Focus(
-                focusNode: node,
-                onKeyEvent: _onKey,
-                child: ExcludeFocus(
-                  child: label != null
-                      ? TextButton(
-                          onPressed: enabled ? onPressed : () {},
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(58, 48),
-                            padding: EdgeInsets.zero,
-                            backgroundColor: focused ? AvenColors.hover : null,
-                            foregroundColor: AvenColors.text,
-                            side: focused
-                                ? const BorderSide(color: AvenColors.hover, width: 2)
-                                : BorderSide.none,
-                          ),
-                          child: Text(
-                            label!,
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                          ),
-                        )
-                      : IconButton(
-                          onPressed: enabled ? onPressed : () {},
-                          icon: Icon(icon),
-                          iconSize: 24,
-                          padding: EdgeInsets.zero,
-                          style: IconButton.styleFrom(
-                            minimumSize: const Size(48, 48),
-                            backgroundColor: focused ? AvenColors.hover : null,
-                            foregroundColor: !enabled
-                                ? AvenColors.textMuted
-                                : AvenColors.text,
-                            side: focused
-                                ? const BorderSide(color: AvenColors.hover, width: 2)
-                                : BorderSide.none,
-                          ),
-                        ),
-                ),
-              ),
             ],
           ),
-        ),
         );
       },
     );
@@ -2589,7 +2676,7 @@ class _WebViewWarning extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: AvenColors.hover.withValues(alpha: 0.25),
+      color: AvenColors.text.withValues(alpha: 0.08),
       child: const Padding(
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Text(
