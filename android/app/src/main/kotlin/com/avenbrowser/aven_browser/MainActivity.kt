@@ -1,7 +1,9 @@
 package com.avenbrowser.aven_browser
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.speech.RecognizerIntent
@@ -116,9 +118,58 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "recognizeSpeech" -> startSpeechRecognition(call, result)
+                    "openExternalUrl" -> openExternalUrl(call, result)
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun openExternalUrl(call: MethodCall, result: MethodChannel.Result) {
+        val url = call.argument<String>("url")?.trim().orEmpty()
+        if (url.isEmpty()) {
+            result.success(mapOf("opened" to false))
+            return
+        }
+        try {
+            val intent = if (url.startsWith("intent:", ignoreCase = true)) {
+                Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
+            } else {
+                Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try {
+                startActivity(intent)
+                result.success(mapOf("opened" to true))
+            } catch (_: ActivityNotFoundException) {
+                val fallback = intent.getStringExtra("browser_fallback_url")
+                val pkg = intent.`package`
+                when {
+                    !fallback.isNullOrBlank() -> {
+                        result.success(
+                            mapOf("opened" to false, "fallback" to fallback),
+                        )
+                    }
+                    !pkg.isNullOrBlank() -> {
+                        try {
+                            val market = Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse("market://details?id=$pkg"),
+                            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(market)
+                            result.success(mapOf("opened" to true))
+                        } catch (_: Exception) {
+                            val play = "https://play.google.com/store/apps/details?id=$pkg"
+                            result.success(
+                                mapOf("opened" to false, "fallback" to play),
+                            )
+                        }
+                    }
+                    else -> result.success(mapOf("opened" to false))
+                }
+            }
+        } catch (e: Exception) {
+            result.error("open_failed", e.message, null)
+        }
     }
 
     private fun startSpeechRecognition(call: MethodCall, result: MethodChannel.Result) {
@@ -274,29 +325,29 @@ class MainActivity : FlutterActivity() {
         val flutterView = findFlutterView(window.decorView) ?: return
         flutterView.isFocusable = true
         flutterView.isFocusableInTouchMode = true
-        flutterView.post {
+        fun reveal() {
             flutterView.requestFocus()
+            // API 30+: insets controller is the reliable path on TV images.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                try {
+                    window.insetsController?.show(android.view.WindowInsets.Type.ime())
+                } catch (_: Exception) {
+                }
+            }
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
             try {
                 imm.restartInput(flutterView)
             } catch (_: Exception) {
             }
-            // SHOW_IMPLICIT is often ignored on Android TV / Leanback.
-            val shown = imm.showSoftInput(flutterView, InputMethodManager.SHOW_FORCED)
+            val shown = imm.showSoftInput(flutterView, InputMethodManager.SHOW_IMPLICIT)
             if (!shown) {
-                try {
-                    @Suppress("DEPRECATION")
-                    imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
-                } catch (_: Exception) {
-                }
+                imm.showSoftInput(flutterView, 0)
             }
         }
-        // Second pass after Flutter TextField attaches the input connection.
-        flutterView.postDelayed({
-            flutterView.requestFocus()
-            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(flutterView, InputMethodManager.SHOW_FORCED)
-        }, 120)
+        reveal()
+        flutterView.post { reveal() }
+        flutterView.postDelayed({ reveal() }, 160)
+        flutterView.postDelayed({ reveal() }, 320)
     }
 
     private fun findFlutterView(root: View): View? {

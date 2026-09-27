@@ -46,7 +46,8 @@ mixin _BrowserNavigation on _BrowserPageBase {
     Uri? left = Uri.tryParse(a);
     Uri? right = Uri.tryParse(b);
     if (left == null || right == null) return a == b;
-    return left.replace(fragment: '').toString() == right.replace(fragment: '').toString();
+    return left.replace(fragment: '').toString() ==
+        right.replace(fragment: '').toString();
   }
 
   Future<void> _onPageFinished(String url) async {
@@ -75,7 +76,11 @@ mixin _BrowserNavigation on _BrowserPageBase {
     final label = (title == null || title.trim().isEmpty) ? url : title.trim();
     if (isAvenWebUrl(url) && _pageError == null) {
       await _store.addHistory(
-        WebLink(title: label, url: url, savedAt: DateTime.now().millisecondsSinceEpoch),
+        WebLink(
+          title: label,
+          url: url,
+          savedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
       );
     }
     if (!mounted) return;
@@ -91,8 +96,37 @@ mixin _BrowserNavigation on _BrowserPageBase {
     _wakeSurface();
   }
 
+  NavigationDecision _onNavigationRequest(NavigationRequest request) {
+    final url = request.url;
+    if (!isExternalAppUrl(url)) return NavigationDecision.navigate;
+    // Iframes with app schemes should not navigate or spam dialogs.
+    if (request.isMainFrame) {
+      unawaited(_confirmOpenExternal(url));
+    }
+    return NavigationDecision.prevent;
+  }
+
+  bool _isUnknownSchemeError(WebResourceError error) {
+    if (isExternalAppUrl(error.url)) return true;
+    final desc = error.description.toLowerCase();
+    return desc.contains('unknown_url_scheme') ||
+        desc.contains('err_unknown_url_scheme') ||
+        desc.contains('unsupported scheme') ||
+        desc.contains('unknown url scheme');
+  }
+
   void _onError(WebResourceError error) {
     if (error.isForMainFrame != true || !mounted) return;
+    if (_isUnknownSchemeError(error)) {
+      final url = error.url;
+      if (url != null && isExternalAppUrl(url)) {
+        unawaited(_confirmOpenExternal(url));
+      }
+      _loadTimeout?.cancel();
+      _pageLoading.value = false;
+      _progress.value = 100;
+      return;
+    }
     _loadTimeout?.cancel();
     _pageLoading.value = false;
     _progress.value = 100;
@@ -118,6 +152,40 @@ mixin _BrowserNavigation on _BrowserPageBase {
     setState(() {
       _pageError = _PageError.fromHttp(code, url);
     });
+  }
+
+  Future<void> _confirmOpenExternal(String url) async {
+    if (!mounted || _externalOpen || _popupOpen) return;
+    _externalOpen = true;
+    try {
+      final label = externalAppLabel(url);
+      final open = await showDialog<bool>(
+        context: context,
+        barrierColor: AvenColors.barrier,
+        builder: (context) {
+          return AvenConfirmDialog(
+            icon: Icons.open_in_new_rounded,
+            title: 'Uygulama açılsın mı?',
+            message: 'Bu sayfa "$label" uygulamasını açmak istiyor.',
+            cancelLabel: 'İptal',
+            confirmLabel: 'Aç',
+            autofocusConfirm: true,
+          );
+        },
+      );
+      if (open != true || !mounted) return;
+      try {
+        final result = await _input.openExternalUrl(url);
+        final fallback = result['fallback'];
+        if (result['opened'] != true &&
+            fallback is String &&
+            isAvenWebUrl(fallback)) {
+          await _controller.loadRequest(Uri.parse(fallback));
+        }
+      } catch (_) {}
+    } finally {
+      _externalOpen = false;
+    }
   }
 
   void _holdSurfaceForError() {
@@ -212,4 +280,3 @@ mixin _BrowserNavigation on _BrowserPageBase {
     if (mounted && !_onStart) await _wakeSurface();
   }
 }
-

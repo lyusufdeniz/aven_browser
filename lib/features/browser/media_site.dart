@@ -4,6 +4,44 @@ bool isAvenWebUrl(String? url) {
   return url.startsWith('http://') || url.startsWith('https://');
 }
 
+/// Custom schemes / intent:// links that open another Android app.
+bool isExternalAppUrl(String? url) {
+  if (url == null || url.isEmpty) return false;
+  final lower = url.toLowerCase();
+  if (lower.startsWith('intent:')) return true;
+  final uri = Uri.tryParse(url);
+  if (uri == null) return false;
+  final scheme = uri.scheme.toLowerCase();
+  if (scheme.isEmpty) return false;
+  const keep = {
+    'http',
+    'https',
+    'about',
+    'data',
+    'blob',
+    'javascript',
+    'file',
+    'content',
+  };
+  return !keep.contains(scheme);
+}
+
+/// Short label for confirm dialogs (package id, market app, or scheme).
+String externalAppLabel(String url) {
+  final intentPkg = RegExp(
+    r'[;.]package=([^;]+)',
+    caseSensitive: false,
+  ).firstMatch(url)?.group(1);
+  if (intentPkg != null && intentPkg.isNotEmpty) return intentPkg;
+  final uri = Uri.tryParse(url);
+  if (uri == null) return url;
+  if (uri.scheme.toLowerCase() == 'market') {
+    return uri.queryParameters['id'] ?? 'Play Store';
+  }
+  if (uri.host.isNotEmpty) return '${uri.scheme}://${uri.host}';
+  return uri.scheme.isEmpty ? url : uri.scheme;
+}
+
 bool isAvenMediaSite(String? url) {
   final raw = url ?? '';
   final uri = Uri.tryParse(raw);

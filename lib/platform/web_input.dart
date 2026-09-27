@@ -101,6 +101,18 @@ class WebInput {
   Future<String?> recognizeSpeech({String locale = 'tr-TR'}) {
     return _channel.invokeMethod<String>('recognizeSpeech', {'locale': locale});
   }
+
+  /// Opens an intent:// or custom-scheme URL via Android Intent.
+  /// Returns a map: `{opened: bool, fallback?: String}`.
+  Future<Map<String, dynamic>> openExternalUrl(String url) async {
+    final raw = await _channel.invokeMethod<dynamic>('openExternalUrl', {
+      'url': url,
+    });
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+    return {'opened': raw == true};
+  }
 }
 
 int? webViewMajor(String? version) {

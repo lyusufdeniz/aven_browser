@@ -1864,7 +1864,7 @@ class _FloatingMenu extends StatelessWidget {
   }
 }
 
-class _StartSearchField extends StatelessWidget {
+class _StartSearchField extends StatefulWidget {
   const _StartSearchField({
     required this.controller,
     required this.focusNode,
@@ -1885,37 +1885,99 @@ class _StartSearchField extends StatelessWidget {
   final VoidCallback onArrowDown;
   final VoidCallback? onArrowRight;
 
-  void _beginEditing() {
-    onTap();
-    Future<void>(() async {
-      await Future<void>.delayed(const Duration(milliseconds: 40));
-      focusNode.requestFocus();
-      try {
-        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-      } catch (_) {}
-      try {
-        await WebInput().showKeyboard();
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(milliseconds: 140));
-      if (!focusNode.hasFocus) focusNode.requestFocus();
-      try {
-        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
-      } catch (_) {}
-      try {
-        await WebInput().showKeyboard();
-      } catch (_) {}
-    });
+  @override
+  State<_StartSearchField> createState() => _StartSearchFieldState();
+}
+
+class _StartSearchFieldState extends State<_StartSearchField> {
+  @override
+  void initState() {
+    super.initState();
+    widget.focusNode.onKeyEvent = _onKey;
+    widget.focusNode.addListener(_onFocusChanged);
   }
 
-  KeyEventResult _onBrowseKey(FocusNode node, KeyEvent event) {
+  @override
+  void didUpdateWidget(covariant _StartSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusNode != widget.focusNode) {
+      oldWidget.focusNode.onKeyEvent = null;
+      oldWidget.focusNode.removeListener(_onFocusChanged);
+      widget.focusNode.onKeyEvent = _onKey;
+      widget.focusNode.addListener(_onFocusChanged);
+    }
+    if (widget.editing && !oldWidget.editing) {
+      unawaited(_openKeyboard());
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.focusNode.removeListener(_onFocusChanged);
+    if (widget.focusNode.onKeyEvent == _onKey) {
+      widget.focusNode.onKeyEvent = null;
+    }
+    super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (widget.editing && widget.focusNode.hasFocus) {
+      unawaited(_openKeyboard());
+    }
+  }
+
+  Future<void> _openKeyboard() async {
+    // Keep the same TextField mounted (readOnly flip) so the input connection
+    // stays alive — recreating the field is what made TV IME fail before.
+    for (final delay in const [16, 80, 200]) {
+      await Future<void>.delayed(Duration(milliseconds: delay));
+      if (!mounted || !widget.editing) return;
+      if (!widget.focusNode.hasFocus) widget.focusNode.requestFocus();
+      try {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      } catch (_) {}
+      try {
+        await WebInput().showKeyboard();
+      } catch (_) {}
+    }
+  }
+
+  void _beginEditing() {
+    if (!widget.editing) widget.onTap();
+    widget.focusNode.requestFocus();
+    unawaited(_openKeyboard());
+  }
+
+  void _leaveEditing() {
+    widget.onLeave();
+    try {
+      SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+    } catch (_) {}
+    try {
+      WebInput().showKeyboard(); // no-op if already typing; hide via TextInput
+    } catch (_) {}
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
+
+    if (widget.editing) {
+      if (key == LogicalKeyboardKey.arrowDown) {
+        _leaveEditing();
+        widget.onArrowDown();
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
+    // Browse mode: D-pad must not open IME accidentally.
     if (key == LogicalKeyboardKey.arrowDown) {
-      onArrowDown();
+      widget.onArrowDown();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowRight) {
-      onArrowRight?.call();
+      widget.onArrowRight?.call();
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.arrowUp ||
@@ -1926,20 +1988,20 @@ class _StartSearchField extends StatelessWidget {
         key == LogicalKeyboardKey.gameButtonA ||
         key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.numpadEnter) {
-      if (controller.text.trim().isEmpty ||
+      if (widget.controller.text.trim().isEmpty ||
           key == LogicalKeyboardKey.select ||
           key == LogicalKeyboardKey.gameButtonA) {
         _beginEditing();
       } else {
-        onSubmit(controller.text);
+        widget.onSubmit(widget.controller.text);
       }
       return KeyEventResult.handled;
     }
     final typed = event.character;
     if (typed != null && _isTypingCharacter(typed)) {
-      controller.text = '${controller.text}$typed';
-      controller.selection =
-          TextSelection.collapsed(offset: controller.text.length);
+      widget.controller.text = '${widget.controller.text}$typed';
+      widget.controller.selection =
+          TextSelection.collapsed(offset: widget.controller.text.length);
       _beginEditing();
       return KeyEventResult.handled;
     }
@@ -1948,115 +2010,86 @@ class _StartSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (editing) {
-      // Shortcuts beat EditableText's arrow-key cursor handling on TV D-pad.
-      return Shortcuts(
-        shortcuts: const <ShortcutActivator, Intent>{
-          SingleActivator(LogicalKeyboardKey.arrowDown):
-              _SearchLeaveDownIntent(),
-        },
-        child: Actions(
-          actions: <Type, Action<Intent>>{
-            _SearchLeaveDownIntent: CallbackAction<_SearchLeaveDownIntent>(
-              onInvoke: (_) {
-                onLeave();
-                try {
-                  SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
-                } catch (_) {}
-                onArrowDown();
-                return null;
-              },
-            ),
-          },
-          child: TextField(
-            controller: controller,
-            focusNode: focusNode,
-            autofocus: true,
-            keyboardType: TextInputType.url,
-            textInputAction: TextInputAction.go,
-            style: const TextStyle(fontSize: 20),
-            onSubmitted: onSubmit,
-            onTap: () {
-              focusNode.requestFocus();
-              unawaited(WebInput().showKeyboard());
+    final editing = widget.editing;
+    return Shortcuts(
+      shortcuts: editing
+          ? const <ShortcutActivator, Intent>{
+              SingleActivator(LogicalKeyboardKey.arrowDown):
+                  _SearchLeaveDownIntent(),
+            }
+          : const <ShortcutActivator, Intent>{},
+      child: Actions(
+        actions: <Type, Action<Intent>>{
+          _SearchLeaveDownIntent: CallbackAction<_SearchLeaveDownIntent>(
+            onInvoke: (_) {
+              _leaveEditing();
+              widget.onArrowDown();
+              return null;
             },
-            decoration: InputDecoration(
-              hintText: 'Site veya arama',
-              filled: true,
-              fillColor: AvenColors.text.withValues(alpha: 0.08),
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: const BorderRadius.all(Radius.circular(10)),
-                borderSide: BorderSide(
-                  color: AvenColors.text.withValues(alpha: 0.18),
-                  width: 1.5,
-                ),
-              ),
-              border: OutlineInputBorder(
-                borderRadius: const BorderRadius.all(Radius.circular(10)),
-                borderSide: BorderSide(
-                  color: AvenColors.text.withValues(alpha: 0.18),
-                  width: 1.5,
-                ),
-              ),
-              focusedBorder: const OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(10)),
-                borderSide: BorderSide(color: AvenColors.hover, width: 3),
-              ),
-            ),
           ),
-        ),
-      );
-    }
-
-    // Browse mode: plain Focus target — TextField cannot steal D-pad.
-    return Focus(
-      focusNode: focusNode,
-      onKeyEvent: _onBrowseKey,
-      child: ListenableBuilder(
-        listenable: Listenable.merge([focusNode, controller]),
-        builder: (context, _) {
-          final focused = focusNode.hasFocus;
-          final text = controller.text.trim();
-          return AvenFocusZoom(
-            focused: focused,
-            scale: 1.04,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
+        },
+        child: ListenableBuilder(
+          listenable: Listenable.merge([widget.focusNode, widget.controller]),
+          builder: (context, _) {
+            final focused = widget.focusNode.hasFocus;
+            return AvenFocusZoom(
+              focused: focused,
+              scale: 1.04,
+              child: TextField(
+                controller: widget.controller,
+                focusNode: widget.focusNode,
+                // Same field always — only unlock input when editing.
+                readOnly: !editing,
+                showCursor: editing,
+                enableInteractiveSelection: editing,
+                autofocus: false,
+                keyboardType: TextInputType.url,
+                textInputAction: TextInputAction.go,
+                style: const TextStyle(fontSize: 20, color: AvenColors.text),
+                cursorColor: AvenColors.text,
                 onTap: _beginEditing,
-                borderRadius: BorderRadius.circular(10),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  width: double.infinity,
-                  padding:
+                onSubmitted: widget.onSubmit,
+                decoration: InputDecoration(
+                  hintText: 'Site veya arama',
+                  hintStyle: const TextStyle(color: AvenColors.textMuted),
+                  filled: true,
+                  fillColor: AvenColors.text.withValues(alpha: 0.08),
+                  isDense: true,
+                  contentPadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: AvenColors.text.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: focused
-                          ? AvenColors.hover
-                          : AvenColors.text.withValues(alpha: 0.18),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderSide: BorderSide(
+                      color: AvenColors.text.withValues(alpha: 0.18),
+                      width: 1.5,
+                    ),
+                  ),
+                  disabledBorder: OutlineInputBorder(
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderSide: BorderSide(
+                      color: AvenColors.text.withValues(alpha: 0.18),
+                      width: 1.5,
+                    ),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderSide: BorderSide(
+                      color: AvenColors.text.withValues(alpha: 0.18),
+                      width: 1.5,
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: const BorderRadius.all(Radius.circular(10)),
+                    borderSide: BorderSide(
+                      color: focused ? AvenColors.hover : AvenColors.text.withValues(alpha: 0.18),
                       width: focused ? 3 : 1.5,
                     ),
                   ),
-                  child: Text(
-                    text.isEmpty ? 'Site veya arama' : text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: text.isEmpty ? AvenColors.textMuted : AvenColors.text,
-                    ),
-                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

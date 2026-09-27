@@ -33,7 +33,8 @@ if (!window.__aven) {
   window.__aven = true;
   function avenAsk(url) {
     try { url = new URL(url, document.baseURI).href; } catch (e) { url = String(url || ''); }
-    if (!url || url.indexOf('http') !== 0 || !window.AvenPopup) return;
+    if (!url || !window.AvenPopup) return;
+    if (/^(javascript|about|data|blob):/i.test(url)) return;
     try { AvenPopup.postMessage(url); } catch (e) {}
   }
   window.open = function(url) {
@@ -116,6 +117,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   bool _webSuspended = false;
   bool _pageTyping = false;
   bool _popupOpen = false;
+  bool _externalOpen = false;
   bool _addressEditing = false;
   bool _startEditing = false;
   bool _canBack = false;
@@ -195,6 +197,7 @@ class _BrowserPageState extends _BrowserPageBase
               _wakeSurface();
             }
           },
+          onNavigationRequest: _onNavigationRequest,
           onWebResourceError: _onError,
           onHttpError: _onHttpError,
         ),
@@ -689,7 +692,12 @@ class _BrowserPageState extends _BrowserPageBase
 
   Future<void> _onPopupMessage(JavaScriptMessage message) async {
     final url = message.message.trim();
-    if (!isAvenWebUrl(url) || !mounted || _popupOpen || url == _pageUrl) return;
+    if (!mounted || _popupOpen || _externalOpen || url == _pageUrl) return;
+    if (isExternalAppUrl(url)) {
+      await _confirmOpenExternal(url);
+      return;
+    }
+    if (!isAvenWebUrl(url)) return;
     _popupOpen = true;
     final open = await showDialog<bool>(
       context: context,
