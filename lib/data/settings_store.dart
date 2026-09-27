@@ -51,13 +51,13 @@ enum AdBlock {
   String get label => switch (this) {
     AdBlock.off => 'Kapalı',
     AdBlock.local => 'Yerel liste',
-    AdBlock.adguard => 'AdGuard',
+    AdBlock.adguard => 'DNS engelleme',
   };
 
   /// True when host intercept / cosmetics should run.
   bool get isEnabled => this != AdBlock.off;
 
-  /// True when AdGuard DNS VPN should be requested.
+  /// True when DNS VPN should be requested.
   bool get usesDns => this == AdBlock.adguard;
 }
 
@@ -83,9 +83,9 @@ enum BrowserAgent {
 
   String get detail => switch (this) {
     BrowserAgent.defaultAgent => 'Sistem WebView kimliği.',
-    BrowserAgent.desktop => 'Chrome masaüstü gibi görünür.',
-    BrowserAgent.mobile => 'Telefon Chrome gibi görünür.',
-    BrowserAgent.tv => 'Android TV tarayıcısı gibi görünür.',
+    BrowserAgent.desktop => 'Masaüstü tarayıcı gibi görünür.',
+    BrowserAgent.mobile => 'Telefon tarayıcısı gibi görünür.',
+    BrowserAgent.tv => 'TV tarayıcısı gibi görünür.',
   };
 
   String? get value => switch (this) {

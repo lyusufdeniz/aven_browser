@@ -7,6 +7,27 @@ import 'package:flutter/services.dart';
 class WebInput {
   static const _channel = MethodChannel('com.avenbrowser/input');
 
+  static Future<dynamic> Function(MethodCall)? _appHandler;
+  static final List<void Function(bool)> _pipListeners = [];
+  static bool _bound = false;
+
+  static void _ensureBound() {
+    if (_bound) return;
+    _bound = true;
+    _channel.setMethodCallHandler(_dispatch);
+  }
+
+  static Future<dynamic> _dispatch(MethodCall call) async {
+    if (call.method == 'pipChanged') {
+      final inPip = call.arguments == true;
+      for (final listener in List<void Function(bool)>.of(_pipListeners)) {
+        listener(inPip);
+      }
+      return null;
+    }
+    return _appHandler?.call(call);
+  }
+
   Future<void> tap(double x, double y, {bool screen = false}) {
     return _channel.invokeMethod<void>('tap', {'x': x, 'y': y, 'screen': screen});
   }
@@ -73,7 +94,38 @@ class WebInput {
 
   /// Attaches a listener for calls that start on the Android side.
   void setHandler(Future<dynamic> Function(MethodCall call)? handler) {
-    _channel.setMethodCallHandler(handler);
+    _appHandler = handler;
+    _ensureBound();
+  }
+
+  /// Picture-in-picture mode changes from Android.
+  void addPipListener(void Function(bool inPip) listener) {
+    _pipListeners.add(listener);
+    _ensureBound();
+  }
+
+  void removePipListener(void Function(bool inPip) listener) {
+    _pipListeners.remove(listener);
+  }
+
+  Future<bool> isPipSupported() async {
+    final raw = await _channel.invokeMethod<bool>('isPipSupported');
+    return raw == true;
+  }
+
+  Future<bool> enterPip({int width = 16, int height = 9}) async {
+    final raw = await _channel.invokeMethod<bool>('enterPip', {
+      'width': width,
+      'height': height,
+    });
+    return raw == true;
+  }
+
+  Future<void> setPipAspect({int width = 16, int height = 9}) {
+    return _channel.invokeMethod<void>('setPipAspect', {
+      'width': width,
+      'height': height,
+    });
   }
 
   /// Watches video file requests, including ones made inside a player frame.

@@ -17,14 +17,20 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  static const _sections = ['Arama', 'Ağ', 'Tarayıcı', 'Performans', 'Ana ekran'];
+  // Section titles stay Turkish-alphabetical; option lists use logical order.
+  static const _sections = ['Ağ', 'Ana ekran', 'Arama', 'Performans', 'Tarayıcı'];
   static const _icons = [
-    Icons.search,
     Icons.lan,
-    Icons.language,
-    Icons.speed,
     Icons.home_outlined,
+    Icons.search,
+    Icons.speed,
+    Icons.language,
   ];
+
+  // off → local → DNS; default → desktop → mobile → tv; engines keep enum order.
+  static const _engines = SearchEngine.values;
+  static const _blocks = AdBlock.values;
+  static const _agents = BrowserAgent.values;
 
   int _section = 0;
   bool _onLeft = true;
@@ -74,7 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _selectBlock(AdBlock block) async {
     await widget.store.saveAdBlock(block);
-    // VPN/DNS only for AdGuard — yerel liste VPN istemez.
+    // DNS/VPN only for the DNS engelleme mode — yerel liste VPN istemez.
     await widget.input.setAdBlock(block.name, connectDns: block.usesDns);
     if (!mounted) return;
     setState(() => _block = block);
@@ -123,11 +129,11 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   int get _rightCount => switch (_section) {
-    0 => SearchEngine.values.length,
-    1 => AdBlock.values.length,
-    2 => BrowserAgent.values.length,
+    0 => _blocks.length,
+    1 => 2,
+    2 => _engines.length,
     3 => 2,
-    _ => 2,
+    _ => _agents.length,
   };
 
   KeyEventResult _onLeftKey(int index, KeyEvent event) {
@@ -186,15 +192,17 @@ class _SettingsPageState extends State<SettingsPage> {
   void _activateRight(int index) {
     switch (_section) {
       case 0:
-        _selectEngine(SearchEngine.values[index]);
+        _selectBlock(_blocks[index]);
       case 1:
-        _selectBlock(AdBlock.values[index]);
+        // Göster, Gizle
+        _selectHomeSuggestions(index == 0);
       case 2:
-        _selectAgent(BrowserAgent.values[index]);
+        _selectEngine(_engines[index]);
       case 3:
+        // Açık, Kapalı
         _selectLite(index == 0);
       default:
-        _selectHomeSuggestions(index == 0);
+        _selectAgent(_agents[index]);
     }
   }
 
@@ -263,34 +271,38 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _panel() {
     final items = switch (_section) {
       0 => [
-        for (var index = 0; index < SearchEngine.values.length; index++)
+        for (final block in _blocks)
           (
-            SearchEngine.values[index].label,
-            null as String?,
-            _engine == SearchEngine.values[index],
+            block.label,
+            switch (block) {
+              AdBlock.off =>
+                'Engelleme yok. Film ve dizi sitelerinde oynatıcıların bozulmaması için önerilir.',
+              AdBlock.local =>
+                'Uygulama içi host listesi ve gizli reklam stilleri. Ağ ayarı değişmez, ek izin istemez.',
+              AdBlock.adguard =>
+                'Yerel listeye ek olarak DNS engelleme. Ağ izni ister; daha agresif engeller.',
+            },
+            _block == block,
           ),
       ],
       1 => [
-        for (var index = 0; index < AdBlock.values.length; index++)
-          (
-            AdBlock.values[index].label,
-            switch (AdBlock.values[index]) {
-              AdBlock.off =>
-                'Engelleme yok. Film ve dizi sitelerinde oynat\u0131c\u0131lar\u0131n bozulmamas\u0131 i\u00e7in \u00f6nerilir.',
-              AdBlock.local =>
-                'Uygulama i\u00e7i host listesi ve gizli reklam CSS. DNS de\u011fi\u015fmez, VPN istemez.',
-              AdBlock.adguard =>
-                'Yerel listeye ek olarak AdGuard DNS. VPN izni ister; daha agresif engeller.',
-            },
-            _block == AdBlock.values[index],
-          ),
+        (
+          'Göster',
+          'Ana ekranda film, spor ve haber öneri kartları görünür.',
+          _homeSuggestions,
+        ),
+        (
+          'Gizle',
+          'Ana ekranda yalnızca arama, kısayollar ve yer imleri kalır.',
+          !_homeSuggestions,
+        ),
       ],
       2 => [
-        for (var index = 0; index < BrowserAgent.values.length; index++)
+        for (final engine in _engines)
           (
-            BrowserAgent.values[index].label,
-            BrowserAgent.values[index].detail,
-            _agent == BrowserAgent.values[index],
+            engine.label,
+            null as String?,
+            _engine == engine,
           ),
       ],
       3 => [
@@ -306,16 +318,12 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ],
       _ => [
-        (
-          'Göster',
-          'Ana ekranda IMDb, SofaScore ve diğer öneri kartları görünür.',
-          _homeSuggestions,
-        ),
-        (
-          'Gizle',
-          'Ana ekranda yalnızca arama, kısayollar ve yer imleri kalır.',
-          !_homeSuggestions,
-        ),
+        for (final agent in _agents)
+          (
+            agent.label,
+            agent.detail,
+            _agent == agent,
+          ),
       ],
     };
 
@@ -324,11 +332,11 @@ class _SettingsPageState extends State<SettingsPage> {
       children: [
         Text(
           switch (_section) {
-            0 => 'Varsayılan arama motoru',
-            1 => 'Reklam engelleme',
-            2 => 'User agent',
+            0 => 'Reklam engelleme',
+            1 => 'Ana ekran önerileri',
+            2 => 'Varsayılan arama motoru',
             3 => 'Hafif gezinme',
-            _ => 'Ana ekran önerileri',
+            _ => 'User agent',
           },
           style: const TextStyle(fontSize: 18),
         ),

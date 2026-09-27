@@ -2416,7 +2416,7 @@ class _MenuBarState extends State<_MenuBar> {
       (Icons.history, 'Kitaplık', true, widget.onLibrary, null),
       (
         widget.adBlockOn ? Icons.shield : Icons.shield_outlined,
-        widget.adBlockOn ? 'Engelleme açık' : 'Engelleme kapalı',
+        widget.adBlockOn ? 'Reklam engelleme açık' : 'Reklam engelleme kapalı',
         true,
         widget.onToggleAdBlock,
         null,
@@ -2594,6 +2594,51 @@ class _WebViewWarning extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Text(
           'Bu kutunun WebView sürümü eski. Android System WebView güncellenirse siteler daha düzgün açılır.',
+        ),
+      ),
+    );
+  }
+}
+
+class _OpeningPlayerOverlay extends StatelessWidget {
+  const _OpeningPlayerOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return AbsorbPointer(
+      child: ColoredBox(
+        color: AvenColors.barrier,
+        child: Center(
+          child: Material(
+            elevation: 16,
+            color: AvenColors.panel.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(18),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: AvenColors.text,
+                    ),
+                  ),
+                  SizedBox(width: 16),
+                  Text(
+                    'Aven oynatıcı açılıyor…',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: AvenColors.text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

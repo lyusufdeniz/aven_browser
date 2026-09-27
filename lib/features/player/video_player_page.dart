@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/theme/aven_theme.dart';
+import '../../core/theme/aven_dialog.dart';
+import '../../platform/web_input.dart';
 import 'video_catalog.dart';
 
 class VideoPlayerPage extends StatefulWidget {
@@ -20,6 +22,7 @@ class VideoPlayerPage extends StatefulWidget {
 }
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
+  final _input = WebInput();
   VideoPlayerController? _controller;
   VideoSource? _source;
   late List<VideoSource> _sources;
@@ -33,26 +36,89 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   bool _loading = true;
   bool _controls = true;
   bool _exiting = false;
+  bool _exitDialogOpen = false;
   bool _pickerOpen = false;
+  bool _inPip = false;
+  bool _pipSupported = false;
   Timer? _hideControls;
   int _probeEpoch = 0;
   final _progressPulse = ValueNotifier<int>(0);
   final _rootFocus = FocusNode();
   late final List<FocusNode> _barFocus = List.generate(8, (_) => FocusNode());
-  // 0 progress, 1 play, 2 -10, 3 +10, 4 speed, 5 quality, 6 subtitle, 7 close
+  // 0 progress, 1 play, 2 -10, 3 +10, 4 speed, 5 quality, 6 subtitle, 7 pip
 
   static const _speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
   static const _progressIndex = 0;
   static const _playIndex = 1;
   static const _qualityIndex = 5;
-  static const _closeIndex = 7;
+  static const _subtitleIndex = 6;
+  static const _pipIndex = 7;
+
+  int get _lastBarIndex => _pipSupported ? _pipIndex : _subtitleIndex;
 
   @override
   void initState() {
     super.initState();
+    _input.addPipListener(_onPipChanged);
+    _barFocus[_pipIndex].canRequestFocus = false;
+    unawaited(_probePipSupport());
     _sources = _uniqueSources(widget.video.sources);
     _open(widget.initialSource);
     _scheduleHide();
+  }
+
+  Future<void> _probePipSupport() async {
+    try {
+      final ok = await _input.isPipSupported();
+      if (!mounted) return;
+      setState(() => _pipSupported = ok);
+      _barFocus[_pipIndex].canRequestFocus = ok;
+    } catch (_) {
+      if (mounted) _barFocus[_pipIndex].canRequestFocus = false;
+    }
+  }
+
+  void _onPipChanged(bool inPip) {
+    if (!mounted || inPip == _inPip) return;
+    setState(() {
+      _inPip = inPip;
+      if (inPip) _controls = false;
+    });
+    if (inPip) {
+      _hideControls?.cancel();
+      _rootFocus.requestFocus();
+    } else {
+      _revealControls();
+    }
+  }
+
+  Future<void> _enterPip() async {
+    if (!_pipSupported || _inPip || _loading) return;
+    final controller = _controller;
+    var w = 16;
+    var h = 9;
+    if (controller != null && controller.value.isInitialized) {
+      final size = controller.value.size;
+      if (size.width > 0 && size.height > 0) {
+        w = size.width.round().clamp(1, 10000);
+        h = size.height.round().clamp(1, 10000);
+      }
+    }
+    try {
+      await _input.enterPip(width: w, height: h);
+    } catch (_) {}
+  }
+
+  Future<void> _syncPipAspect(VideoPlayerController controller) async {
+    if (!_pipSupported) return;
+    final size = controller.value.size;
+    if (size.width <= 0 || size.height <= 0) return;
+    try {
+      await _input.setPipAspect(
+        width: size.width.round().clamp(1, 10000),
+        height: size.height.round().clamp(1, 10000),
+      );
+    } catch (_) {}
   }
 
   List<VideoSource> _uniqueSources(List<VideoSource> sources) {
@@ -188,6 +254,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         });
         _revealControls();
         _rememberDuration(source, next.value.duration);
+        unawaited(_syncPipAspect(next));
         // Defer background work so first seconds of playback stay smooth on TV.
         unawaited(_scheduleBackgroundCatalog(source));
         return;
@@ -531,8 +598,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         ? Duration.zero
         : (next > end ? end : next);
     await controller.seekTo(clamped);
-    if (!_controls) _revealControls();
-    else _scheduleHide();
+    if (!_controls) {
+      _revealControls();
+    } else {
+      _scheduleHide();
+    }
   }
 
   Future<void> _setSpeed(double speed) async {
@@ -561,31 +631,37 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   void _scheduleHide() {
     _hideControls?.cancel();
-    if (_exiting || _pickerOpen) return;
+    if (_exiting || _pickerOpen || _inPip || _exitDialogOpen) return;
     _hideControls = Timer(const Duration(seconds: 4), () {
-      if (!mounted || _exiting || _pickerOpen) return;
+      if (!mounted || _exiting || _pickerOpen || _inPip || _exitDialogOpen) {
+        return;
+      }
       setState(() => _controls = false);
       _rootFocus.requestFocus();
     });
   }
 
   void _revealControls({bool grabPlay = true}) {
-    if (_pickerOpen) return;
+    if (_pickerOpen || _inPip || _exitDialogOpen) return;
     if (!_controls) {
       setState(() => _controls = true);
     }
     _scheduleHide();
     if (!grabPlay) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _controls && !_pickerOpen) {
+      if (mounted && _controls && !_pickerOpen && !_inPip) {
         _barFocus[_playIndex].requestFocus();
       }
     });
   }
 
   void _setBarFocusEnabled(bool enabled) {
-    for (final node in _barFocus) {
-      node.canRequestFocus = enabled;
+    for (var i = 0; i < _barFocus.length; i++) {
+      if (i == _pipIndex && !_pipSupported) {
+        _barFocus[i].canRequestFocus = false;
+      } else {
+        _barFocus[i].canRequestFocus = enabled;
+      }
     }
     _rootFocus.canRequestFocus = enabled;
   }
@@ -701,11 +777,23 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   void _moveBar(int index, LogicalKeyboardKey key) {
     if (_pickerOpen) return;
-    const last = _closeIndex;
+    final last = _lastBarIndex;
+    int step(int from, int delta) {
+      var i = from + delta;
+      while (i >= 0 && i <= last) {
+        if (i == _pipIndex && !_pipSupported) {
+          i += delta;
+          continue;
+        }
+        return i;
+      }
+      return from;
+    }
+
     if (key == LogicalKeyboardKey.arrowRight && index < last) {
-      _barFocus[index + 1].requestFocus();
+      _barFocus[step(index, 1)].requestFocus();
     } else if (key == LogicalKeyboardKey.arrowLeft && index > 0) {
-      _barFocus[index - 1].requestFocus();
+      _barFocus[step(index, -1)].requestFocus();
     } else if (key == LogicalKeyboardKey.arrowUp && index > _progressIndex) {
       _barFocus[_progressIndex].requestFocus();
     } else if (key == LogicalKeyboardKey.arrowDown && index == _progressIndex) {
@@ -748,11 +836,11 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         key == LogicalKeyboardKey.gameButtonA ||
         key == LogicalKeyboardKey.space) {
       activate();
-      // Speed / quality / subtitle manage their own focus lifecycle.
-      if (index != _closeIndex &&
-          index != _qualityIndex &&
+      // Speed / quality / subtitle / pip manage their own focus lifecycle.
+      if (index != _qualityIndex &&
+          index != _pipIndex &&
           index != 4 &&
-          index != 6) {
+          index != _subtitleIndex) {
         _scheduleHide();
       }
       return KeyEventResult.handled;
@@ -760,11 +848,37 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     return KeyEventResult.ignored;
   }
 
-  void _requestExit() {
-    if (_exiting || _pickerOpen) return;
-    _exiting = true;
+  Future<void> _confirmExit() async {
+    if (_exiting || _pickerOpen || _inPip || _exitDialogOpen) return;
+    _exitDialogOpen = true;
     _hideControls?.cancel();
-    if (mounted) Navigator.of(context).pop();
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      if (!mounted) return;
+      final leave = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        barrierColor: AvenColors.barrier,
+        builder: (context) {
+          return AvenConfirmDialog(
+            icon: Icons.close_rounded,
+            title: 'Oynatıcıdan çık',
+            message: 'Harici oynatıcı kapatılsın mı?',
+            cancelLabel: 'İptal',
+            confirmLabel: 'Çık',
+            autofocusConfirm: false,
+          );
+        },
+      );
+      if (leave == true && mounted) {
+        _exiting = true;
+        Navigator.of(context).pop();
+      } else if (mounted && !_inPip) {
+        _revealControls();
+      }
+    } finally {
+      _exitDialogOpen = false;
+    }
   }
 
   Future<void> _pickSpeed() async {
@@ -863,6 +977,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   void dispose() {
     _probeEpoch++;
     _hideControls?.cancel();
+    _input.removePipListener(_onPipChanged);
     _progressPulse.dispose();
     _rootFocus.dispose();
     for (final node in _barFocus) {
@@ -879,24 +994,37 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final playing = _displayedPlaying;
     final cue = _displayedCue;
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || _exiting) return;
+        unawaited(_confirmExit());
+      },
+      child: Scaffold(
       backgroundColor: AvenColors.background,
       body: Focus(
         focusNode: _rootFocus,
         autofocus: true,
         onKeyEvent: (node, event) {
-          if (_pickerOpen || _exiting) return KeyEventResult.ignored;
+          if (_pickerOpen || _exiting || _exitDialogOpen) {
+            return KeyEventResult.ignored;
+          }
           if (event is! KeyDownEvent) return KeyEventResult.ignored;
           final key = event.logicalKey;
-          if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
-            if (!_controls) {
-              _revealControls();
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _barFocus[_closeIndex].requestFocus();
-              });
+          if (_inPip) {
+            // PiP window is system-managed; keep playback keys working.
+            if (key == LogicalKeyboardKey.mediaPlayPause ||
+                key == LogicalKeyboardKey.select ||
+                key == LogicalKeyboardKey.enter ||
+                key == LogicalKeyboardKey.space) {
+              _togglePlay();
               return KeyEventResult.handled;
             }
-            _requestExit();
+            return KeyEventResult.ignored;
+          }
+          if (key == LogicalKeyboardKey.escape ||
+              key == LogicalKeyboardKey.goBack) {
+            unawaited(_confirmExit());
             return KeyEventResult.handled;
           }
           // While the bar is open, arrows are handled by focused controls.
@@ -941,26 +1069,40 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           return KeyEventResult.handled;
         },
         child: Stack(
+          fit: StackFit.expand,
           children: [
             Center(
               child: !_loading &&
                       controller != null &&
                       controller.value.isInitialized
-                  ? AspectRatio(
-                      aspectRatio: controller.value.aspectRatio == 0
-                          ? 16 / 9
-                          : controller.value.aspectRatio,
-                      child: RepaintBoundary(
-                        child: VideoPlayer(controller),
-                      ),
-                    )
+                  ? (_inPip
+                      ? SizedBox.expand(
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            child: SizedBox(
+                              width: controller.value.size.width,
+                              height: controller.value.size.height,
+                              child: RepaintBoundary(
+                                child: VideoPlayer(controller),
+                              ),
+                            ),
+                          ),
+                        )
+                      : AspectRatio(
+                          aspectRatio: controller.value.aspectRatio == 0
+                              ? 16 / 9
+                              : controller.value.aspectRatio,
+                          child: RepaintBoundary(
+                            child: VideoPlayer(controller),
+                          ),
+                        ))
                   : const SizedBox.shrink(),
             ),
-            if (cue != null)
+            if (cue != null && !_inPip)
               Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
-                  padding: EdgeInsets.only(bottom: _controls ? 180 : 48),
+                  padding: EdgeInsets.only(bottom: _controls ? 168 : 48),
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: AvenColors.scrim,
@@ -973,8 +1115,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   ),
                 ),
               ),
-            if (_loading) const Center(child: CircularProgressIndicator()),
-            if (_error != null)
+            if (_loading && !_inPip) const Center(child: CircularProgressIndicator()),
+            if (_error != null && !_inPip)
               Align(
                 alignment: Alignment.topCenter,
                 child: Padding(
@@ -982,234 +1124,263 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                   child: Text(_error!, style: const TextStyle(color: Color(0xFFFF8A80))),
                 ),
               ),
-            if (_controls)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Material(
-                  color: Colors.transparent,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          AvenColors.background.withValues(alpha: 0),
-                          AvenColors.background.withValues(alpha: 0.92),
-                          AvenColors.ink,
-                        ],
-                      ),
-                    ),
-                    child: SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 16),
-                        child: ListenableBuilder(
-                          listenable: Listenable.merge(_barFocus),
-                          builder: (context, _) {
-                            final progressFocused = _barFocus[_progressIndex].hasFocus;
-                            final qualityLabel = _source == null
-                                ? 'Kalite'
-                                : (_source!.label.isNotEmpty
-                                    ? _source!.label
-                                    : qualityLabelForUrl(_source!.url));
-                            return Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Focus(
-                                  focusNode: _barFocus[_progressIndex],
-                                  onKeyEvent: (node, event) =>
-                                      _onBarKey(_progressIndex, event, () {}),
-                                  child: AvenFocusZoom(
-                                    focused: progressFocused,
-                                    scale: 1.04,
-                                    child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 120),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: progressFocused
-                                          ? AvenColors.hover.withValues(alpha: 0.35)
-                                          : AvenColors.row.withValues(alpha: 0.55),
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                        color: progressFocused
-                                            ? AvenColors.focus
-                                            : AvenColors.row,
-                                        width: progressFocused ? 2 : 1,
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: IgnorePointer(
+                ignoring: !_controls || _inPip,
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  offset: (_controls && !_inPip)
+                      ? Offset.zero
+                      : const Offset(0, 1.4),
+                  child: SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(28, 0, 28, 22),
+                      child: Material(
+                        elevation: 16,
+                        color: AvenColors.accentBlue.withValues(alpha: 0.96),
+                        borderRadius: BorderRadius.circular(18),
+                        clipBehavior: Clip.antiAlias,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+                          child: ListenableBuilder(
+                            listenable: Listenable.merge(_barFocus),
+                            builder: (context, _) {
+                              final progressFocused =
+                                  _barFocus[_progressIndex].hasFocus;
+                              final qualityLabel = _source == null
+                                  ? 'Kalite'
+                                  : (_source!.label.isNotEmpty
+                                      ? _source!.label
+                                      : qualityLabelForUrl(_source!.url));
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Focus(
+                                    focusNode: _barFocus[_progressIndex],
+                                    onKeyEvent: (node, event) =>
+                                        _onBarKey(_progressIndex, event, () {}),
+                                    // No FocusZoom — full-width scale clips the panel.
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        2,
+                                        4,
+                                        2,
+                                        8,
+                                      ),
+                                      child: Column(
+                                        children: [
+                                          if (controller != null &&
+                                              controller.value.isInitialized)
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              child: VideoProgressIndicator(
+                                                controller,
+                                                allowScrubbing: true,
+                                                padding: EdgeInsets.zero,
+                                                colors: VideoProgressColors(
+                                                  playedColor: progressFocused
+                                                      ? AvenColors.mist
+                                                      : AvenColors.text,
+                                                  bufferedColor: AvenColors.text
+                                                      .withValues(alpha: 0.28),
+                                                  backgroundColor: AvenColors
+                                                      .text
+                                                      .withValues(alpha: 0.12),
+                                                ),
+                                              ),
+                                            )
+                                          else
+                                            const SizedBox(height: 8),
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              ValueListenableBuilder<int>(
+                                                valueListenable:
+                                                    _progressPulse,
+                                                builder:
+                                                    (context, _, child) {
+                                                  final pos = _controller
+                                                          ?.value
+                                                          .position ??
+                                                      Duration.zero;
+                                                  final dur = _controller
+                                                          ?.value
+                                                          .duration ??
+                                                      Duration.zero;
+                                                  return Expanded(
+                                                    child: Row(
+                                                      children: [
+                                                        Text(
+                                                          _format(pos),
+                                                          style: TextStyle(
+                                                            fontSize: 14,
+                                                            color:
+                                                                progressFocused
+                                                                    ? AvenColors
+                                                                        .mist
+                                                                    : AvenColors
+                                                                        .textMuted,
+                                                          ),
+                                                        ),
+                                                        const Spacer(),
+                                                        Text(
+                                                          _format(dur),
+                                                          style: TextStyle(
+                                                            fontSize: 14,
+                                                            color:
+                                                                progressFocused
+                                                                    ? AvenColors
+                                                                        .mist
+                                                                    : AvenColors
+                                                                        .textMuted,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    child: Column(
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(
                                       children: [
-                                        if (controller != null &&
-                                            controller.value.isInitialized)
-                                          ClipRRect(
-                                            borderRadius: BorderRadius.circular(6),
-                                            child: VideoProgressIndicator(
-                                              controller,
-                                              allowScrubbing: true,
-                                              padding: EdgeInsets.zero,
-                                              colors: VideoProgressColors(
-                                                playedColor: progressFocused
-                                                    ? AvenColors.mist
-                                                    : AvenColors.accent,
-                                                bufferedColor: AvenColors.accentBlue,
-                                                backgroundColor: AvenColors.background,
-                                              ),
-                                            ),
-                                          )
-                                        else
-                                          const SizedBox(height: 8),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          children: [
-                                            ValueListenableBuilder<int>(
-                                              valueListenable: _progressPulse,
-                                              builder: (context, _, __) {
-                                                final pos = _controller?.value.position ??
-                                                    Duration.zero;
-                                                final dur = _controller?.value.duration ??
-                                                    Duration.zero;
-                                                return Expanded(
-                                                  child: Row(
-                                                    children: [
-                                                      Text(
-                                                        _format(pos),
-                                                        style: TextStyle(
-                                                          fontSize: 14,
-                                                          color: progressFocused
-                                                              ? AvenColors.mist
-                                                              : AvenColors.textMuted,
-                                                        ),
-                                                      ),
-                                                      const Spacer(),
-                                                      Text(
-                                                        progressFocused
-                                                            ? '◀︎ 10sn  ·  10sn ▶︎'
-                                                            : _format(dur),
-                                                        style: TextStyle(
-                                                          fontSize: 14,
-                                                          color: progressFocused
-                                                              ? AvenColors.mist
-                                                              : AvenColors.textMuted,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                          ],
+                                        _MenuChip(
+                                          focusNode: _barFocus[_playIndex],
+                                          focused:
+                                              _barFocus[_playIndex].hasFocus,
+                                          icon: playing
+                                              ? Icons.pause
+                                              : Icons.play_arrow,
+                                          label:
+                                              playing ? 'Duraklat' : 'Oynat',
+                                          onPressed: _togglePlay,
+                                          onKey: (e) => _onBarKey(
+                                            _playIndex,
+                                            e,
+                                            _togglePlay,
+                                          ),
                                         ),
+                                        const SizedBox(width: 10),
+                                        _MenuChip(
+                                          focusNode: _barFocus[2],
+                                          focused: _barFocus[2].hasFocus,
+                                          icon: Icons.replay_10,
+                                          label: '-10',
+                                          onPressed: () => _seekBy(
+                                            const Duration(seconds: -10),
+                                          ),
+                                          onKey: (e) => _onBarKey(
+                                            2,
+                                            e,
+                                            () => _seekBy(
+                                              const Duration(seconds: -10),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        _MenuChip(
+                                          focusNode: _barFocus[3],
+                                          focused: _barFocus[3].hasFocus,
+                                          icon: Icons.forward_10,
+                                          label: '+10',
+                                          onPressed: () => _seekBy(
+                                            const Duration(seconds: 10),
+                                          ),
+                                          onKey: (e) => _onBarKey(
+                                            3,
+                                            e,
+                                            () => _seekBy(
+                                              const Duration(seconds: 10),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        _MenuChip(
+                                          focusNode: _barFocus[4],
+                                          focused: _barFocus[4].hasFocus,
+                                          icon: Icons.speed,
+                                          label: _speed == 1
+                                              ? 'Hız'
+                                              : '${_speed}x',
+                                          onPressed: _pickSpeed,
+                                          onKey: (e) =>
+                                              _onBarKey(4, e, _pickSpeed),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        _MenuChip(
+                                          focusNode:
+                                              _barFocus[_qualityIndex],
+                                          focused: _barFocus[_qualityIndex]
+                                              .hasFocus,
+                                          icon: Icons.high_quality_outlined,
+                                          label: qualityLabel,
+                                          onPressed: _pickSource,
+                                          onKey: (e) => _onBarKey(
+                                            _qualityIndex,
+                                            e,
+                                            _pickSource,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        _MenuChip(
+                                          focusNode: _barFocus[6],
+                                          focused: _barFocus[6].hasFocus,
+                                          icon: Icons
+                                              .closed_caption_outlined,
+                                          label: _subtitleLabel ?? 'Altyazı',
+                                          onPressed: _pickSubtitle,
+                                          onKey: (e) => _onBarKey(
+                                            6,
+                                            e,
+                                            _pickSubtitle,
+                                          ),
+                                        ),
+                                        if (_pipSupported) ...[
+                                          const SizedBox(width: 10),
+                                          _MenuChip(
+                                            focusNode: _barFocus[_pipIndex],
+                                            focused: _barFocus[_pipIndex]
+                                                .hasFocus,
+                                            icon: Icons
+                                                .picture_in_picture_alt,
+                                            label: 'PiP',
+                                            onPressed: _enterPip,
+                                            onKey: (e) => _onBarKey(
+                                              _pipIndex,
+                                              e,
+                                              _enterPip,
+                                            ),
+                                          ),
+                                        ],
                                       ],
                                     ),
                                   ),
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(
-                                    children: [
-                                      _MenuChip(
-                                        focusNode: _barFocus[_playIndex],
-                                        focused: _barFocus[_playIndex].hasFocus,
-                                        icon: playing ? Icons.pause : Icons.play_arrow,
-                                        label: playing ? 'Duraklat' : 'Oynat',
-                                        onPressed: _togglePlay,
-                                        onKey: (e) =>
-                                            _onBarKey(_playIndex, e, _togglePlay),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      _MenuChip(
-                                        focusNode: _barFocus[2],
-                                        focused: _barFocus[2].hasFocus,
-                                        icon: Icons.replay_10,
-                                        label: '-10',
-                                        onPressed: () =>
-                                            _seekBy(const Duration(seconds: -10)),
-                                        onKey: (e) => _onBarKey(
-                                          2,
-                                          e,
-                                          () => _seekBy(const Duration(seconds: -10)),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      _MenuChip(
-                                        focusNode: _barFocus[3],
-                                        focused: _barFocus[3].hasFocus,
-                                        icon: Icons.forward_10,
-                                        label: '+10',
-                                        onPressed: () =>
-                                            _seekBy(const Duration(seconds: 10)),
-                                        onKey: (e) => _onBarKey(
-                                          3,
-                                          e,
-                                          () => _seekBy(const Duration(seconds: 10)),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      _MenuChip(
-                                        focusNode: _barFocus[4],
-                                        focused: _barFocus[4].hasFocus,
-                                        icon: Icons.speed,
-                                        label: _speed == 1 ? 'Hız' : '${_speed}x',
-                                        onPressed: _pickSpeed,
-                                        onKey: (e) =>
-                                            _onBarKey(4, e, _pickSpeed),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      _MenuChip(
-                                        focusNode: _barFocus[_qualityIndex],
-                                        focused: _barFocus[_qualityIndex].hasFocus,
-                                        icon: Icons.high_quality_outlined,
-                                        label: qualityLabel,
-                                        onPressed: _pickSource,
-                                        onKey: (e) => _onBarKey(
-                                          _qualityIndex,
-                                          e,
-                                          _pickSource,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      _MenuChip(
-                                        focusNode: _barFocus[6],
-                                        focused: _barFocus[6].hasFocus,
-                                        icon: Icons.closed_caption_outlined,
-                                        label: _subtitleLabel ?? 'Altyazı',
-                                        onPressed: _pickSubtitle,
-                                        onKey: (e) =>
-                                            _onBarKey(6, e, _pickSubtitle),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      _MenuChip(
-                                        focusNode: _barFocus[_closeIndex],
-                                        focused: _barFocus[_closeIndex].hasFocus,
-                                        icon: Icons.close,
-                                        label: 'Çık',
-                                        onPressed: _requestExit,
-                                        onKey: (e) => _onBarKey(
-                                          _closeIndex,
-                                          e,
-                                          _requestExit,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
+                                ],
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
+            ),
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -1260,39 +1431,44 @@ class _MenuChip extends StatelessWidget {
           focused: focused,
           scale: 1.1,
           child: Material(
-          color: focused ? AvenColors.hover : AvenColors.row,
-          borderRadius: BorderRadius.circular(14),
-          child: InkWell(
-            onTap: onPressed,
+            color: focused
+                ? AvenColors.hover
+                : AvenColors.background.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(14),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: focused ? AvenColors.focus : Colors.transparent,
-                  width: 2,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 22, color: AvenColors.mist),
-                  const SizedBox(width: 8),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AvenColors.mist,
-                    ),
+            child: InkWell(
+              onTap: onPressed,
+              borderRadius: BorderRadius.circular(14),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: focused
+                        ? AvenColors.focus
+                        : AvenColors.text.withValues(alpha: 0.12),
+                    width: focused ? 2 : 1,
                   ),
-                ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 22, color: AvenColors.mist),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: AvenColors.mist,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
         ),
       ),
     );

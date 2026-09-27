@@ -722,71 +722,109 @@ class _BrowserPageState extends _BrowserPageBase
   Future<void> _onVideoMessage(JavaScriptMessage message) async {
     final parsed = parsePlayedVideo(message.message);
     if (parsed == null || !mounted || _openingVideo) return;
-    final epoch = _mediaEpoch;
-    final frameReferer = await _readPlayerFrame();
-    var sources = _preferPlayable([
-      for (final source in parsed.sources)
-        if (_isStreamUrl(source.url) && !isAdMediaUrl(source.url))
-          VideoSource(
-            url: source.url,
-            label: source.label,
-            headers: _mediaHeadersFor(source.url, frameReferer: frameReferer),
-            durationSeconds: source.durationSeconds,
-          ),
-    ]);
-    // Embed players often fire short ad MP4s first; wait for real HLS/content.
-    if (!_hasContentStream(sources)) {
-      for (var i = 0; i < 14 && mounted && !_openingVideo; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 400));
-        if (epoch != _mediaEpoch) return;
-        final pooled = await _readMediaPool();
-        if (pooled.isEmpty) continue;
-        final merged = <VideoSource>[
-          ...sources,
-          for (final item in pooled)
-            if (_isStreamUrl(item.url) && !isAdMediaUrl(item.url))
-              VideoSource(
-                url: item.url,
-                label: item.label,
-                headers: _mediaHeadersFor(item.url, frameReferer: frameReferer),
-                durationSeconds: item.duration,
-              ),
-        ];
-        sources = _preferPlayable(_dedupeSources(merged));
-        if (_hasContentStream(sources)) break;
-      }
-    }
-    if (epoch != _mediaEpoch || sources.isEmpty || !mounted || _openingVideo) return;
-    final video = PageVideo(sources: sources, tracks: parsed.tracks);
-    var initial = video.sources.first;
-    for (final source in video.sources) {
-      final u = source.url.toLowerCase();
-      if (u.contains('.m3u8')) {
-        initial = source;
-        if (u.contains('live-video.net') || u.contains('master') || u.contains('/hls/') || u.contains('.m3u8')) break;
-      }
-    }
-    // Prefer longest known duration over short preroll leftovers.
-    for (final source in video.sources) {
-      final d = source.durationSeconds ?? 0;
-      final best = initial.durationSeconds ?? 0;
-      if (d > 180 && d > best) initial = source;
-    }
     _openingVideo = true;
     _resetPointerState();
-    await _suspendWebPage();
-    if (!mounted) {
+    setState(() {});
+    final epoch = _mediaEpoch;
+    try {
+      // Frame referer + pool in parallel — don't serialize two JS round-trips.
+      final frameFuture = _readPlayerFrame();
+      final poolFuture = _readMediaPool();
+      final frameReferer = await frameFuture;
+      final pooledFirst = await poolFuture;
+
+      VideoSource mapSource(String url, String label, double? duration) {
+        return VideoSource(
+          url: url,
+          label: label,
+          headers: _mediaHeadersFor(url, frameReferer: frameReferer),
+          durationSeconds: duration,
+        );
+      }
+
+      var sources = _preferPlayable([
+        for (final source in parsed.sources)
+          if (_isStreamUrl(source.url) && !isAdMediaUrl(source.url))
+            mapSource(source.url, source.label, source.durationSeconds),
+        for (final item in pooledFirst)
+          if (_isStreamUrl(item.url) && !isAdMediaUrl(item.url))
+            mapSource(item.url, item.label, item.duration),
+      ]);
+      sources = _preferPlayable(_dedupeSources(sources));
+
+      // Poll only when needed, and keep it short (was up to ~5.6s before).
+      if (sources.isEmpty) {
+        for (var i = 0; i < 6 && mounted; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 180));
+          if (epoch != _mediaEpoch) return;
+          final pooled = await _readMediaPool();
+          if (pooled.isEmpty) continue;
+          sources = _preferPlayable(
+            _dedupeSources([
+              ...sources,
+              for (final item in pooled)
+                if (_isStreamUrl(item.url) && !isAdMediaUrl(item.url))
+                  mapSource(item.url, item.label, item.duration),
+            ]),
+          );
+          if (sources.isNotEmpty) break;
+        }
+      } else if (!_hasContentStream(sources)) {
+        // Already playable — give HLS a brief chance, then open anyway.
+        for (var i = 0; i < 2 && mounted; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
+          if (epoch != _mediaEpoch) return;
+          final pooled = await _readMediaPool();
+          if (pooled.isEmpty) continue;
+          sources = _preferPlayable(
+            _dedupeSources([
+              ...sources,
+              for (final item in pooled)
+                if (_isStreamUrl(item.url) && !isAdMediaUrl(item.url))
+                  mapSource(item.url, item.label, item.duration),
+            ]),
+          );
+          if (_hasContentStream(sources)) break;
+        }
+      }
+      if (epoch != _mediaEpoch || sources.isEmpty || !mounted) return;
+      final video = PageVideo(sources: sources, tracks: parsed.tracks);
+      var initial = video.sources.first;
+      for (final source in video.sources) {
+        final u = source.url.toLowerCase();
+        if (u.contains('.m3u8')) {
+          initial = source;
+          if (u.contains('live-video.net') ||
+              u.contains('master') ||
+              u.contains('/hls/') ||
+              u.contains('.m3u8')) {
+            break;
+          }
+        }
+      }
+      // Prefer longest known duration over short preroll leftovers.
+      for (final source in video.sources) {
+        final d = source.durationSeconds ?? 0;
+        final best = initial.durationSeconds ?? 0;
+        if (d > 180 && d > best) initial = source;
+      }
+      // Freeze the page in the background while the player route opens.
+      unawaited(_suspendWebPage());
+      if (!mounted) {
+        await _resumeWebPage();
+        return;
+      }
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              VideoPlayerPage(video: video, initialSource: initial),
+        ),
+      );
+    } finally {
       _openingVideo = false;
-      await _resumeWebPage();
-      return;
+      if (mounted) setState(() {});
     }
-    await Navigator.push<void>(
-      context,
-      MaterialPageRoute(
-        builder: (context) => VideoPlayerPage(video: video, initialSource: initial),
-      ),
-    );
-    _openingVideo = false;
     if (_onStart) {
       // Home stays on top - keep the page frozen underneath.
       return;
@@ -1264,6 +1302,10 @@ class _BrowserPageState extends _BrowserPageBase
               const Align(
                 alignment: Alignment.topCenter,
                 child: _WebViewWarning(),
+              ),
+            if (_openingVideo && _fullscreenVideo == null)
+              const Positioned.fill(
+                child: _OpeningPlayerOverlay(),
               ),
             if (_fullscreenVideo != null)
               Positioned.fill(

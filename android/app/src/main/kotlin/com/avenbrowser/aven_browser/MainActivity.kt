@@ -1,12 +1,16 @@
 package com.avenbrowser.aven_browser
 
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.speech.RecognizerIntent
+import android.util.Rational
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -119,9 +123,63 @@ class MainActivity : FlutterActivity() {
                     }
                     "recognizeSpeech" -> startSpeechRecognition(call, result)
                     "openExternalUrl" -> openExternalUrl(call, result)
+                    "isPipSupported" -> result.success(isPipSupported())
+                    "enterPip" -> enterPip(call, result)
+                    "setPipAspect" -> {
+                        val w = call.argument<Number>("width")?.toInt() ?: 16
+                        val h = call.argument<Number>("height")?.toInt() ?: 9
+                        setPipAspect(w, h)
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun isPipSupported(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        return packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
+
+    private fun setPipAspect(width: Int, height: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val w = width.coerceIn(1, 10000)
+        val h = height.coerceIn(1, 10000)
+        try {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(w, h))
+                .build()
+            setPictureInPictureParams(params)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun enterPip(call: MethodCall, result: MethodChannel.Result) {
+        if (!isPipSupported()) {
+            result.success(false)
+            return
+        }
+        val w = call.argument<Number>("width")?.toInt() ?: 16
+        val h = call.argument<Number>("height")?.toInt() ?: 9
+        try {
+            setPipAspect(w, h)
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(w.coerceIn(1, 10000), h.coerceIn(1, 10000)))
+                .build()
+            result.success(enterPictureInPictureMode(params))
+        } catch (_: Exception) {
+            result.success(false)
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (::channel.isInitialized) {
+            channel.invokeMethod("pipChanged", isInPictureInPictureMode)
+        }
     }
 
     private fun openExternalUrl(call: MethodCall, result: MethodChannel.Result) {

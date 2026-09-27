@@ -466,7 +466,18 @@ const _watchScript = r'''
       btn.addEventListener('click', function(event) {
         event.preventDefault();
         event.stopPropagation();
+        if (btn.__avenBusy) return;
+        btn.__avenBusy = true;
+        btn.style.opacity = '0.92';
+        label.textContent = 'Açılıyor…';
+        icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F3F5F7" stroke-width="2.5"><circle cx="12" cy="12" r="9" opacity="0.35"/><path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>';
         openFocused(anchor, btn.__avenPayload);
+        setTimeout(function() {
+          btn.__avenBusy = false;
+          btn.style.opacity = '1';
+          label.textContent = 'Aven oynat\u0131c\u0131 ile oynat';
+          icon.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="#F3F5F7"><path d="M8 5v14l11-7z"/></svg>';
+        }, 10000);
       }, true);
       document.documentElement.appendChild(btn);
       anchor.__avenBadge = btn;
