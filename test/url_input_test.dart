@@ -1,4 +1,5 @@
 import 'package:aven_browser/core/url/url_input.dart';
+import 'package:aven_browser/core/url/search_suggest.dart';
 import 'package:aven_browser/platform/web_input.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,6 +23,24 @@ void main() {
       normalizeInput('hava durumu'),
       'https://www.google.com/search?q=hava+durumu',
     );
+  });
+
+  test('google suggest payload parses phrases', () {
+    const body = '["hava",["hava durumu","hava durumu istanbul","havadurumu"]]';
+    expect(
+      parseSuggestPayload(body, SearchEngine.google),
+      ['hava durumu', 'hava durumu istanbul', 'havadurumu'],
+    );
+  });
+
+  test('local suggestions match history hosts', () {
+    final items = localSuggestions(
+      'you',
+      history: [(title: 'YouTube', url: 'https://www.youtube.com/')],
+      bookmarks: const [],
+    );
+    expect(items, isNotEmpty);
+    expect(items.first.query, contains('youtube.com'));
   });
 
   test('local addresses stay on http', () {

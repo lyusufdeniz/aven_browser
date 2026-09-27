@@ -12,6 +12,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../core/theme/aven_theme.dart';
 import '../../core/url/url_input.dart';
+import '../../core/url/search_suggest.dart';
 import '../../data/settings_store.dart';
 import '../../platform/web_input.dart';
 import '../library/library_page.dart';
@@ -123,6 +124,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   String? _pageTitle;
   SearchEngine _engine = SearchEngine.google;
   List<WebLink> _bookmarks = const [];
+  List<WebLink> _history = const [];
   AdBlock _adBlock = AdBlock.off;
   AdBlock _adBlockProvider = AdBlock.adguard;
   int _zoom = 100;
@@ -199,6 +201,7 @@ class _BrowserPageState extends _BrowserPageBase
     await _configureAndroid();
     final engine = await _store.loadEngine();
     final bookmarks = await _store.loadBookmarks();
+    final history = await _store.loadHistory();
     final block = await _store.loadAdBlock();
     final provider = await _store.loadAdBlockProvider();
     final agent = await _store.loadAgent();
@@ -212,11 +215,16 @@ class _BrowserPageState extends _BrowserPageBase
     setState(() {
       _engine = engine;
       _bookmarks = bookmarks;
+      _history = history;
       _adBlock = block;
       _adBlockProvider = provider;
       _lite = lite;
       _warnWebView = major != null && major < 80;
     });
+    // Start screen never mounts WebView; keep native side paused anyway.
+    if (_onStart) {
+      unawaited(_suspendWebPage());
+    }
   }
 
   Future<void> _applyAgent(BrowserAgent agent) async {
@@ -378,29 +386,66 @@ class _BrowserPageState extends _BrowserPageBase
       _addressEditing = false;
       _startEditing = false;
       _pageError = null;
+      _pageUrl = null;
+      _pageTitle = null;
+      _canBack = false;
+      _canForward = false;
+      _saved = false;
+      _fullscreenVideo = null;
+      _exitFullscreen = null;
       _address.text = '';
     });
     _addressFocus.unfocus();
     _surfaceFocus.canRequestFocus = false;
     _surfaceFocus.unfocus();
     _syncChrome();
-    unawaited(_suspendWebPage());
+    unawaited(_resetWebViewForHome());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _startFocus.requestFocus();
     });
   }
 
-  Future<void> _leaveStartToPage() async {
-    if (!_onStart) return;
-    setState(() {
-      _onStart = false;
-      if (isAvenWebUrl(_pageUrl)) _address.text = _pageUrl!;
-    });
-    _syncChrome();
-    _surfaceFocus.canRequestFocus = true;
-    await _resumeWebPage();
-    if (!mounted) return;
-    _surfaceFocus.requestFocus();
+  /// Drop the previous document so Back from home cannot return to it.
+  Future<void> _resetWebViewForHome() async {
+    await _suspendWebPage();
+    try {
+      await _controller.loadRequest(Uri.parse('about:blank'));
+    } catch (_) {}
+    try {
+      await _controller.clearCache();
+    } catch (_) {}
+    try {
+      await _controller.clearLocalStorage();
+    } catch (_) {}
+  }
+
+  Future<void> _confirmExit() async {
+    final leave = await showDialog<bool>(
+      context: context,
+      barrierColor: AvenColors.barrier,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AvenColors.accentBlue,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: const Text('Uygulamadan çık'),
+          content: const Text('Aven Browser kapatılsın mı?'),
+          actions: [
+            TextButton(
+              autofocus: true,
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('İptal'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Çık'),
+            ),
+          ],
+        );
+      },
+    );
+    if (leave == true && mounted) {
+      await SystemNavigator.pop();
+    }
   }
 
   Future<void> _toggleBookmark() async {
@@ -454,6 +499,7 @@ class _BrowserPageState extends _BrowserPageBase
       },
     );
     _bookmarks = await _store.loadBookmarks();
+    _history = await _store.loadHistory();
     if (!mounted) return;
     setState(() => _saved = _bookmarks.any((item) => item.url == _pageUrl));
     if (picked != null) {
@@ -1009,8 +1055,8 @@ class _BrowserPageState extends _BrowserPageBase
       _closeMenu();
       return;
     }
-    if (_onStart && isAvenWebUrl(_pageUrl)) {
-      await _leaveStartToPage();
+    if (_onStart) {
+      await _confirmExit();
       return;
     }
     await SystemNavigator.pop();
@@ -1081,20 +1127,25 @@ class _BrowserPageState extends _BrowserPageBase
                   return Stack(
                     clipBehavior: Clip.hardEdge,
                     children: [
+                      // Keep WebView out of the tree on the start screen — hybrid
+                      // composition still costs GPU/CPU even when paused underneath.
                       Positioned.fill(
-                        child: ValueListenableBuilder<int>(
-                          valueListenable: _surfaceKick,
-                          builder: (context, kick, child) {
-                            return Transform.translate(
-                              offset: Offset((kick.isOdd) ? 1 : 0, 0),
-                              child: child,
-                            );
-                          },
-                          child: WebViewWidget(
-                            controller: _controller,
-                            gestureRecognizers: _BrowserPageBase.pageGestures,
-                          ),
-                        ),
+                        child: _onStart
+                            ? const ColoredBox(color: AvenColors.background)
+                            : ValueListenableBuilder<int>(
+                                valueListenable: _surfaceKick,
+                                builder: (context, kick, child) {
+                                  return Transform.translate(
+                                    offset: Offset((kick.isOdd) ? 1 : 0, 0),
+                                    child: child,
+                                  );
+                                },
+                                child: WebViewWidget(
+                                  controller: _controller,
+                                  gestureRecognizers:
+                                      _BrowserPageBase.pageGestures,
+                                ),
+                              ),
                       ),
                       if (!_onStart && !_menuOpen && _fullscreenVideo == null)
                         ValueListenableBuilder<_CursorLook>(
@@ -1141,7 +1192,9 @@ class _BrowserPageState extends _BrowserPageBase
                 address: _address,
                 focusNode: _startFocus,
                 editing: _startEditing,
+                engine: _engine,
                 bookmarks: _bookmarks,
+                history: _history,
                 onTapField: () => setState(() => _startEditing = true),
                 onSubmit: _openInput,
                 onOpenBookmark: _openInput,
@@ -1185,6 +1238,7 @@ class _BrowserPageState extends _BrowserPageBase
                 onZoomIn: () => _setZoom(_zoom + 10),
                 onZoomReset: () => _setZoom(100),
                 onSettings: _openSettings,
+                onExit: _confirmExit,
               ),
             if (_warnWebView)
               const Align(

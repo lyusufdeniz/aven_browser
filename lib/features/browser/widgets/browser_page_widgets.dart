@@ -438,7 +438,9 @@ class _StartPage extends StatefulWidget {
     required this.address,
     required this.focusNode,
     required this.editing,
+    required this.engine,
     required this.bookmarks,
+    required this.history,
     required this.onTapField,
     required this.onSubmit,
     required this.onOpenBookmark,
@@ -450,7 +452,9 @@ class _StartPage extends StatefulWidget {
   final TextEditingController address;
   final FocusNode focusNode;
   final bool editing;
+  final SearchEngine engine;
   final List<WebLink> bookmarks;
+  final List<WebLink> history;
   final VoidCallback onTapField;
   final ValueChanged<String> onSubmit;
   final ValueChanged<String> onOpenBookmark;
@@ -464,6 +468,7 @@ class _StartPage extends StatefulWidget {
 
 class _StartPageState extends State<_StartPage> {
   static const _bookmarkLimit = 24;
+  static const _suggestLimit = 8;
   static const _suggestions = <_Suggestion>[
     _Suggestion(
       title: 'YouTube TV',
@@ -526,6 +531,8 @@ class _StartPageState extends State<_StartPage> {
   late final List<FocusNode> _bookmarkFocus =
       List.generate(_bookmarkLimit, (_) => FocusNode());
   late final List<FocusNode> _actionFocus = List.generate(3, (_) => FocusNode());
+  late final List<FocusNode> _queryFocus =
+      List.generate(_suggestLimit, (_) => FocusNode());
   final _pageScroll = ScrollController();
   final _suggestScroll = ScrollController();
   final _bookmarkScroll = ScrollController();
@@ -533,15 +540,20 @@ class _StartPageState extends State<_StartPage> {
   static const _suggestItemWidth = 220.0;
   static const _suggestGap = 14.0;
 
+  List<SearchSuggestion> _querySuggestions = const [];
+  Timer? _suggestDebounce;
+  int _suggestEpoch = 0;
+  String _lastSuggestQuery = '';
+
   @override
   void initState() {
     super.initState();
+    widget.address.addListener(_onAddressChanged);
     for (var i = 0; i < _suggestFocus.length; i++) {
       final index = i;
       _suggestFocus[index].addListener(() {
         if (_suggestFocus[index].hasFocus) {
           _scrollSuggestTo(index);
-          _ensureVisible(_suggestFocus[index]);
         }
       });
     }
@@ -550,7 +562,6 @@ class _StartPageState extends State<_StartPage> {
       _bookmarkFocus[index].addListener(() {
         if (_bookmarkFocus[index].hasFocus) {
           _scrollBookmarkTo(index);
-          _ensureVisible(_bookmarkFocus[index]);
         }
       });
     }
@@ -565,7 +576,24 @@ class _StartPageState extends State<_StartPage> {
   }
 
   @override
+  void didUpdateWidget(covariant _StartPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.address != widget.address) {
+      oldWidget.address.removeListener(_onAddressChanged);
+      widget.address.addListener(_onAddressChanged);
+    }
+    if (!widget.editing && _querySuggestions.isNotEmpty) {
+      // Keep suggestions while the field still has text; clear only when empty.
+      if (widget.address.text.trim().length < 2) {
+        _clearQuerySuggestions();
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    _suggestDebounce?.cancel();
+    widget.address.removeListener(_onAddressChanged);
     _pageScroll.dispose();
     _suggestScroll.dispose();
     _bookmarkScroll.dispose();
@@ -578,7 +606,61 @@ class _StartPageState extends State<_StartPage> {
     for (final node in _actionFocus) {
       node.dispose();
     }
+    for (final node in _queryFocus) {
+      node.dispose();
+    }
     super.dispose();
+  }
+
+  void _clearQuerySuggestions() {
+    _suggestDebounce?.cancel();
+    _suggestEpoch++;
+    _lastSuggestQuery = '';
+    if (_querySuggestions.isEmpty) return;
+    setState(() => _querySuggestions = const []);
+  }
+
+  void _onAddressChanged() {
+    final text = widget.address.text.trim();
+    if (text.length < 2) {
+      _clearQuerySuggestions();
+      return;
+    }
+    _suggestDebounce?.cancel();
+    _suggestDebounce = Timer(const Duration(milliseconds: 220), () {
+      unawaited(_loadQuerySuggestions(text));
+    });
+  }
+
+  Future<void> _loadQuerySuggestions(String query) async {
+    if (!mounted || query != widget.address.text.trim()) return;
+    if (query == _lastSuggestQuery && _querySuggestions.isNotEmpty) return;
+    final epoch = ++_suggestEpoch;
+    final links = (
+      history: [
+        for (final item in widget.history) (title: item.title, url: item.url),
+      ],
+      bookmarks: [
+        for (final item in widget.bookmarks) (title: item.title, url: item.url),
+      ],
+    );
+    final next = await buildAddressSuggestions(
+      query,
+      engine: widget.engine,
+      history: links.history,
+      bookmarks: links.bookmarks,
+      limit: _suggestLimit,
+    );
+    if (!mounted || epoch != _suggestEpoch) return;
+    if (query != widget.address.text.trim()) return;
+    setState(() {
+      _lastSuggestQuery = query;
+      _querySuggestions = next;
+    });
+  }
+
+  void _pickSuggestion(SearchSuggestion item) {
+    widget.onSubmit(item.query);
   }
 
   void _ensureVisible(FocusNode node) {
@@ -587,9 +669,9 @@ class _StartPageState extends State<_StartPage> {
       if (ctx == null || !ctx.mounted) return;
       Scrollable.ensureVisible(
         ctx,
-        alignment: 0.4,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
+        alignment: 0.45,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
       );
     });
   }
@@ -600,11 +682,7 @@ class _StartPageState extends State<_StartPage> {
       final extent = _suggestItemWidth + _suggestGap;
       final target = (index * extent)
           .clamp(0.0, _suggestScroll.position.maxScrollExtent);
-      _suggestScroll.animateTo(
-        target,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-      );
+      _suggestScroll.jumpTo(target);
     });
   }
 
@@ -614,11 +692,7 @@ class _StartPageState extends State<_StartPage> {
       final extent = _suggestItemWidth + _suggestGap;
       final target = (index * extent)
           .clamp(0.0, _bookmarkScroll.position.maxScrollExtent);
-      _bookmarkScroll.animateTo(
-        target,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-      );
+      _bookmarkScroll.jumpTo(target);
     });
   }
 
@@ -659,8 +733,13 @@ class _StartPageState extends State<_StartPage> {
   }
 
   int get _bookmarkCount => widget.bookmarks.length.clamp(0, _bookmarkLimit);
+  bool get _hasQuerySuggests => _querySuggestions.isNotEmpty;
 
   void _focusAfterSearch() {
+    if (_hasQuerySuggests) {
+      _queryFocus.first.requestFocus();
+      return;
+    }
     _actionFocus.first.requestFocus();
   }
 
@@ -671,6 +750,31 @@ class _StartPageState extends State<_StartPage> {
   void _fromAddress(LogicalKeyboardKey key) {
     if (key != LogicalKeyboardKey.arrowDown) return;
     _focusAfterSearch();
+  }
+
+  void _onQueryKey(int index, KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+    final key = event.logicalKey;
+    final count = _querySuggestions.length;
+    if (key == LogicalKeyboardKey.arrowDown && index < count - 1) {
+      _queryFocus[index + 1].requestFocus();
+      return;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (index > 0) {
+        _queryFocus[index - 1].requestFocus();
+      } else {
+        widget.focusNode.requestFocus();
+      }
+      return;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.space) {
+      _pickSuggestion(_querySuggestions[index]);
+    }
   }
 
   void _onSuggestKey(int index, KeyEvent event) {
@@ -739,7 +843,11 @@ class _StartPageState extends State<_StartPage> {
       return;
     }
     if (key == LogicalKeyboardKey.arrowUp) {
-      widget.focusNode.requestFocus();
+      if (_hasQuerySuggests) {
+        _queryFocus[_querySuggestions.length - 1].requestFocus();
+      } else {
+        widget.focusNode.requestFocus();
+      }
       return;
     }
     if (key == LogicalKeyboardKey.arrowDown) {
@@ -762,9 +870,18 @@ class _StartPageState extends State<_StartPage> {
     }
   }
 
+  IconData _sourceIcon(SuggestionSource source) {
+    return switch (source) {
+      SuggestionSource.remote => Icons.search,
+      SuggestionSource.history => Icons.history,
+      SuggestionSource.bookmark => Icons.star_outline,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final bookmarks = widget.bookmarks.take(_bookmarkLimit).toList();
+    final showQuery = _hasQuerySuggests;
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
       child: ColoredBox(
@@ -773,9 +890,7 @@ class _StartPageState extends State<_StartPage> {
           builder: (context, constraints) {
             return SingleChildScrollView(
               controller: _pageScroll,
-              physics: const AlwaysScrollableScrollPhysics(
-                parent: BouncingScrollPhysics(),
-              ),
+              physics: const ClampingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(28, 16, 28, 48),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
@@ -802,15 +917,48 @@ class _StartPageState extends State<_StartPage> {
                       order: const NumericFocusOrder(0),
                       child: Center(
                         child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 520),
-                          child: _AddressField(
-                            controller: widget.address,
-                            focusNode: widget.focusNode,
-                            editing: widget.editing,
-                            autofocus: true,
-                            onTap: widget.onTapField,
-                            onSubmit: widget.onSubmit,
-                            onArrow: _fromAddress,
+                          constraints: const BoxConstraints(maxWidth: 560),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _AddressField(
+                                controller: widget.address,
+                                focusNode: widget.focusNode,
+                                editing: widget.editing,
+                                autofocus: true,
+                                onTap: widget.onTapField,
+                                onSubmit: widget.onSubmit,
+                                onArrow: _fromAddress,
+                              ),
+                              if (showQuery) ...[
+                                const SizedBox(height: 8),
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: AvenColors.text.withValues(alpha: 0.06),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: AvenColors.text.withValues(alpha: 0.12),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      for (var i = 0; i < _querySuggestions.length; i++)
+                                        FocusTraversalOrder(
+                                          order: NumericFocusOrder(0.1 + i * 0.01),
+                                          child: _QuerySuggestTile(
+                                            suggestion: _querySuggestions[i],
+                                            focusNode: _queryFocus[i],
+                                            icon: _sourceIcon(_querySuggestions[i].source),
+                                            onKeyEvent: (event) => _onQueryKey(i, event),
+                                            onPressed: () =>
+                                                _pickSuggestion(_querySuggestions[i]),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),
@@ -853,85 +1001,87 @@ class _StartPageState extends State<_StartPage> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 22),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                          'Öneriler',
-                        style: TextStyle(fontSize: 16, color: AvenColors.textMuted),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 148,
-                      child: ListView.separated(
-                        controller: _suggestScroll,
-                        scrollDirection: Axis.horizontal,
-                        clipBehavior: Clip.none,
-                        physics: const BouncingScrollPhysics(
-                          parent: AlwaysScrollableScrollPhysics(),
-                        ),
-                        padding: const EdgeInsets.fromLTRB(0, 10, 48, 10),
-                        itemCount: _suggestions.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(width: _suggestGap),
-                        itemBuilder: (context, index) {
-                          final item = _suggestions[index];
-                          return FocusTraversalOrder(
-                            order: NumericFocusOrder(10 + index.toDouble()),
-                            child: _SuggestionPoster(
-                              suggestion: item,
-                              focusNode: _suggestFocus[index],
-                              onKeyEvent: (event) => _onSuggestKey(index, event),
-                              onPressed: () => widget.onOpenBookmark(item.url),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    if (bookmarks.isNotEmpty) ...[
+                    if (!showQuery) ...[
                       const SizedBox(height: 22),
                       const Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Yer imleri',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: AvenColors.textMuted,
-                          ),
+                            'Öneriler',
+                          style: TextStyle(fontSize: 16, color: AvenColors.textMuted),
                         ),
                       ),
                       const SizedBox(height: 10),
                       SizedBox(
                         height: 148,
                         child: ListView.separated(
-                          controller: _bookmarkScroll,
+                          controller: _suggestScroll,
                           scrollDirection: Axis.horizontal,
                           clipBehavior: Clip.none,
-                          physics: const BouncingScrollPhysics(
-                            parent: AlwaysScrollableScrollPhysics(),
-                          ),
+                          physics: const ClampingScrollPhysics(),
                           padding: const EdgeInsets.fromLTRB(0, 10, 48, 10),
-                          itemCount: bookmarks.length,
+                          itemCount: _suggestions.length,
                           separatorBuilder: (context, index) =>
                               const SizedBox(width: _suggestGap),
                           itemBuilder: (context, index) {
-                            final link = bookmarks[index];
-                            return FocusTraversalOrder(
-                              order: NumericFocusOrder(40 + index.toDouble()),
-                              child: _BookmarkPoster(
-                                link: link,
-                                matched: _matchSuggestion(link.url),
-                                focusNode: _bookmarkFocus[index],
-                                onKeyEvent: (event) =>
-                                    _onBookmarkKey(index, event),
-                                onPressed: () =>
-                                    widget.onOpenBookmark(link.url),
+                            final item = _suggestions[index];
+                            return RepaintBoundary(
+                              child: FocusTraversalOrder(
+                                order: NumericFocusOrder(10 + index.toDouble()),
+                                child: _SuggestionPoster(
+                                  suggestion: item,
+                                  focusNode: _suggestFocus[index],
+                                  onKeyEvent: (event) => _onSuggestKey(index, event),
+                                  onPressed: () => widget.onOpenBookmark(item.url),
+                                ),
                               ),
                             );
                           },
                         ),
                       ),
+                      if (bookmarks.isNotEmpty) ...[
+                        const SizedBox(height: 22),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Yer imleri',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: AvenColors.textMuted,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 148,
+                          child: ListView.separated(
+                            controller: _bookmarkScroll,
+                            scrollDirection: Axis.horizontal,
+                            clipBehavior: Clip.none,
+                            physics: const ClampingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(0, 10, 48, 10),
+                            itemCount: bookmarks.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(width: _suggestGap),
+                            itemBuilder: (context, index) {
+                              final link = bookmarks[index];
+                              return RepaintBoundary(
+                                child: FocusTraversalOrder(
+                                  order: NumericFocusOrder(40 + index.toDouble()),
+                                  child: _BookmarkPoster(
+                                    link: link,
+                                    matched: _matchSuggestion(link.url),
+                                    focusNode: _bookmarkFocus[index],
+                                    onKeyEvent: (event) =>
+                                        _onBookmarkKey(index, event),
+                                    onPressed: () =>
+                                        widget.onOpenBookmark(link.url),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
                     ],
                     const SizedBox(height: 24),
                   ],
@@ -940,6 +1090,78 @@ class _StartPageState extends State<_StartPage> {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _QuerySuggestTile extends StatelessWidget {
+  const _QuerySuggestTile({
+    required this.suggestion,
+    required this.focusNode,
+    required this.icon,
+    required this.onKeyEvent,
+    required this.onPressed,
+  });
+
+  final SearchSuggestion suggestion;
+  final FocusNode focusNode;
+  final IconData icon;
+  final ValueChanged<KeyEvent> onKeyEvent;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: focusNode,
+      onKeyEvent: (node, event) {
+        onKeyEvent(event);
+        return event is KeyDownEvent &&
+                (_isArrow(event.logicalKey) ||
+                    event.logicalKey == LogicalKeyboardKey.enter ||
+                    event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                    event.logicalKey == LogicalKeyboardKey.select ||
+                    event.logicalKey == LogicalKeyboardKey.gameButtonA ||
+                    event.logicalKey == LogicalKeyboardKey.space)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
+      },
+      child: ListenableBuilder(
+        listenable: focusNode,
+        builder: (context, _) {
+          final focused = focusNode.hasFocus;
+          return Material(
+            color: focused
+                ? AvenColors.focus.withValues(alpha: 0.55)
+                : Colors.transparent,
+            child: InkWell(
+              onTap: onPressed,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 20, color: AvenColors.textMuted),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        suggestion.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: focused ? FontWeight.w600 : FontWeight.w500,
+                          color: AvenColors.text,
+                        ),
+                      ),
+                    ),
+                    if (suggestion.isUrl)
+                      const Icon(Icons.north_east, size: 16, color: AvenColors.textMuted),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -974,6 +1196,29 @@ class _SuggestionPoster extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheW = (220 * dpr).round().clamp(220, 660);
+    final cacheH = (128 * dpr).round().clamp(128, 384);
+    final art = Image.asset(
+      suggestion.image,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+      cacheWidth: cacheW,
+      cacheHeight: cacheH,
+      gaplessPlayback: true,
+      errorBuilder: (context, error, stack) => Center(
+        child: Text(
+          suggestion.title,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: suggestion.background.computeLuminance() > 0.45
+                ? Colors.black
+                : Colors.white,
+          ),
+        ),
+      ),
+    );
     return Focus(
       focusNode: focusNode,
       onKeyEvent: (node, event) {
@@ -990,69 +1235,43 @@ class _SuggestionPoster extends StatelessWidget {
       },
       child: ListenableBuilder(
         listenable: focusNode,
-        builder: (context, _) {
+        child: art,
+        builder: (context, child) {
           final focused = focusNode.hasFocus;
           return AvenFocusZoom(
             focused: focused,
-            scale: 1.12,
+            scale: 1.06,
             child: SizedBox(
-            width: 220,
-            height: 128,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: onPressed,
-                borderRadius: BorderRadius.circular(14),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  curve: Curves.easeOut,
-                  decoration: BoxDecoration(
-                    color: suggestion.background,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: focused ? AvenColors.focus : Colors.transparent,
-                      width: focused ? 3 : 0,
+              width: 220,
+              height: 128,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onPressed,
+                  borderRadius: BorderRadius.circular(14),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: suggestion.background,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: focused ? AvenColors.focus : Colors.transparent,
+                        width: focused ? 3 : 0,
+                      ),
                     ),
-                    boxShadow: focused
-                        ? [
-                            BoxShadow(
-                              color: AvenColors.focus.withValues(alpha: 0.45),
-                              blurRadius: 22,
-                              spreadRadius: 1,
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(focused ? 11 : 14),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        ColoredBox(color: suggestion.background),
-                        Image.asset(
-                          suggestion.image,
-                          fit: BoxFit.cover,
-                          filterQuality: FilterQuality.high,
-                          errorBuilder: (context, error, stack) => Center(
-                            child: Text(
-                              suggestion.title,
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                                color: suggestion.background.computeLuminance() > 0.45
-                                    ? Colors.black
-                                    : Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(focused ? 11 : 14),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ColoredBox(color: suggestion.background),
+                          child!,
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
           );
         },
       ),
@@ -1098,6 +1317,73 @@ class _BookmarkPoster extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final suggestion = matched;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheW = (220 * dpr).round().clamp(220, 660);
+    final cacheH = (128 * dpr).round().clamp(128, 384);
+    final Widget face;
+    if (suggestion != null) {
+      face = Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(color: suggestion.background),
+          Image.asset(
+            suggestion.image,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.low,
+            cacheWidth: cacheW,
+            cacheHeight: cacheH,
+            gaplessPlayback: true,
+          ),
+        ],
+      );
+    } else {
+      final bg = _fallbackBg;
+      face = Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(color: bg),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
+              child: Image.network(
+                _favicon,
+                width: 56,
+                height: 56,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.low,
+                cacheWidth: (56 * dpr).round().clamp(56, 168),
+                cacheHeight: (56 * dpr).round().clamp(56, 168),
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stack) {
+                  return const Icon(
+                    Icons.public,
+                    size: 40,
+                    color: Colors.white70,
+                  );
+                },
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Text(
+                link.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
     return Focus(
       focusNode: focusNode,
       onKeyEvent: (node, event) {
@@ -1114,100 +1400,38 @@ class _BookmarkPoster extends StatelessWidget {
       },
       child: ListenableBuilder(
         listenable: focusNode,
-        builder: (context, _) {
+        child: face,
+        builder: (context, child) {
           final focused = focusNode.hasFocus;
           final bg = suggestion?.background ?? _fallbackBg;
           return AvenFocusZoom(
             focused: focused,
-            scale: 1.12,
+            scale: 1.06,
             child: SizedBox(
-            width: 220,
-            height: 128,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: onPressed,
-                borderRadius: BorderRadius.circular(14),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 140),
-                  curve: Curves.easeOut,
-                  decoration: BoxDecoration(
-                    color: bg,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: focused ? AvenColors.focus : Colors.transparent,
-                      width: focused ? 3 : 0,
+              width: 220,
+              height: 128,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onPressed,
+                  borderRadius: BorderRadius.circular(14),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: bg,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: focused ? AvenColors.focus : Colors.transparent,
+                        width: focused ? 3 : 0,
+                      ),
                     ),
-                    boxShadow: focused
-                        ? [
-                            BoxShadow(
-                              color: AvenColors.focus.withValues(alpha: 0.45),
-                              blurRadius: 22,
-                              spreadRadius: 1,
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(focused ? 11 : 14),
-                    child: suggestion != null
-                        ? Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              ColoredBox(color: suggestion.background),
-                              Image.asset(
-                                suggestion.image,
-                                fit: BoxFit.cover,
-                                filterQuality: FilterQuality.high,
-                              ),
-                            ],
-                          )
-                        : Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              ColoredBox(color: bg),
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 36),
-                                  child: Image.network(
-                                    _favicon,
-                                    width: 56,
-                                    height: 56,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (context, error, stack) {
-                                      return const Icon(
-                                        Icons.public,
-                                        size: 40,
-                                        color: Colors.white70,
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                              Align(
-                                alignment: Alignment.bottomCenter,
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                                  child: Text(
-                                    link.title,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(focused ? 11 : 14),
+                      child: child,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           );
         },
       ),
@@ -1301,6 +1525,7 @@ class _FloatingMenu extends StatelessWidget {
     required this.onZoomIn,
     required this.onZoomReset,
     required this.onSettings,
+    required this.onExit,
   });
 
   final bool open;
@@ -1326,6 +1551,7 @@ class _FloatingMenu extends StatelessWidget {
   final VoidCallback onZoomIn;
   final VoidCallback onZoomReset;
   final VoidCallback onSettings;
+  final VoidCallback onExit;
 
   @override
   Widget build(BuildContext context) {
@@ -1386,6 +1612,7 @@ class _FloatingMenu extends StatelessWidget {
                         onZoomIn: onZoomIn,
                         onZoomReset: onZoomReset,
                         onSettings: onSettings,
+                        onExit: onExit,
                       ),
                     ],
                   ),
@@ -1440,6 +1667,11 @@ class _AddressField extends StatelessWidget {
     focusNode.onKeyEvent = (node, event) {
       if (event is! KeyDownEvent) return KeyEventResult.ignored;
       final key = event.logicalKey;
+      // While typing, Down moves into Google-style suggestions under the field.
+      if (onArrow != null && key == LogicalKeyboardKey.arrowDown) {
+        onArrow!(key);
+        return KeyEventResult.handled;
+      }
       if (!editing && onArrow != null && _isArrow(key)) {
         onArrow!(key);
         return KeyEventResult.handled;
@@ -1561,6 +1793,7 @@ class _MenuBar extends StatefulWidget {
     required this.onZoomIn,
     required this.onZoomReset,
     required this.onSettings,
+    required this.onExit,
   });
 
   final FocusNode firstFocus;
@@ -1581,6 +1814,7 @@ class _MenuBar extends StatefulWidget {
   final VoidCallback onZoomIn;
   final VoidCallback onZoomReset;
   final VoidCallback onSettings;
+  final VoidCallback onExit;
 
   @override
   State<_MenuBar> createState() => _MenuBarState();
@@ -1589,7 +1823,7 @@ class _MenuBar extends StatefulWidget {
 class _MenuBarState extends State<_MenuBar> {
   late final List<FocusNode> _nodes = [
     widget.firstFocus,
-    ...List.generate(10, (_) => FocusNode()),
+    ...List.generate(11, (_) => FocusNode()),
   ];
 
   @override
@@ -1630,6 +1864,7 @@ class _MenuBarState extends State<_MenuBar> {
       (null, 'Yakınlaştırma', true, widget.onZoomReset, '%${widget.zoom}'),
       (Icons.add, 'Yakınlaştır', true, widget.onZoomIn, null),
       (Icons.settings, 'Ayarlar', true, widget.onSettings, null),
+      (Icons.power_settings_new, 'Çıkış', true, widget.onExit, null),
     ];
     return LayoutBuilder(
       builder: (context, constraints) {

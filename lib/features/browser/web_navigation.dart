@@ -3,6 +3,12 @@ part of 'browser_page.dart';
 /// Page lifecycle, error/retry, and WebView suspend/resume.
 mixin _BrowserNavigation on _BrowserPageBase {
   void _onPageStarted(String url) {
+    // Home reset loads about:blank under the start screen — ignore it.
+    if (_onStart && !isAvenWebUrl(url)) {
+      _pageLoading.value = false;
+      _progress.value = 100;
+      return;
+    }
     _mediaEpoch++;
     _progress.value = 8;
     _pageLoading.value = true;
@@ -43,6 +49,12 @@ mixin _BrowserNavigation on _BrowserPageBase {
   }
 
   Future<void> _onPageFinished(String url) async {
+    if (_onStart && !isAvenWebUrl(url)) {
+      _loadTimeout?.cancel();
+      _pageLoading.value = false;
+      _progress.value = 100;
+      return;
+    }
     _loadTimeout?.cancel();
     _pageLoading.value = false;
     _progress.value = 100;
