@@ -1,4 +1,4 @@
-package com.avenbrowser.aven_browser
+package dev.furina.avenbrowser
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -100,7 +100,7 @@ class AdBlockDnsVpnService : VpnService() {
     }
 
     companion object {
-        const val ACTION_STOP = "com.avenbrowser.aven_browser.STOP_DNS_VPN"
+        const val ACTION_STOP = "dev.furina.avenbrowser.STOP_DNS_VPN"
         const val EXTRA_MODE = "mode"
         const val MODE_OFF = "off"
         const val MODE_ADGUARD = "adguard"

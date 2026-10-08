@@ -1,4 +1,4 @@
-package com.avenbrowser.aven_browser
+package dev.furina.avenbrowser
 
 
 internal fun isAdMediaUrl(url: String): Boolean {

@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 /// The cursor itself is drawn by Flutter. A tap has to become a real
 /// [MotionEvent] on the WebView, otherwise the page never sees it.
 class WebInput {
-  static const _channel = MethodChannel('com.avenbrowser/input');
+  static const _channel = MethodChannel('dev.furina.avenbrowser/input');
 
   static Future<dynamic> Function(MethodCall)? _appHandler;
   static final List<void Function(bool)> _pipListeners = [];

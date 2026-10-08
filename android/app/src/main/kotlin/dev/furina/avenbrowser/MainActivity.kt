@@ -1,4 +1,4 @@
-package com.avenbrowser.aven_browser
+package dev.furina.avenbrowser
 
 import android.app.Activity
 import android.app.PictureInPictureParams
@@ -755,7 +755,7 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
-        private const val channelName = "com.avenbrowser/input"
+        private const val channelName = "dev.furina.avenbrowser/input"
         private const val REQ_VPN = 7711
         private const val REQ_SPEECH = 9911
     }

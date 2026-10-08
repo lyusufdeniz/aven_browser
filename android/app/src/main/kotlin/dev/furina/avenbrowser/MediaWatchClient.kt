@@ -1,4 +1,4 @@
-package com.avenbrowser.aven_browser
+package dev.furina.avenbrowser
 
 import android.graphics.Bitmap
 import android.net.http.SslError

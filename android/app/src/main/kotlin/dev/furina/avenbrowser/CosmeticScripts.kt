@@ -1,4 +1,4 @@
-package com.avenbrowser.aven_browser
+package dev.furina.avenbrowser
 
 
 // CSS only — no MutationObserver (that froze scroll).

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme/aven_theme.dart';
+import '../../core/platform/aven_layout.dart';
 import '../../data/settings_store.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -263,70 +264,116 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = AvenLayout.isCompact(context);
     return Scaffold(
       backgroundColor: AvenColors.accentBlue,
-      body: Row(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOutCubic,
-            width: _onLeft ? 272 : 96,
-            child: Material(
-              color: AvenColors.surface,
-              clipBehavior: Clip.none,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
-                clipBehavior: Clip.none,
+      body: SafeArea(
+        child: compact
+            ? Column(
                 children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                      child: SizedBox(
-                        height: 22,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Opacity(
-                            opacity: _onLeft ? 1 : 0,
-                            child: const Text('Kitaplık', style: TextStyle(fontSize: 18)),
+                  SizedBox(
+                    height: 56,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      children: [
+                        for (var index = 0; index < _sections.length; index++)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: _LibraryTile(
+                              focusNode: _leftFocus[index],
+                              autofocus: index == widget.initialSection,
+                              selected: _section == index,
+                              compact: false,
+                              onKeyEvent: (event) => _onLeftKey(index, event),
+                              onFocus: () {
+                                if (_section == index && _onLeft) return;
+                                setState(() {
+                                  _section = index;
+                                  _onLeft = true;
+                                });
+                              },
+                              onTap: () {
+                                setState(() => _section = index);
+                                _focusRight();
+                              },
+                              leading: Icon(_icons[index], size: 22),
+                              title: _sections[index],
+                            ),
                           ),
-                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, color: AvenColors.elevated),
+                  Expanded(child: _panel(compact: true)),
+                ],
+              )
+            : Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
+                    width: _onLeft ? 272 : 96,
+                    child: Material(
+                      color: AvenColors.surface,
+                      clipBehavior: Clip.none,
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+                        clipBehavior: Clip.none,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+                            child: SizedBox(
+                              height: 22,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Opacity(
+                                  opacity: _onLeft ? 1 : 0,
+                                  child: const Text(
+                                    'Kitaplık',
+                                    style: TextStyle(fontSize: 18),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          for (var index = 0; index < _sections.length; index++)
+                            _LibraryTile(
+                              focusNode: _leftFocus[index],
+                              autofocus: index == widget.initialSection,
+                              selected: _section == index,
+                              compact: !_onLeft,
+                              onKeyEvent: (event) => _onLeftKey(index, event),
+                              onFocus: () {
+                                if (_section == index && _onLeft) return;
+                                setState(() {
+                                  _section = index;
+                                  _onLeft = true;
+                                });
+                              },
+                              onTap: () {
+                                setState(() => _section = index);
+                                _focusRight();
+                              },
+                              leading: Icon(_icons[index], size: 24),
+                              title: _sections[index],
+                            ),
+                        ],
                       ),
                     ),
-                    for (var index = 0; index < _sections.length; index++)
-                      _LibraryTile(
-                        focusNode: _leftFocus[index],
-                        autofocus: index == widget.initialSection,
-                        selected: _section == index,
-                        compact: !_onLeft,
-                        onKeyEvent: (event) => _onLeftKey(index, event),
-                        onFocus: () {
-                          if (_section == index && _onLeft) return;
-                          setState(() {
-                            _section = index;
-                            _onLeft = true;
-                          });
-                        },
-                        onTap: () {
-                          setState(() => _section = index);
-                          _focusRight();
-                        },
-                        leading: Icon(_icons[index], size: 24),
-                        title: _sections[index],
-                      ),
+                  ),
+                  const VerticalDivider(width: 1, color: AvenColors.row),
+                  Expanded(child: _panel()),
                 ],
               ),
-            ),
-          ),
-          const VerticalDivider(width: 1, color: AvenColors.row),
-          Expanded(child: _panel()),
-        ],
       ),
     );
   }
 
-  Widget _panel() {
+  Widget _panel({bool compact = false}) {
     final links = _visibleLinks;
     return ListView(
-      padding: const EdgeInsets.all(28),
+      padding: EdgeInsets.all(compact ? 16 : 28),
       clipBehavior: Clip.none,
       children: [
         Text(

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme/aven_theme.dart';
+import '../../core/platform/aven_layout.dart';
+import '../../core/aven_app_info.dart';
 import '../../core/url/url_input.dart';
 import '../../data/settings_store.dart';
 import '../../platform/web_input.dart';
@@ -18,11 +20,19 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   // Section titles stay Turkish-alphabetical; option lists use logical order.
-  static const _sections = ['Ağ', 'Ana ekran', 'Arama', 'Performans', 'Tarayıcı'];
+  static const _sections = [
+    'Ağ',
+    'Ana ekran',
+    'Arama',
+    'Hakkında',
+    'Performans',
+    'Tarayıcı',
+  ];
   static const _icons = [
     Icons.lan,
     Icons.home_outlined,
     Icons.search,
+    Icons.info_outline,
     Icons.speed,
     Icons.language,
   ];
@@ -132,7 +142,8 @@ class _SettingsPageState extends State<SettingsPage> {
     0 => _blocks.length,
     1 => 2,
     2 => _engines.length,
-    3 => 2,
+    3 => 2, // Hakkında
+    4 => 2,
     _ => _agents.length,
   };
 
@@ -199,6 +210,9 @@ class _SettingsPageState extends State<SettingsPage> {
       case 2:
         _selectEngine(_engines[index]);
       case 3:
+        // Hakkında — bilgi satırları
+        break;
+      case 4:
         // Açık, Kapalı
         _selectLite(index == 0);
       default:
@@ -208,67 +222,156 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = AvenLayout.isCompact(context);
     return Scaffold(
       backgroundColor: AvenColors.accentBlue,
-      body: Row(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            curve: Curves.easeOutCubic,
-            width: _onLeft ? 272 : 96,
-            child: Material(
-              color: AvenColors.surface,
-              clipBehavior: Clip.none,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
-                clipBehavior: Clip.none,
+      body: SafeArea(
+        child: compact
+            ? Column(
                 children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                      child: SizedBox(
-                        height: 22,
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Opacity(
-                            opacity: _onLeft ? 1 : 0,
-                            child: const Text('Ayarlar', style: TextStyle(fontSize: 18)),
+                  SizedBox(
+                    height: 56,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      children: [
+                        for (var index = 0; index < _sections.length; index++)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: _FocusTile(
+                              focusNode: _leftFocus[index],
+                              autofocus: index == 0,
+                              selected: _section == index,
+                              compact: false,
+                              onKeyEvent: (event) => _onLeftKey(index, event),
+                              onFocus: () {
+                                if (_section == index && _onLeft) return;
+                                setState(() {
+                                  _section = index;
+                                  _onLeft = true;
+                                });
+                              },
+                              onTap: () {
+                                setState(() => _section = index);
+                                _focusRight();
+                              },
+                              leading: Icon(_icons[index], size: 22),
+                              title: _sections[index],
+                            ),
                           ),
-                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, color: AvenColors.elevated),
+                  Expanded(child: _panel(compact: true)),
+                ],
+              )
+            : Row(
+                children: [
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOutCubic,
+                    width: _onLeft ? 272 : 96,
+                    child: Material(
+                      color: AvenColors.surface,
+                      clipBehavior: Clip.none,
+                      child: ListView(
+                        padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
+                        clipBehavior: Clip.none,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
+                            child: SizedBox(
+                              height: 22,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Opacity(
+                                  opacity: _onLeft ? 1 : 0,
+                                  child: const Text(
+                                    'Ayarlar',
+                                    style: TextStyle(fontSize: 18),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          for (var index = 0; index < _sections.length; index++)
+                            _FocusTile(
+                              focusNode: _leftFocus[index],
+                              autofocus: index == 0,
+                              selected: _section == index,
+                              compact: !_onLeft,
+                              onKeyEvent: (event) => _onLeftKey(index, event),
+                              onFocus: () {
+                                if (_section == index && _onLeft) return;
+                                setState(() {
+                                  _section = index;
+                                  _onLeft = true;
+                                });
+                              },
+                              onTap: () {
+                                setState(() => _section = index);
+                                _focusRight();
+                              },
+                              leading: Icon(_icons[index], size: 24),
+                              title: _sections[index],
+                            ),
+                        ],
                       ),
                     ),
-                    for (var index = 0; index < _sections.length; index++)
-                      _FocusTile(
-                        focusNode: _leftFocus[index],
-                        autofocus: index == 0,
-                        selected: _section == index,
-                        compact: !_onLeft,
-                        onKeyEvent: (event) => _onLeftKey(index, event),
-                        onFocus: () {
-                          if (_section == index && _onLeft) return;
-                          setState(() {
-                            _section = index;
-                            _onLeft = true;
-                          });
-                        },
-                        onTap: () {
-                          setState(() => _section = index);
-                          _focusRight();
-                        },
-                        leading: Icon(_icons[index], size: 24),
-                        title: _sections[index],
-                      ),
+                  ),
+                  const VerticalDivider(width: 1, color: AvenColors.accentBlue),
+                  Expanded(child: _panel()),
                 ],
               ),
-            ),
-          ),
-          const VerticalDivider(width: 1, color: AvenColors.accentBlue),
-          Expanded(child: _panel()),
-        ],
       ),
     );
   }
 
-  Widget _panel() {
+  Widget _panel({bool compact = false}) {
+    if (_section == 3) {
+      return ListView(
+        padding: EdgeInsets.all(compact ? 16 : 28),
+        clipBehavior: Clip.none,
+        children: [
+          Text(
+            AvenAppInfo.name,
+            style: TextStyle(
+              fontFamily: 'Cal Sans',
+              fontSize: compact ? 28 : 34,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.6,
+              color: AvenColors.text,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Hakkında',
+            style: TextStyle(fontSize: 16, color: AvenColors.textMuted),
+          ),
+          const SizedBox(height: 20),
+          _FocusTile(
+            focusNode: _rightFocus[0],
+            selected: false,
+            onKeyEvent: (event) => _onRightKey(0, event),
+            onTap: () {},
+            leading: const Icon(Icons.tag, size: 22),
+            title: 'Sürüm',
+            subtitle: AvenAppInfo.version,
+          ),
+          _FocusTile(
+            focusNode: _rightFocus[1],
+            selected: false,
+            onKeyEvent: (event) => _onRightKey(1, event),
+            onTap: () {},
+            leading: const Icon(Icons.public, size: 22),
+            title: 'Geliştirici',
+            subtitle: AvenAppInfo.developer,
+          ),
+        ],
+      );
+    }
+
     final items = switch (_section) {
       0 => [
         for (final block in _blocks)
@@ -305,7 +408,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _engine == engine,
           ),
       ],
-      3 => [
+      4 => [
         (
           'Açık',
           'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
@@ -328,7 +431,7 @@ class _SettingsPageState extends State<SettingsPage> {
     };
 
     return ListView(
-      padding: const EdgeInsets.all(28),
+      padding: EdgeInsets.all(compact ? 16 : 28),
       clipBehavior: Clip.none,
       children: [
         Text(
@@ -336,7 +439,7 @@ class _SettingsPageState extends State<SettingsPage> {
             0 => 'Reklam engelleme',
             1 => 'Ana ekran önerileri',
             2 => 'Varsayılan arama motoru',
-            3 => 'Hafif gezinme',
+            4 => 'Hafif gezinme',
             _ => 'User agent',
           },
           style: const TextStyle(fontSize: 18),
@@ -357,6 +460,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ],
     );
   }
+
 }
 
 class _FocusTile extends StatelessWidget {
