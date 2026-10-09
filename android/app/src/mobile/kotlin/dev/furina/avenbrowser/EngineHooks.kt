@@ -6,6 +6,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Environment
@@ -15,7 +16,9 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
+import android.view.TextureView
 import android.view.View
+import android.view.ViewGroup
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMessageCodec
@@ -36,6 +39,7 @@ import org.mozilla.geckoview.WebRequestError
 import org.mozilla.geckoview.WebResponse
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
@@ -167,9 +171,7 @@ internal object GeckoBrowser {
         session = opened
         starting = false
         applyAgent(opened)
-        if (textZoom != 100) {
-            evalNow("document.documentElement.style.zoom='${textZoom}%';")
-        }
+        if (textZoom != 100) postZoom()
         applyPrivateMode()
         pendingView?.let { waiting ->
             pendingView = null
@@ -401,6 +403,7 @@ internal object GeckoBrowser {
 
             override fun onPageStop(session: GeckoSession, success: Boolean) {
                 emit("pageFinished", this@GeckoBrowser.url ?: "")
+                if (textZoom != 100) postZoom()
             }
 
             override fun onProgressChange(session: GeckoSession, progress: Int) {
@@ -705,6 +708,7 @@ internal object GeckoBrowser {
                 "id" to id,
                 "label" to label,
                 "value" to permChoice(host, id),
+                "fallback" to defaultChoice(id),
                 "host" to host,
             )
         }
@@ -861,16 +865,44 @@ internal object GeckoBrowser {
                 result.success(null)
             }
             "find" -> {
-                val query = (arguments as? Map<*, *>)?.get("query") as? String ?: ""
+                val args = arguments as? Map<*, *>
+                val query = args?.get("query") as? String ?: ""
+                val backwards = args?.get("backwards") == true
                 val finder = showing()?.finder
                 if (query.isEmpty() || finder == null) {
+                    result.success(mapOf("current" to 0, "total" to 0))
+                } else {
+                    val flags = if (backwards) GeckoSession.FINDER_FIND_BACKWARDS else 0
+                    finder.find(query, flags).accept({ found ->
+                        main.post {
+                            result.success(
+                                mapOf(
+                                    "current" to (found?.current ?: 0),
+                                    "total" to (found?.total ?: 0),
+                                ),
+                            )
+                        }
+                    }, { _ ->
+                        main.post { result.success(mapOf("current" to 0, "total" to 0)) }
+                    })
+                }
+            }
+            "capturePreview" -> {
+                val bitmap = textureOf(view)?.bitmap
+                if (bitmap == null) {
                     result.success(null)
                 } else {
-                    finder.find(query, 0).accept({ _ ->
-                        main.post { result.success(null) }
-                    }, { _ ->
-                        main.post { result.success(null) }
-                    })
+                    val maxW = 360
+                    val scaled = if (bitmap.width > maxW) {
+                        val height = (bitmap.height * (maxW.toFloat() / bitmap.width)).toInt().coerceAtLeast(1)
+                        Bitmap.createScaledBitmap(bitmap, maxW, height, true)
+                    } else {
+                        bitmap
+                    }
+                    val bytes = ByteArrayOutputStream()
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 45, bytes)
+                    if (scaled !== bitmap) scaled.recycle()
+                    result.success(bytes.toByteArray())
                 }
             }
             "clearFind" -> {
@@ -943,10 +975,14 @@ internal object GeckoBrowser {
                 result.success(null)
             }
             "setTextZoom" -> {
-                textZoom = (arguments as? Map<*, *>)?.get("zoom") as? Int ?: 100
-                if (current != null) {
-                    evalNow("document.documentElement.style.zoom='${textZoom}%';")
-                }
+                val raw = (arguments as? Map<*, *>)?.get("zoom")
+                textZoom = when (raw) {
+                    is Int -> raw
+                    is Long -> raw.toInt()
+                    is Double -> raw.toInt()
+                    else -> 100
+                }.coerceIn(50, 300)
+                postZoom()
                 result.success(null)
             }
             "setMediaGesture" -> {
@@ -975,6 +1011,24 @@ internal object GeckoBrowser {
             }
             else -> result.notImplemented()
         }
+    }
+
+    private fun postZoom() {
+        val message = JSONObject()
+            .put("type", "zoom")
+            .put("zoom", textZoom)
+        val currentPort = port
+        if (currentPort == null) evalQueue.add(message) else currentPort.postMessage(message)
+    }
+
+    private fun textureOf(root: View?): TextureView? {
+        if (root is TextureView) return root
+        if (root is ViewGroup) {
+            for (index in 0 until root.childCount) {
+                textureOf(root.getChildAt(index))?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun evalNow(code: String) {

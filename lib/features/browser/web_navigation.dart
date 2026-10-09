@@ -96,6 +96,7 @@ mixin _BrowserNavigation on _BrowserPageBase {
     if (AvenFlavor.isMobile && _tabIndex < _tabs.length && isAvenWebUrl(url)) {
       _tabs[_tabIndex].url = url;
       _tabs[_tabIndex].title = label;
+      _schedulePreview();
     }
     setState(() {
       _pageUrl = url;

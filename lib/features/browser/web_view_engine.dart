@@ -114,7 +114,8 @@ class WebViewPageEngine implements PageEngine {
   Future<void> setPrivate(bool enabled) async {}
 
   @override
-  Future<void> findInPage(String query) async {}
+  Future<Map<String, int>> findInPage(String query, {bool forward = true}) async =>
+      const {};
 
   @override
   Future<void> clearFind() async {}

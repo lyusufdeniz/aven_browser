@@ -37,7 +37,8 @@ abstract class PageEngine implements JsRunner {
 
   Future<void> setPrivate(bool enabled) async {}
 
-  Future<void> findInPage(String query) async {}
+  Future<Map<String, int>> findInPage(String query, {bool forward = true}) async =>
+      const {};
 
   Future<void> clearFind() async {}
 

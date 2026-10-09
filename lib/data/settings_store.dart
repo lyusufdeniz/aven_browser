@@ -194,6 +194,55 @@ class BrowserStore {
     await prefs.setString(_themeKey, choice);
   }
 
+  static const _openTabsKey = 'open_tabs';
+  static const _openTabIndexKey = 'open_tab_index';
+
+  Future<({List<({String? url, String title, String? preview})> tabs, int index})>
+      loadOpenTabs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_openTabsKey) ?? const <String>[];
+    final tabs = <({String? url, String title, String? preview})>[];
+    for (final item in raw) {
+      try {
+        final decoded = jsonDecode(item);
+        if (decoded is! Map) continue;
+        final url = decoded['url'];
+        final title = decoded['title'];
+        final preview = decoded['preview'];
+        tabs.add((
+          url: url is String && url.isNotEmpty ? url : null,
+          title: title is String && title.trim().isNotEmpty ? title : 'Yeni sekme',
+          preview: preview is String && preview.isNotEmpty ? preview : null,
+        ));
+      } catch (_) {}
+    }
+    final index = prefs.getInt(_openTabIndexKey) ?? 0;
+    return (tabs: tabs, index: index);
+  }
+
+  Future<void> saveOpenTabs(
+    List<({String? url, String title, String? preview, bool incognito})> tabs,
+    int index,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final kept = [
+      for (final tab in tabs)
+        if (!tab.incognito)
+          jsonEncode({
+            if (tab.url != null && tab.url!.isNotEmpty) 'url': tab.url,
+            'title': tab.title,
+            if (tab.preview != null && tab.preview!.isNotEmpty) 'preview': tab.preview,
+          }),
+    ];
+    if (kept.isEmpty) {
+      await prefs.remove(_openTabsKey);
+      await prefs.remove(_openTabIndexKey);
+      return;
+    }
+    await prefs.setStringList(_openTabsKey, kept);
+    await prefs.setInt(_openTabIndexKey, index.clamp(0, kept.length - 1));
+  }
+
   Future<bool> loadHomeSuggestions() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_homeSuggestionsKey) ?? true;

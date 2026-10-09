@@ -197,8 +197,21 @@ class GeckoPageEngine implements PageEngine {
   }
 
   @override
-  Future<void> findInPage(String query) {
-    return _channel.invokeMethod<void>('find', {'query': query});
+  Future<Map<String, int>> findInPage(String query, {bool forward = true}) async {
+    final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>('find', {
+      'query': query,
+      'backwards': !forward,
+    });
+    return {
+      'current': int.tryParse('${raw?['current']}') ?? 0,
+      'total': int.tryParse('${raw?['total']}') ?? 0,
+    };
+  }
+
+  Future<Uint8List?> capturePreview() async {
+    final raw = await _channel.invokeMethod<Uint8List>('capturePreview');
+    if (raw == null || raw.isEmpty) return null;
+    return raw;
   }
 
   @override

@@ -2075,12 +2075,14 @@ class _SitePermRow extends StatefulWidget {
     required this.id,
     required this.label,
     required this.value,
+    required this.fallback,
     required this.onChanged,
   });
 
   final String id;
   final String label;
   final String value;
+  final String fallback;
   final ValueChanged<String> onChanged;
 
   @override
@@ -2090,30 +2092,139 @@ class _SitePermRow extends StatefulWidget {
 class _SitePermRowState extends State<_SitePermRow> {
   late String _value = widget.value;
 
+  IconData get _permIcon => switch (widget.id) {
+    'location' => Icons.location_on_outlined,
+    'camera' => Icons.photo_camera_outlined,
+    'microphone' => Icons.mic_none,
+    'notifications' => Icons.notifications_none,
+    'storage' => Icons.sd_storage_outlined,
+    'autoplay' => Icons.play_circle_outline,
+    _ => Icons.tune,
+  };
+
+  String _choiceLabel(String value) => switch (value) {
+    'allow' => 'İzin',
+    'block' => 'Engel',
+    _ => 'Sor',
+  };
+
   @override
   Widget build(BuildContext context) {
+    final ink = AvenTone.text(context);
+    final paper = AvenTone.background(context);
+    final muted = AvenTone.textMuted(context);
+    final usingDefault = _value == widget.fallback;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(widget.label),
-          const SizedBox(height: 8),
-          SegmentedButton<String>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(value: 'ask', label: Text('Sor')),
-              ButtonSegment(value: 'allow', label: Text('İzin')),
-              ButtonSegment(value: 'block', label: Text('Engel')),
+          Row(
+            children: [
+              Icon(_permIcon, size: 20, color: ink),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.label,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+              Text(
+                usingDefault
+                    ? '${_choiceLabel(_value)} · varsayılan'
+                    : _choiceLabel(_value),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: usingDefault ? muted : ink,
+                ),
+              ),
             ],
-            selected: {_value},
-            onSelectionChanged: (next) {
-              final value = next.first;
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _choice(
+                value: 'ask',
+                label: 'Sor',
+                icon: Icons.help_outline,
+                ink: ink,
+                paper: paper,
+              ),
+              _choice(
+                value: 'allow',
+                label: 'İzin',
+                icon: Icons.check_circle_outline,
+                ink: ink,
+                paper: paper,
+              ),
+              _choice(
+                value: 'block',
+                label: 'Engel',
+                icon: Icons.block,
+                ink: ink,
+                paper: paper,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _choice({
+    required String value,
+    required String label,
+    required IconData icon,
+    required Color ink,
+    required Color paper,
+  }) {
+    final selected = _value == value;
+    final isDefault = value == widget.fallback;
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Material(
+          color: selected ? ink : Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: selected ? ink : ink.withValues(alpha: 0.28),
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
               setState(() => _value = value);
               widget.onChanged(value);
             },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Column(
+                children: [
+                  Icon(icon, size: 18, color: selected ? paper : ink),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: selected ? paper : ink,
+                    ),
+                  ),
+                  if (isDefault)
+                    Text(
+                      'Varsayılan',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: selected ? paper.withValues(alpha: 0.75) : ink.withValues(alpha: 0.55),
+                      ),
+                    ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -2655,14 +2766,37 @@ class _PhoneTabGrid extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                              const Spacer(),
+                              Expanded(
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: tab.preview == null
+                                      ? ColoredBox(
+                                          color: tab.incognito
+                                              ? const Color(0xFF1C1C22)
+                                              : AvenTone.background(context),
+                                          child: Icon(
+                                            tab.incognito ? Icons.visibility_off_outlined : Icons.public,
+                                            color: AvenTone.textMuted(context),
+                                          ),
+                                        )
+                                      : Image.memory(
+                                          tab.preview!,
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                          gaplessPlayback: true,
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
                               Text(
-                                url == null || url.isEmpty ? 'Yeni sekme' : url,
-                                maxLines: 3,
+                                url == null || url.isEmpty
+                                    ? 'Yeni sekme'
+                                    : (Uri.tryParse(url)?.host ?? url),
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 12,
-                                  color: AvenColors.textMuted,
+                                  color: tab.incognito ? Colors.white70 : AvenTone.textMuted(context),
                                 ),
                               ),
                             ],

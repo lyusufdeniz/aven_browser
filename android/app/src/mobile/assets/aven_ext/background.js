@@ -16,7 +16,33 @@ function connect() {
     setTimeout(connect, 1500);
   });
   port.onMessage.addListener(async (msg) => {
-    if (!msg || msg.type !== "eval" || !port) return;
+    if (!msg || !port) return;
+    if (msg.type === "zoom") {
+      const factor = Math.min(3, Math.max(0.5, (Number(msg.zoom) || 100) / 100));
+      try {
+        const tabs = await browser.tabs.query({ active: true });
+        const tabId = tabs[0] && tabs[0].id;
+        if (tabId == null) return;
+        await browser.tabs.setZoom(tabId, factor);
+      } catch (err) {
+        try {
+          const tabs = await browser.tabs.query({ active: true });
+          const tabId = tabs[0] && tabs[0].id;
+          if (tabId == null) return;
+          await browser.scripting.executeScript({
+            target: { tabId: tabId },
+            world: "MAIN",
+            injectImmediately: true,
+            func: (percent) => {
+              document.documentElement.style.setProperty("zoom", percent);
+            },
+            args: [Math.round(factor * 100) + "%"],
+          });
+        } catch (e) {}
+      }
+      return;
+    }
+    if (msg.type !== "eval") return;
     const id = msg.id;
     try {
       const tabs = await browser.tabs.query({ active: true });

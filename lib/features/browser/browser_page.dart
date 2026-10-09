@@ -35,6 +35,7 @@ class _PageTab {
   String? url;
   String title = 'Yeni sekme';
   bool incognito = false;
+  Uint8List? preview;
 }
 
 const _pageHooks = '''
@@ -140,6 +141,9 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   bool _desktopSite = false;
   String _connection = 'unknown';
   bool _findOpen = false;
+  int _findCurrent = 0;
+  int _findTotal = 0;
+  Timer? _previewTimer;
   bool _voiceBusy = false;
   final _findText = TextEditingController();
   List<SearchSuggestion> _omniboxSuggestions = const [];
@@ -185,6 +189,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   Future<void> _installMediaSiteHints();
   Future<void> _openInput(String raw);
   void _syncChrome();
+  void _schedulePreview();
 
   // Implemented by _CursorInput.
   void _resetPointerState();
@@ -342,6 +347,7 @@ class _BrowserPageState extends _BrowserPageBase
       _desktopSite = agent == BrowserAgent.desktop;
       _warnWebView = !AvenFlavor.isMobile && major != null && major < 80;
     });
+    if (AvenFlavor.isMobile) await _restoreTabs();
     // Start screen never mounts WebView; keep native side paused anyway.
     if (_onStart) {
       unawaited(_suspendWebPage());
@@ -528,6 +534,7 @@ class _BrowserPageState extends _BrowserPageBase
       _exitFullscreen = null;
       _address.text = '';
     });
+    unawaited(_persistTabs());
     _addressFocus.unfocus();
     _surfaceFocus.canRequestFocus = false;
     _surfaceFocus.unfocus();
@@ -1230,7 +1237,112 @@ class _BrowserPageState extends _BrowserPageBase
       _phoneTabsOpen = false;
     });
     unawaited(_controller.setPrivate(false));
+    unawaited(_persistTabs());
     _showStart();
+  }
+
+  Future<void> _restoreTabs() async {
+    final saved = await _store.loadOpenTabs();
+    if (!mounted || saved.tabs.isEmpty) return;
+    final hasPage = saved.tabs.any((tab) => tab.url != null);
+    if (!hasPage && saved.tabs.length <= 1) return;
+    setState(() {
+      _tabs
+        ..clear()
+        ..addAll(
+          saved.tabs.map((tab) {
+            Uint8List? preview;
+            final raw = tab.preview;
+            if (raw != null) {
+              try {
+                preview = base64Decode(raw);
+              } catch (_) {}
+            }
+            return _PageTab()
+              ..url = tab.url
+              ..title = tab.title
+              ..preview = preview;
+          }),
+        );
+      _tabIndex = saved.index.clamp(0, _tabs.length - 1);
+    });
+    final url = _tabs[_tabIndex].url;
+    if (url != null && isAvenWebUrl(url)) {
+      await _openInput(url);
+    }
+  }
+
+  Future<void> _persistTabs() async {
+    if (!AvenFlavor.isMobile) return;
+    final visible = <({String? url, String title, String? preview, bool incognito})>[];
+    var active = 0;
+    for (var i = 0; i < _tabs.length; i++) {
+      final tab = _tabs[i];
+      if (tab.incognito) continue;
+      if (i == _tabIndex) active = visible.length;
+      final bytes = tab.preview;
+      visible.add((
+        url: tab.url,
+        title: tab.title,
+        preview: bytes == null || bytes.isEmpty ? null : base64Encode(bytes),
+        incognito: false,
+      ));
+    }
+    if (_tabIndex < _tabs.length && _tabs[_tabIndex].incognito && visible.isNotEmpty) {
+      active = visible.length - 1;
+    }
+    await _store.saveOpenTabs(visible, active);
+  }
+
+  void _schedulePreview() {
+    if (!AvenFlavor.isMobile || _onStart) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 800), () async {
+      await _captureCurrentTab();
+      await _persistTabs();
+      if (mounted && _phoneTabsOpen) setState(() {});
+    });
+  }
+
+  Future<void> _captureCurrentTab() async {
+    if (!AvenFlavor.isMobile || _onStart || _controller is! GeckoPageEngine) return;
+    if (_tabIndex < 0 || _tabIndex >= _tabs.length) return;
+    final bytes = await (_controller as GeckoPageEngine).capturePreview();
+    if (bytes == null || !mounted || _tabIndex >= _tabs.length) return;
+    _tabs[_tabIndex].preview = bytes;
+  }
+
+  Future<void> _openTabGrid() async {
+    await _captureCurrentTab();
+    await _persistTabs();
+    if (!mounted) return;
+    setState(() => _phoneTabsOpen = true);
+  }
+
+  Future<void> _applyFind(String query, {bool forward = true}) async {
+    if (query.trim().isEmpty) {
+      await _controller.clearFind();
+      if (mounted) {
+        setState(() {
+          _findCurrent = 0;
+          _findTotal = 0;
+        });
+      }
+      return;
+    }
+    final found = await _controller.findInPage(query, forward: forward);
+    if (!mounted) return;
+    setState(() {
+      _findCurrent = found['current'] ?? 0;
+      _findTotal = found['total'] ?? 0;
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+      unawaited(_persistTabs());
+    }
   }
 
   void _newTab() {
@@ -1521,6 +1633,7 @@ class _BrowserPageState extends _BrowserPageBase
                         id: item['id'] ?? '',
                         label: item['label'] ?? '',
                         value: item['value'] ?? 'ask',
+                        fallback: item['fallback'] ?? 'ask',
                         onChanged: (value) => unawaited(engine.setSiteSetting(item['id'] ?? '', value)),
                       ),
                     const SizedBox(height: 8),
@@ -1588,6 +1701,7 @@ class _BrowserPageState extends _BrowserPageBase
     if (index < 0 || index >= _tabs.length) return;
     final tab = _tabs[index];
     setState(() => _tabIndex = index);
+    unawaited(_persistTabs());
     unawaited(() async {
       await _controller.setPrivate(tab.incognito);
       final url = tab.url;
@@ -1620,6 +1734,7 @@ class _BrowserPageState extends _BrowserPageBase
     } else if (AvenFlavor.isMobile && _tabIndex < _tabs.length) {
       unawaited(_controller.setPrivate(_tabs[_tabIndex].incognito));
     }
+    unawaited(_persistTabs());
   }
 
   Future<void> _handleBack() async {
@@ -1707,6 +1822,7 @@ class _BrowserPageState extends _BrowserPageBase
     _ticker.dispose();
     _suggestDebounce?.cancel();
     _toastHold?.cancel();
+    _previewTimer?.cancel();
     _address.removeListener(_onAddressEdited);
     _findText.dispose();
     _address.dispose();
@@ -2133,7 +2249,7 @@ class _BrowserPageState extends _BrowserPageBase
                 },
                 onForward: () => _controller.goForward(),
                 onNewTab: _newTab,
-                onTabs: () => setState(() => _phoneTabsOpen = true),
+                onTabs: () => unawaited(_openTabGrid()),
                 onBookmark: _toggleBookmark,
                 onLibrary: _openLibrary,
                 onToggleAdBlock: _toggleAdBlock,
@@ -2180,29 +2296,39 @@ class _BrowserPageState extends _BrowserPageBase
                             isDense: true,
                             border: InputBorder.none,
                           ),
-                          onChanged: (value) {
-                            if (value.trim().isEmpty) {
-                              unawaited(_controller.clearFind());
-                            } else {
-                              unawaited(_controller.findInPage(value));
-                            }
-                          },
+                          onChanged: (value) => unawaited(_applyFind(value)),
                         ),
                       ),
+                      if (_findText.text.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: Text(
+                            '$_findCurrent/$_findTotal',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AvenTone.textMuted(context),
+                            ),
+                          ),
+                        ),
                       IconButton(
-                        onPressed: () {
-                          final value = _findText.text;
-                          if (value.isNotEmpty) {
-                            unawaited(_controller.findInPage(value));
-                          }
-                        },
+                        onPressed: () => unawaited(_applyFind(_findText.text, forward: false)),
+                        icon: const Icon(Icons.keyboard_arrow_up),
+                        tooltip: 'Önceki',
+                      ),
+                      IconButton(
+                        onPressed: () => unawaited(_applyFind(_findText.text)),
                         icon: const Icon(Icons.keyboard_arrow_down),
                         tooltip: 'Sonraki',
                       ),
                       IconButton(
                         onPressed: () {
                           unawaited(_controller.clearFind());
-                          setState(() => _findOpen = false);
+                          setState(() {
+                            _findOpen = false;
+                            _findCurrent = 0;
+                            _findTotal = 0;
+                          });
                         },
                         icon: const Icon(Icons.close),
                       ),

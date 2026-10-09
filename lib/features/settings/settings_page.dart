@@ -22,20 +22,20 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   // Section titles stay Turkish-alphabetical; option lists use logical order.
   static const _sections = [
-    'Ağ',
+    'Reklam engelleme',
     'Ana ekran',
     'Arama',
-    'Hakkında',
     'Performans',
     'Tarayıcı',
+    'Hakkında',
   ];
   static const _icons = [
-    Icons.lan,
+    Icons.shield_outlined,
     Icons.home_outlined,
     Icons.search,
-    Icons.info_outline,
     Icons.speed,
     Icons.language,
+    Icons.info_outline,
   ];
 
   // off → local → DNS; default → desktop → mobile → tv; engines keep enum order.
@@ -152,9 +152,9 @@ class _SettingsPageState extends State<SettingsPage> {
     0 => _blocks.length,
     1 => 2,
     2 => _engines.length,
-    3 => 2, // Hakkında
-    4 => 2,
-    _ => _agents.length,
+    3 => 2,
+    4 => _agents.length,
+    _ => 2, // Hakkında
   };
 
   KeyEventResult _onLeftKey(int index, KeyEvent event) {
@@ -220,13 +220,11 @@ class _SettingsPageState extends State<SettingsPage> {
       case 2:
         _selectEngine(_engines[index]);
       case 3:
-        // Hakkında — bilgi satırları
-        break;
-      case 4:
-        // Açık, Kapalı
         _selectLite(index == 0);
-      default:
+      case 4:
         _selectAgent(_agents[index]);
+      default:
+        break;
     }
   }
 
@@ -317,7 +315,7 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ],
         ),
-        const _PhoneSettingsHeading('Ağ'),
+        const _PhoneSettingsHeading('Reklam engelleme'),
         for (final block in _blocks)
           _PhoneSettingsOption(
             title: block.label,
@@ -332,19 +330,6 @@ class _SettingsPageState extends State<SettingsPage> {
             selected: _block == block,
             onTap: () => _selectBlock(block),
           ),
-        const _PhoneSettingsHeading('Ana ekran'),
-        _PhoneSettingsOption(
-          title: 'Göster',
-          subtitle: 'Ana ekranda film, spor ve haber öneri kartları görünür.',
-          selected: _homeSuggestions,
-          onTap: () => _selectHomeSuggestions(true),
-        ),
-        _PhoneSettingsOption(
-          title: 'Gizle',
-          subtitle: 'Ana ekranda yalnızca arama, kısayollar ve yer imleri kalır.',
-          selected: !_homeSuggestions,
-          onTap: () => _selectHomeSuggestions(false),
-        ),
         const _PhoneSettingsHeading('Arama'),
         for (final engine in _engines)
           _PhoneSettingsOption(
@@ -371,6 +356,19 @@ class _SettingsPageState extends State<SettingsPage> {
           selected: avenThemeChoice.value == 'dark',
           onTap: () => _selectTheme('dark'),
         ),
+        const _PhoneSettingsHeading('Performans'),
+        _PhoneSettingsOption(
+          title: 'Açık',
+          subtitle: 'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
+          selected: _lite,
+          onTap: () => _selectLite(true),
+        ),
+        _PhoneSettingsOption(
+          title: 'Kapalı',
+          subtitle: 'Siteler normal yüklenir.',
+          selected: !_lite,
+          onTap: () => _selectLite(false),
+        ),
         const _PhoneSettingsHeading('Hakkında'),
         _PhoneSettingsOption(
           title: 'Sürüm',
@@ -386,25 +384,12 @@ class _SettingsPageState extends State<SettingsPage> {
           selected: false,
           onTap: () {},
         ),
-        const _PhoneSettingsHeading('Performans'),
-        _PhoneSettingsOption(
-          title: 'Açık',
-          subtitle: 'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
-          selected: _lite,
-          onTap: () => _selectLite(true),
-        ),
-        _PhoneSettingsOption(
-          title: 'Kapalı',
-          subtitle: 'Siteler normal yüklenir.',
-          selected: !_lite,
-          onTap: () => _selectLite(false),
-        ),
       ],
     );
   }
 
   Widget _panel({bool compact = false}) {
-    if (_section == 3) {
+    if (_section == 5) {
       return ListView(
         padding: EdgeInsets.all(compact ? 16 : 28),
         clipBehavior: Clip.none,
@@ -483,7 +468,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _engine == engine,
           ),
       ],
-      4 => [
+      3 => [
         (
           'Açık',
           'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
@@ -514,7 +499,7 @@ class _SettingsPageState extends State<SettingsPage> {
             0 => 'Reklam engelleme',
             1 => 'Ana ekran önerileri',
             2 => 'Varsayılan arama motoru',
-            4 => 'Hafif gezinme',
+            3 => 'Hafif gezinme',
             _ => 'User agent',
           },
           style: const TextStyle(fontSize: 18),
