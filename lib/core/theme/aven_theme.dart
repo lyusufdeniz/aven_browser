@@ -1,4 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+/// Phone appearance. `system` follows the device, `light` is white, `dark` stays black.
+final avenThemeChoice = ValueNotifier<String>('system');
+
+ThemeMode avenThemeMode(String choice) {
+  return switch (choice) {
+    'light' => ThemeMode.light,
+    'dark' => ThemeMode.dark,
+    _ => ThemeMode.system,
+  };
+}
 
 /// Aven Browser — black / gray / light TV palette (no accent blue).
 abstract final class AvenColors {
@@ -95,6 +107,95 @@ abstract final class AvenColors {
       ),
       fontFamily: 'sans-serif',
     );
+  }
+
+  static const lightBackground = Color(0xFFFFFFFF);
+  static const lightElevated = Color(0xFFF2F3F5);
+  static const lightText = Color(0xFF1C1C1E);
+  static const lightTextMuted = Color(0x991C1C1E);
+
+  static ThemeData lightTheme() {
+    return ThemeData(
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: lightBackground,
+      canvasColor: lightBackground,
+      colorScheme: const ColorScheme.light(
+        primary: lightText,
+        secondary: lightElevated,
+        surface: lightBackground,
+        onPrimary: lightBackground,
+        onSecondary: lightText,
+        onSurface: lightText,
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: lightText,
+        linearTrackColor: Color(0x221C1C1E),
+      ),
+      dialogTheme: const DialogThemeData(
+        backgroundColor: lightBackground,
+        titleTextStyle: TextStyle(
+          color: lightText,
+          fontFamily: 'Cal Sans',
+          fontSize: 28,
+          fontWeight: FontWeight.w600,
+        ),
+        contentTextStyle: TextStyle(
+          color: lightTextMuted,
+          fontSize: 17,
+          height: 1.4,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: lightText,
+          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          foregroundColor: lightBackground,
+          backgroundColor: lightText,
+          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+        ),
+      ),
+      dividerColor: const Color(0x221C1C1E),
+      textTheme: const TextTheme(
+        bodyLarge: TextStyle(color: lightText),
+        bodyMedium: TextStyle(color: lightText),
+        bodySmall: TextStyle(color: lightTextMuted),
+        titleLarge: TextStyle(color: lightText),
+        titleMedium: TextStyle(color: lightText),
+        titleSmall: TextStyle(color: lightTextMuted),
+      ),
+      iconTheme: const IconThemeData(color: lightText),
+      listTileTheme: const ListTileThemeData(
+        iconColor: lightText,
+        textColor: lightText,
+      ),
+      fontFamily: 'sans-serif',
+    );
+  }
+}
+
+/// Colors that follow the active phone theme. TV stays on [AvenColors].
+abstract final class AvenTone {
+  static bool dark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+
+  static Color background(BuildContext context) =>
+      dark(context) ? AvenColors.background : AvenColors.lightBackground;
+
+  static Color elevated(BuildContext context) =>
+      dark(context) ? AvenColors.elevated : AvenColors.lightElevated;
+
+  static Color text(BuildContext context) =>
+      dark(context) ? AvenColors.text : AvenColors.lightText;
+
+  static Color textMuted(BuildContext context) =>
+      dark(context) ? AvenColors.textMuted : AvenColors.lightTextMuted;
+
+  static SystemUiOverlayStyle overlay(BuildContext context) {
+    return dark(context) ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark;
   }
 }
 

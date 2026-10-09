@@ -9,6 +9,10 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -27,6 +31,24 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    // One applicationId, two APKs. Play installs the highest versionCode that
+    // matches the device. TV matches both, so its code stays one above mobile
+    // for the same pubspec build number. The next build number lifts both.
+    flavorDimensions += "form"
+    productFlavors {
+        create("mobile") {
+            dimension = "form"
+            minSdk = maxOf(flutter.minSdkVersion, 26)
+            versionCode = flutter.versionCode * 10
+            versionName = flutter.versionName
+        }
+        create("tv") {
+            dimension = "form"
+            versionCode = flutter.versionCode * 10 + 1
+            versionName = flutter.versionName
+        }
     }
 
     buildTypes {
@@ -50,4 +72,7 @@ flutter {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
+    // Phone APK only. TV stays on the system WebView.
+    // 152 stays on compileSdk 36. Newer betas pull AndroidX that wants API 37.
+    add("mobileImplementation", "org.mozilla.geckoview:geckoview-beta:152.0.20260610111934")
 }

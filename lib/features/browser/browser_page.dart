@@ -8,8 +8,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 
+import '../../core/platform/aven_flavor.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/theme/aven_dialog.dart';
 import '../../core/url/url_input.dart';
@@ -20,13 +20,22 @@ import '../library/library_page.dart';
 import '../player/video_catalog.dart';
 import '../player/video_player_page.dart';
 import '../settings/settings_page.dart';
+import 'gecko_engine.dart';
 import 'media_site.dart';
+import 'page_engine.dart';
 import 'reader_mode.dart';
 import 'web_scripts.dart';
+import 'web_view_engine.dart';
 
 part 'widgets/browser_page_widgets.dart';
 part 'web_navigation.dart';
 part 'cursor_input.dart';
+
+class _PageTab {
+  String? url;
+  String title = 'Yeni sekme';
+  bool incognito = false;
+}
 
 const _pageHooks = '''
 if (!window.__aven) {
@@ -105,12 +114,15 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   VoidCallback? _exitFullscreen;
 
   late final Ticker _ticker;
-  late final WebViewController _controller;
+  late final PageEngine _controller;
 
   Size _webSize = Size.zero;
   bool _placed = false;
   bool _onStart = true;
   bool _menuOpen = false;
+  final List<_PageTab> _tabs = [_PageTab()];
+  int _tabIndex = 0;
+  bool _phoneTabsOpen = false;
   DateTime _lastBack = DateTime.fromMillisecondsSinceEpoch(0);
   bool _exitDialogOpen = false;
   bool _openingVideo = false;
@@ -125,9 +137,20 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   bool _warnWebView = false;
   bool _lite = false;
   bool _homeSuggestions = true;
+  bool _desktopSite = false;
+  String _connection = 'unknown';
+  bool _findOpen = false;
+  bool _voiceBusy = false;
+  final _findText = TextEditingController();
+  List<SearchSuggestion> _omniboxSuggestions = const [];
+  List<Map<String, String>> _liveDownloads = const [];
+  String? _toastHoldId;
+  Timer? _toastHold;
+  Timer? _suggestDebounce;
   bool _saved = false;
   String? _pageUrl;
   String? _pageTitle;
+  String? _castMediaUrl;
   SearchEngine _engine = SearchEngine.google;
   List<WebLink> _bookmarks = const [];
   List<WebLink> _history = const [];
@@ -178,31 +201,118 @@ class _BrowserPageState extends _BrowserPageBase
     _input.setHandler((call) async {
       if (call.method == 'media' && call.arguments is String) {
         _onWatchedMedia(call.arguments as String);
+      } else if (call.method == 'cast' && call.arguments is Map) {
+        final raw = Map<Object?, Object?>.from(call.arguments as Map);
+        final url = '${raw['url'] ?? ''}';
+        unawaited(_openCast(url, raw['play'] == true));
       }
     });
     _ticker = createTicker(_onTick);
     _surfaceFocus.canRequestFocus = false;
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(AvenColors.background)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: _onPageStarted,
-          onPageFinished: _onPageFinished,
-          onProgress: (value) {
-            _progress.value = value;
-            if (value >= 100) {
-              _pageLoading.value = false;
-              _loadTimeout?.cancel();
-              _wakeSurface();
-            }
-          },
-          onNavigationRequest: _onNavigationRequest,
-          onWebResourceError: _onError,
-          onHttpError: _onHttpError,
-        ),
+    void onProgress(int value) {
+      _progress.value = value;
+      if (value >= 100) {
+        _pageLoading.value = false;
+        _loadTimeout?.cancel();
+        _wakeSurface();
+      }
+    }
+    if (AvenFlavor.isMobile) {
+      _controller = GeckoPageEngine(
+        onPageStarted: _onPageStarted,
+        onPageFinished: (url) => unawaited(_onPageFinished(url)),
+        onProgress: onProgress,
+        onError: _onError,
+        onExternal: (url) => unawaited(_confirmOpenExternal(url)),
+        onNewTab: (url) => unawaited(_openSpawnedLink(url)),
+        onSecurity: _onSecurity,
+        onPermissionPrompt: _confirmPermission,
+        onContextMenu: _showContextMenu,
+        onDownloads: _onDownloadList,
       );
+    } else {
+      _controller = WebViewPageEngine(
+        onPageStarted: _onPageStarted,
+        onPageFinished: (url) => unawaited(_onPageFinished(url)),
+        onProgress: onProgress,
+        onNavigationRequest: _onNavigationRequest,
+        onError: _onError,
+        onHttpError: _onHttpError,
+      );
+    }
+    _address.addListener(_onAddressEdited);
     _boot();
+  }
+
+  void _onDownloadList(List<Map<String, String>> items) {
+    final active = items.where((item) {
+      final status = item['status'];
+      return status == 'İniyor' || status == 'Bekliyor' || status == 'Durdu';
+    });
+    if (active.isNotEmpty) {
+      _toastHoldId = active.first['id'];
+    }
+    if (!mounted) return;
+    setState(() => _liveDownloads = items);
+  }
+
+  Map<String, String>? get _toastDownload {
+    for (final item in _liveDownloads) {
+      final status = item['status'];
+      if (status == 'İniyor' || status == 'Bekliyor' || status == 'Durdu') {
+        return item;
+      }
+    }
+    if (_toastHoldId == null) return null;
+    for (final item in _liveDownloads) {
+      if (item['id'] == _toastHoldId) return item;
+    }
+    return null;
+  }
+
+  void _onAddressEdited() {
+    if (!AvenFlavor.isMobile) return;
+    _suggestDebounce?.cancel();
+    _suggestDebounce = Timer(const Duration(milliseconds: 160), () {
+      unawaited(_loadOmniboxSuggestions());
+    });
+  }
+
+  Future<void> _loadOmniboxSuggestions() async {
+    final focused = _onStart ? _startFocus.hasFocus : _addressFocus.hasFocus;
+    final query = _address.text.trim();
+    final page = (_pageUrl ?? '').trim();
+    if (!focused || (!_onStart && query == page)) {
+      if (mounted && _omniboxSuggestions.isNotEmpty) {
+        setState(() => _omniboxSuggestions = const []);
+      }
+      return;
+    }
+    if (query.length < 2) {
+      final recent = [
+        for (final item in _history.take(6))
+          SearchSuggestion(
+            label: item.title.trim().isEmpty ? item.url : item.title.trim(),
+            query: item.url,
+            isUrl: true,
+            source: SuggestionSource.history,
+          ),
+      ];
+      if (mounted) setState(() => _omniboxSuggestions = recent);
+      return;
+    }
+    final next = await buildAddressSuggestions(
+      query,
+      engine: _engine,
+      history: [
+        for (final item in _history) (title: item.title, url: item.url),
+      ],
+      bookmarks: [
+        for (final item in _bookmarks) (title: item.title, url: item.url),
+      ],
+    );
+    if (!mounted) return;
+    setState(() => _omniboxSuggestions = next);
   }
 
   Future<void> _boot() async {
@@ -213,7 +323,7 @@ class _BrowserPageState extends _BrowserPageBase
     final block = await _store.loadAdBlock();
     final provider = await _store.loadAdBlockProvider();
     final agent = await _store.loadAgent();
-    final lite = await _store.loadLiteBrowsing();
+    final lite = await _store.loadLiteBrowsing(fallback: !AvenFlavor.isMobile);
     final homeSuggestions = await _store.loadHomeSuggestions();
     final version = await _input.webViewVersion();
     await _input.setAdBlock(block.name);
@@ -229,13 +339,16 @@ class _BrowserPageState extends _BrowserPageBase
       _adBlockProvider = provider;
       _lite = lite;
       _homeSuggestions = homeSuggestions;
-      _warnWebView = major != null && major < 80;
+      _desktopSite = agent == BrowserAgent.desktop;
+      _warnWebView = !AvenFlavor.isMobile && major != null && major < 80;
     });
     // Start screen never mounts WebView; keep native side paused anyway.
     if (_onStart) {
       unawaited(_suspendWebPage());
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _onStart) _startFocus.requestFocus();
+        if (mounted && _onStart && !AvenFlavor.isMobile) {
+          _startFocus.requestFocus();
+        }
       });
     }
   }
@@ -251,46 +364,22 @@ class _BrowserPageState extends _BrowserPageBase
 
   Future<void> _applyLite(bool enabled) async {
     _lite = enabled;
-    final platform = _controller.platform;
-    if (platform is! AndroidWebViewController) return;
-    await platform.setMediaPlaybackRequiresUserGesture(enabled);
+    await _controller.setMediaPlaybackRequiresUserGesture(enabled);
     // Keep images on - lite mode trims motion/media instead.
     await _input.setLoadsImages(true);
   }
 
   Future<void> _setZoom(int zoom) async {
     final next = zoom.clamp(50, 300);
-    final platform = _controller.platform;
-    if (platform is AndroidWebViewController) {
-      await platform.setTextZoom(next);
-    }
+    await _controller.setTextZoom(next);
     if (!mounted) return;
     setState(() => _zoom = next);
   }
 
   Future<void> _configureAndroid() async {
-    final platform = _controller.platform;
-    if (platform is! AndroidWebViewController) return;
-    await platform.setMediaPlaybackRequiresUserGesture(_lite);
-    await platform.setUseWideViewPort(true);
-    await platform.setTextZoom(100);
-    await _controller.addJavaScriptChannel(
-      'AvenVideo',
-      onMessageReceived: _onVideoMessage,
-    );
-    await _controller.addJavaScriptChannel(
-      'AvenPopup',
-      onMessageReceived: _onPopupMessage,
-    );
-    await _controller.addJavaScriptChannel(
-      'AvenField',
-      onMessageReceived: _onFieldMessage,
-    );
-    try {
-      _userAgent = await _controller.getUserAgent();
-    } catch (_) {}
-    await platform.setCustomWidgetCallbacks(
-      onShowCustomWidget: (widget, onHide) {
+    await _controller.configure(
+      lite: _lite,
+      onShowFullscreen: (widget, onHide) {
         if (!mounted) {
           onHide();
           return;
@@ -309,11 +398,10 @@ class _BrowserPageState extends _BrowserPageBase
         _syncChrome();
         _cursorVisible.value = true;
         _bumpCursor();
-        // Keep taps going to the fullscreen surface, not Flutter chrome.
         unawaited(_input.setChromeOpen(false));
         unawaited(_input.prepareForInput());
       },
-      onHideCustomWidget: () {
+      onHideFullscreen: () {
         if (!mounted) return;
         setState(() {
           _fullscreenVideo = null;
@@ -324,6 +412,21 @@ class _BrowserPageState extends _BrowserPageBase
         _cursorHide?.cancel();
       },
     );
+    await _controller.addJavaScriptChannel(
+      'AvenVideo',
+      onMessageReceived: _onVideoMessage,
+    );
+    await _controller.addJavaScriptChannel(
+      'AvenPopup',
+      onMessageReceived: _onPopupMessage,
+    );
+    await _controller.addJavaScriptChannel(
+      'AvenField',
+      onMessageReceived: _onFieldMessage,
+    );
+    try {
+      _userAgent = await _controller.getUserAgent();
+    } catch (_) {}
   }
 
   Future<void> _onWatchedMedia(String url) async {
@@ -404,17 +507,24 @@ class _BrowserPageState extends _BrowserPageBase
   void _showStart() {
     setState(() {
       _onStart = true;
+      _phoneTabsOpen = false;
+      _omniboxSuggestions = const [];
       _menuOpen = false;
       _addressEditing = false;
       _startEditing = false;
       _pageError = null;
       _pageUrl = null;
+      _connection = 'unknown';
       _pageTitle = null;
       _canBack = false;
       _canForward = false;
       _saved = false;
       _readerOn = false;
       _fullscreenVideo = null;
+      if (AvenFlavor.isMobile && _tabIndex < _tabs.length) {
+        _tabs[_tabIndex].url = null;
+        _tabs[_tabIndex].title = 'Yeni sekme';
+      }
       _exitFullscreen = null;
       _address.text = '';
     });
@@ -425,7 +535,9 @@ class _BrowserPageState extends _BrowserPageBase
     unawaited(_resetWebViewForHome());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _onStart) _startFocus.requestFocus();
+        if (mounted && _onStart && !AvenFlavor.isMobile) {
+          _startFocus.requestFocus();
+        }
       });
     });
   }
@@ -506,33 +618,46 @@ class _BrowserPageState extends _BrowserPageBase
     });
   }
 
+  Widget _tvPanel(BuildContext context, Widget child) {
+    final size = MediaQuery.sizeOf(context);
+    final width = size.width - 72;
+    final height = size.height - 56;
+    return Dialog(
+      backgroundColor: AvenColors.panel,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 36, vertical: 28),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: SizedBox(
+          width: width > 1040 ? 1040 : width,
+          height: height > 640 ? 640 : height,
+          child: child,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openLibrary({int section = 0}) async {
+    if (AvenFlavor.isMobile) {
+      final picked = await Navigator.of(context).push<String>(
+        MaterialPageRoute(
+          builder: (context) => LibraryPage(store: _store, initialSection: section),
+        ),
+      );
+      _bookmarks = await _store.loadBookmarks();
+      _history = await _store.loadHistory();
+      if (!mounted) return;
+      setState(() => _saved = _bookmarks.any((item) => item.url == _pageUrl));
+      if (picked != null) await _openInput(picked);
+      return;
+    }
     final picked = await showDialog<String>(
       context: context,
       barrierColor: AvenColors.barrier,
-      builder: (context) {
-        return Dialog(
-          backgroundColor: AvenColors.accentBlue,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 160, vertical: 96),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(22),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 960,
-                maxHeight: 600,
-                minWidth: 720,
-                minHeight: 480,
-              ),
-              child: SizedBox(
-                width: MediaQuery.sizeOf(context).width * 0.62,
-                height: MediaQuery.sizeOf(context).height * 0.62,
-                child: LibraryPage(store: _store, initialSection: section),
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (context) => _tvPanel(
+        context,
+        LibraryPage(store: _store, initialSection: section),
+      ),
     );
     _bookmarks = await _store.loadBookmarks();
     _history = await _store.loadHistory();
@@ -544,7 +669,9 @@ class _BrowserPageState extends _BrowserPageBase
     }
     if (_onStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _onStart) _startFocus.requestFocus();
+        if (mounted && _onStart && !AvenFlavor.isMobile) {
+          _startFocus.requestFocus();
+        }
       });
     } else if (_menuOpen) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -554,38 +681,27 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _openSettings() async {
+    if (AvenFlavor.isMobile) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (context) => SettingsPage(store: _store, input: _input),
+        ),
+      );
+    } else {
     await showDialog<void>(
       context: context,
       barrierColor: AvenColors.barrier,
-      builder: (context) {
-        return Dialog(
-          backgroundColor: AvenColors.accentBlue,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 160, vertical: 96),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(22),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 960,
-                maxHeight: 600,
-                minWidth: 720,
-                minHeight: 480,
-              ),
-              child: SizedBox(
-                width: MediaQuery.sizeOf(context).width * 0.62,
-                height: MediaQuery.sizeOf(context).height * 0.62,
-                child: SettingsPage(store: _store, input: _input),
-              ),
-            ),
-          ),
-        );
-      },
+      builder: (context) => _tvPanel(
+        context,
+        SettingsPage(store: _store, input: _input),
+      ),
     );
+    }
     final engine = await _store.loadEngine();
     final block = await _store.loadAdBlock();
     final provider = await _store.loadAdBlockProvider();
     final agent = await _store.loadAgent();
-    final lite = await _store.loadLiteBrowsing();
+    final lite = await _store.loadLiteBrowsing(fallback: !AvenFlavor.isMobile);
     final homeSuggestions = await _store.loadHomeSuggestions();
     await _input.setAdBlock(block.name);
     await _applyAgent(agent);
@@ -603,7 +719,9 @@ class _BrowserPageState extends _BrowserPageBase
     }
     if (_onStart) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _onStart) _startFocus.requestFocus();
+        if (mounted && _onStart && !AvenFlavor.isMobile) {
+          _startFocus.requestFocus();
+        }
       });
     } else if (_menuOpen) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -690,6 +808,24 @@ class _BrowserPageState extends _BrowserPageBase
     }
   }
 
+  String? _spawnedUrl;
+  DateTime? _spawnedAt;
+
+  Future<void> _openSpawnedLink(String url) async {
+    final target = url.trim();
+    if (!mounted || !isAvenWebUrl(target) || target == _pageUrl) return;
+    final now = DateTime.now();
+    if (_spawnedUrl == target &&
+        _spawnedAt != null &&
+        now.difference(_spawnedAt!) < const Duration(milliseconds: 800)) {
+      return;
+    }
+    _spawnedUrl = target;
+    _spawnedAt = now;
+    final incognito = _tabIndex < _tabs.length && _tabs[_tabIndex].incognito;
+    await _openInNewTab(target, incognito: incognito);
+  }
+
   Future<void> _onPopupMessage(JavaScriptMessage message) async {
     final url = message.message.trim();
     if (!mounted || _popupOpen || _externalOpen || url == _pageUrl) return;
@@ -698,6 +834,10 @@ class _BrowserPageState extends _BrowserPageBase
       return;
     }
     if (!isAvenWebUrl(url)) return;
+    if (AvenFlavor.isMobile) {
+      await _openSpawnedLink(url);
+      return;
+    }
     _popupOpen = true;
     final open = await showDialog<bool>(
       context: context,
@@ -808,6 +948,7 @@ class _BrowserPageState extends _BrowserPageBase
         final best = initial.durationSeconds ?? 0;
         if (d > 180 && d > best) initial = source;
       }
+      _castMediaUrl = initial.url;
       // Freeze the page in the background while the player route opens.
       unawaited(_suspendWebPage());
       if (!mounted) {
@@ -1065,12 +1206,467 @@ class _BrowserPageState extends _BrowserPageBase
     };
   }
 
+  Future<void> _toggleDesktopSite() async {
+    final next = _desktopSite ? BrowserAgent.defaultAgent : BrowserAgent.desktop;
+    await _store.saveAgent(next);
+    await _applyAgent(next);
+    if (!mounted) return;
+    setState(() => _desktopSite = next == BrowserAgent.desktop);
+    if (!_onStart) {
+      setState(() {
+        _pageError = null;
+        _readerOn = false;
+      });
+      await _controller.reload();
+    }
+  }
+
+  void _closeAllTabs() {
+    setState(() {
+      _tabs
+        ..clear()
+        ..add(_PageTab());
+      _tabIndex = 0;
+      _phoneTabsOpen = false;
+    });
+    unawaited(_controller.setPrivate(false));
+    _showStart();
+  }
+
+  void _newTab() {
+    setState(() {
+      _tabs.add(_PageTab());
+      _tabIndex = _tabs.length - 1;
+    });
+    unawaited(_controller.setPrivate(false));
+    _showStart();
+  }
+
+  Future<void> _newIncognitoTab() async {
+    setState(() {
+      _tabs.add(_PageTab()
+        ..incognito = true
+        ..title = 'Gizli sekme');
+      _tabIndex = _tabs.length - 1;
+      _phoneTabsOpen = false;
+    });
+    await _controller.setPrivate(true);
+    _showStart();
+  }
+
+  Future<void> _openInNewTab(String url, {bool incognito = false}) async {
+    if (!isAvenWebUrl(url)) return;
+    setState(() {
+      _tabs.add(
+        _PageTab()
+          ..incognito = incognito
+          ..title = incognito ? 'Gizli sekme' : 'Yeni sekme'
+          ..url = url,
+      );
+      _tabIndex = _tabs.length - 1;
+      _phoneTabsOpen = false;
+    });
+    await _controller.setPrivate(incognito);
+    await _openInput(url);
+  }
+
+  Future<void> _showContextMenu(Map<String, String> info) async {
+    if (!mounted || !AvenFlavor.isMobile) return;
+    final link = info['link'] ?? '';
+    final src = info['src'] ?? '';
+    final title = (info['title'] ?? '').trim();
+    final hasLink = isAvenWebUrl(link);
+    final hasImage = isAvenWebUrl(src);
+    if (!hasLink && !hasImage) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      builder: (context) {
+        Future<void> go(Future<void> Function() action) async {
+          Navigator.pop(context);
+          await action();
+        }
+
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              if (title.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              if (hasLink) ...[
+                ListTile(
+                  leading: const Icon(Icons.tab),
+                  title: const Text('Yeni sekmede aç'),
+                  onTap: () => unawaited(go(() => _openInNewTab(link))),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.visibility_off_outlined),
+                  title: const Text('Gizli sekmede aç'),
+                  onTap: () => unawaited(go(() => _openInNewTab(link, incognito: true))),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.link),
+                  title: const Text('Bağlantıyı kopyala'),
+                  onTap: () => unawaited(go(() async {
+                    await Clipboard.setData(ClipboardData(text: link));
+                  })),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.share_outlined),
+                  title: const Text('Bağlantıyı paylaş'),
+                  onTap: () => unawaited(go(() async {
+                    if (_controller is GeckoPageEngine) {
+                      await (_controller as GeckoPageEngine).share(link);
+                    }
+                  })),
+                ),
+              ],
+              if (hasImage) ...[
+                ListTile(
+                  leading: const Icon(Icons.image_outlined),
+                  title: const Text('Resmi yeni sekmede aç'),
+                  onTap: () => unawaited(go(() => _openInNewTab(src))),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('Resmi kaydet'),
+                  onTap: () => unawaited(go(() => GeckoPageEngine.saveUrl(src))),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.copy),
+                  title: const Text('Resim adresini kopyala'),
+                  onTap: () => unawaited(go(() async {
+                    await Clipboard.setData(ClipboardData(text: src));
+                  })),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _voiceSearch() async {
+    if (_voiceBusy) return;
+    setState(() => _voiceBusy = true);
+    try {
+      final spoken = await _input.recognizeSpeech();
+      final text = spoken?.trim() ?? '';
+      if (text.isEmpty || !mounted) return;
+      await _openInput(text);
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _voiceBusy = false);
+    }
+  }
+
+  Future<bool> _confirmPermission(String host, String label) async {
+    if (!mounted) return false;
+    final allow = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final ink = AvenTone.text(context);
+        return AlertDialog(
+          backgroundColor: AvenTone.elevated(context),
+          title: Text(host, style: TextStyle(color: ink)),
+          content: Text('$label izni istiyor.', style: TextStyle(color: ink)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Engelle'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('İzin ver'),
+            ),
+          ],
+        );
+      },
+    );
+    return allow ?? false;
+  }
+
+  void _onSecurity(Map<String, String> info) {
+    if (!mounted || _onStart) return;
+    final mode = info['mode'] ?? 'unknown';
+    if (mode == _connection) return;
+    setState(() => _connection = mode);
+  }
+
+  Future<void> _showSecurity() async {
+    if (_controller is! GeckoPageEngine || _onStart) return;
+    final info = await (_controller as GeckoPageEngine).securityInfo();
+    if (!mounted) return;
+    final mode = info['mode'] ?? _connection;
+    final host = info['host']?.isNotEmpty == true
+        ? info['host']!
+        : Uri.tryParse(_pageUrl ?? '')?.host ?? '';
+    final headline = switch (mode) {
+      'secure' => 'Bağlantı güvenli',
+      'warning' => 'Bağlantıda uyarı var',
+      'insecure' => 'Bağlantı güvenli değil',
+      _ => 'Güvenlik bilgisi yok',
+    };
+    final detail = switch (mode) {
+      'secure' => 'Bu siteye şifreli (HTTPS) bağlandınız. Sertifika tarayıcıya güvenilir görünüyor.',
+      'warning' => 'Adres HTTPS ama sertifika istisnası ya da karışık içerik var. Sayfadaki bazı parçalar şifresiz olabilir.',
+      'insecure' => 'Bu site şifresiz HTTP kullanıyor. Girdiğiniz bilgiler başkaları tarafından görülebilir.',
+      _ => 'Bu adres için sertifika bilgisi yok.',
+    };
+    final subject = _certName(info['subject'] ?? '');
+    final issuer = _certName(info['issuer'] ?? '');
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    mode == 'secure'
+                        ? Icons.lock
+                        : mode == 'warning'
+                            ? Icons.warning_amber
+                            : Icons.lock_open,
+                    color: mode == 'secure'
+                        ? const Color(0xFF188038)
+                        : mode == 'warning'
+                            ? const Color(0xFFE37400)
+                            : const Color(0xFFD93025),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      headline,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              if (host.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(host, style: TextStyle(color: AvenTone.textMuted(context))),
+              ],
+              const SizedBox(height: 12),
+              Text(detail),
+              if (subject.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text('Sertifika', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 6),
+                Text('Konu: $subject'),
+                if (issuer.isNotEmpty) Text('Veren: $issuer'),
+                if ((info['validFrom'] ?? '').isNotEmpty)
+                  Text('Başlangıç: ${info['validFrom']}'),
+                if ((info['validTo'] ?? '').isNotEmpty)
+                  Text('Bitiş: ${info['validTo']}'),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _certName(String raw) {
+    if (raw.isEmpty) return '';
+    final cn = RegExp(r'CN=([^,]+)').firstMatch(raw)?.group(1)?.trim();
+    return cn?.isNotEmpty == true ? cn! : raw;
+  }
+
+  Future<void> _showSiteSettings() async {
+    if (_controller is! GeckoPageEngine) return;
+    final engine = _controller as GeckoPageEngine;
+    final items = await engine.siteSettings();
+    if (!mounted) return;
+    final host = items.isEmpty ? '' : (items.first['host'] ?? '');
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: host.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('Site ayarları için önce bir sayfa açın'),
+                )
+              : ListView(
+                  shrinkWrap: true,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                      child: Text(
+                        host,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    for (final item in items)
+                      _SitePermRow(
+                        id: item['id'] ?? '',
+                        label: item['label'] ?? '',
+                        value: item['value'] ?? 'ask',
+                        onChanged: (value) => unawaited(engine.setSiteSetting(item['id'] ?? '', value)),
+                      ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openCast(String url, bool play) async {
+    if (!mounted || !isAvenWebUrl(url)) return;
+    if (play && _isStreamUrl(url)) {
+      final source = VideoSource(url: url, label: 'Aven TV');
+      await Navigator.push<void>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => VideoPlayerPage(
+            video: PageVideo(sources: [source], tracks: const []),
+            initialSource: source,
+          ),
+        ),
+      );
+      return;
+    }
+    await _openInput(url);
+  }
+
+  Future<void> _shareWithTv() async {
+    final media = _castMediaUrl;
+    final play = media != null && _isStreamUrl(media);
+    final url = play ? media : _pageUrl;
+    if (url == null || !isAvenWebUrl(url) || !mounted) return;
+    final picked = await showModalBottomSheet<({String name, String host, int port})>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      builder: (context) => const _CastTvSheet(),
+    );
+    if (picked == null || !mounted) return;
+    final ok = await _input.sendToTv(
+      host: picked.host,
+      port: picked.port,
+      url: url,
+      play: play,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Aven TV\'ye gönderildi' : 'TV\'ye ulaşılamadı'),
+      ),
+    );
+  }
+
+  Future<void> _sharePage() async {
+    if (_controller is! GeckoPageEngine) return;
+    final url = _pageUrl;
+    if (url == null || url.isEmpty) return;
+    final title = _pageTitle?.trim() ?? '';
+    final text = title.isEmpty ? url : '$title\n$url';
+    await (_controller as GeckoPageEngine).share(text);
+  }
+
+  void _selectTab(int index) {
+    if (index < 0 || index >= _tabs.length) return;
+    final tab = _tabs[index];
+    setState(() => _tabIndex = index);
+    unawaited(() async {
+      await _controller.setPrivate(tab.incognito);
+      final url = tab.url;
+      if (url == null || !isAvenWebUrl(url)) {
+        _showStart();
+        return;
+      }
+      await _openInput(url);
+    }());
+  }
+
+  void _closeTab(int index) {
+    if (index < 0 || index >= _tabs.length) return;
+    if (_tabs.length == 1) {
+      _tabs[0] = _PageTab();
+      _showStart();
+      return;
+    }
+    final active = index == _tabIndex;
+    setState(() {
+      _tabs.removeAt(index);
+      if (_tabIndex >= _tabs.length) {
+        _tabIndex = _tabs.length - 1;
+      } else if (index < _tabIndex) {
+        _tabIndex -= 1;
+      }
+    });
+    if (active) {
+      _selectTab(_tabIndex);
+    } else if (AvenFlavor.isMobile && _tabIndex < _tabs.length) {
+      unawaited(_controller.setPrivate(_tabs[_tabIndex].incognito));
+    }
+  }
+
   Future<void> _handleBack() async {
     // One remote press can arrive both as a key and as a system back.
     final now = DateTime.now();
     if (now.difference(_lastBack) < const Duration(milliseconds: 400)) return;
     if (_exitDialogOpen) return;
     _lastBack = now;
+    if (AvenFlavor.isMobile) {
+      if (_findOpen) {
+        unawaited(_controller.clearFind());
+        setState(() => _findOpen = false);
+        return;
+      }
+      if (_startFocus.hasFocus || _addressFocus.hasFocus) {
+        _startFocus.unfocus();
+        _addressFocus.unfocus();
+        return;
+      }
+      if (_phoneTabsOpen) {
+        setState(() => _phoneTabsOpen = false);
+        return;
+      }
+      if (_fullscreenVideo != null) {
+        final exit = _exitFullscreen;
+        setState(() {
+          _fullscreenVideo = null;
+          _exitFullscreen = null;
+        });
+        exit?.call();
+        return;
+      }
+      if (!_onStart && await _controller.canGoBack()) {
+        await _controller.goBack();
+        return;
+      }
+      if (!_onStart) {
+        _showStart();
+        return;
+      }
+      if (_tabs.length > 1) {
+        _closeTab(_tabIndex);
+        return;
+      }
+      await _confirmExit();
+      return;
+    }
     if (_fullscreenVideo != null) {
       final exit = _exitFullscreen;
       setState(() {
@@ -1109,6 +1705,10 @@ class _BrowserPageState extends _BrowserPageBase
     _loadTimeout?.cancel();
     _cursorHide?.cancel();
     _ticker.dispose();
+    _suggestDebounce?.cancel();
+    _toastHold?.cancel();
+    _address.removeListener(_onAddressEdited);
+    _findText.dispose();
     _address.dispose();
     _addressFocus.dispose();
     _startFocus.dispose();
@@ -1140,9 +1740,37 @@ class _BrowserPageState extends _BrowserPageBase
           },
         },
         child: Focus(
-          child: Scaffold(
-        backgroundColor: AvenColors.background,
-        body: Stack(
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: AvenFlavor.isMobile
+                ? AvenTone.overlay(context)
+                : SystemUiOverlayStyle.light,
+            child: Scaffold(
+        backgroundColor: AvenFlavor.isMobile
+            ? Theme.of(context).scaffoldBackgroundColor
+            : AvenColors.background,
+        body: _phoneTabsOpen && AvenFlavor.isMobile
+            ? _PhoneTabGrid(
+                tabs: _tabs,
+                tabIndex: _tabIndex,
+                onCloseGrid: () => setState(() => _phoneTabsOpen = false),
+                onSelectTab: (index) {
+                  setState(() => _phoneTabsOpen = false);
+                  _selectTab(index);
+                },
+                onCloseTab: _closeTab,
+                onCloseAll: _closeAllTabs,
+                onNewTab: () {
+                  setState(() => _phoneTabsOpen = false);
+                  _newTab();
+                },
+                onIncognito: () => unawaited(_newIncognitoTab()),
+              )
+            : Column(
+          children: [
+            Expanded(
+              child: Builder(
+                builder: (context) {
+                  final page = Stack(
           children: [
             Focus(
               focusNode: _surfaceFocus,
@@ -1166,7 +1794,11 @@ class _BrowserPageState extends _BrowserPageBase
                       // composition still costs GPU/CPU even when paused underneath.
                       Positioned.fill(
                         child: _onStart
-                            ? const ColoredBox(color: AvenColors.background)
+                            ? ColoredBox(
+                                color: AvenFlavor.isMobile
+                                    ? Theme.of(context).scaffoldBackgroundColor
+                                    : AvenColors.background,
+                              )
                             : ValueListenableBuilder<int>(
                                 valueListenable: _surfaceKick,
                                 builder: (context, kick, child) {
@@ -1175,14 +1807,17 @@ class _BrowserPageState extends _BrowserPageBase
                                     child: child,
                                   );
                                 },
-                                child: WebViewWidget(
-                                  controller: _controller,
-                                  gestureRecognizers:
-                                      _BrowserPageBase.pageGestures,
+                                child: _controller.buildView(
+                                  AvenFlavor.isMobile
+                                      ? const <Factory<OneSequenceGestureRecognizer>>{}
+                                      : _BrowserPageBase.pageGestures,
                                 ),
                               ),
                       ),
-                      if (!_onStart && !_menuOpen && _fullscreenVideo == null)
+                      if (!_onStart &&
+                          !_menuOpen &&
+                          _fullscreenVideo == null &&
+                          !AvenFlavor.isMobile)
                         ValueListenableBuilder<_CursorLook>(
                           valueListenable: _cursorLook,
                           builder: (context, look, _) {
@@ -1209,7 +1844,7 @@ class _BrowserPageState extends _BrowserPageBase
             ValueListenableBuilder<bool>(
               valueListenable: _pageLoading,
               builder: (context, loading, _) {
-                if (!loading || _onStart || _pageError != null) {
+                if (AvenFlavor.isMobile || !loading || _onStart || _pageError != null) {
                   return const SizedBox.shrink();
                 }
                 return Positioned.fill(
@@ -1223,7 +1858,8 @@ class _BrowserPageState extends _BrowserPageBase
               },
             ),
             if (_onStart)
-              _StartPage(
+              Positioned.fill(child: _StartPage(
+                phone: AvenFlavor.isMobile,
                 address: _address,
                 focusNode: _startFocus,
                 editing: _startEditing,
@@ -1239,8 +1875,9 @@ class _BrowserPageState extends _BrowserPageBase
                 onOpenBookmark: _openInput,
                 onOpenBookmarks: () => _openLibrary(section: 0),
                 onOpenHistory: () => _openLibrary(section: 1),
+                onOpenDownloads: () => _openLibrary(section: 2),
                 onSettings: _openSettings,
-              ),
+              )),
             if (_pageError != null && !_onStart)
               Positioned.fill(
                 child: _PageErrorOverlay(
@@ -1250,7 +1887,7 @@ class _BrowserPageState extends _BrowserPageBase
                   onHome: _showStart,
                 ),
               ),
-            if (!_onStart)
+            if (!_onStart && !AvenFlavor.isMobile)
               _FloatingMenu(
                 open: _menuOpen,
                 address: _address,
@@ -1346,7 +1983,236 @@ class _BrowserPageState extends _BrowserPageBase
                 },
               ),
           ],
+        );
+                  if (!AvenFlavor.isMobile) return page;
+                  return SafeArea(
+                    bottom: false,
+                    child: ListenableBuilder(
+                    listenable: Listenable.merge([_startFocus, _addressFocus, _address]),
+                    builder: (context, _) {
+                  final atTop = true;
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      final fieldTop = atTop
+                          ? 4.0
+                          : (constraints.maxHeight - 52) / 2 - 28;
+                      return Stack(
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.only(top: atTop ? 60 : 0),
+                            child: page,
+                          ),
+                          AnimatedPositioned(
+                            duration: const Duration(milliseconds: 180),
+                            curve: Curves.easeOutCubic,
+                            top: fieldTop,
+                            left: 12,
+                            right: 12,
+                            child: _PhoneOmnibox(
+                              address: _address,
+                              addressFocus: _onStart ? _startFocus : _addressFocus,
+                              editing: _onStart ? _startEditing : _addressEditing,
+                              canShare: !_onStart && isAvenWebUrl(_pageUrl),
+                              voiceBusy: _voiceBusy,
+                              onVoice: () => unawaited(_voiceSearch()),
+                              loading: _pageLoading,
+                              progress: _progress,
+                              onTapField: () {
+                                setState(() {
+                                  if (_onStart) {
+                                    _startEditing = true;
+                                  } else {
+                                    _addressEditing = true;
+                                  }
+                                });
+                                unawaited(_loadOmniboxSuggestions());
+                              },
+                              onSubmit: _openInput,
+                              incognito: _tabIndex < _tabs.length &&
+                                  _tabs[_tabIndex].incognito,
+                              connection: _onStart ? 'unknown' : _connection,
+                              onSecurity: () => unawaited(_showSecurity()),
+                              onShare: () => unawaited(_sharePage()),
+                            ),
+                          ),
+                          if ((_onStart
+                                  ? _startFocus.hasFocus
+                                  : _addressFocus.hasFocus &&
+                                      _address.text.trim() != (_pageUrl ?? '').trim()) &&
+                              _omniboxSuggestions.isNotEmpty)
+                            Positioned(
+                              top: fieldTop + 64,
+                              left: 12,
+                              right: 12,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: (constraints.maxHeight - fieldTop - 80)
+                                      .clamp(120.0, 320.0),
+                                ),
+                                child: Material(
+                                color: AvenTone.elevated(context),
+                                borderRadius: BorderRadius.circular(16),
+                                clipBehavior: Clip.antiAlias,
+                                child: ListView(
+                                  children: [
+                                    if (_address.text.trim().length < 2)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            'Son açılanlar',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: AvenTone.textMuted(context),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    for (final item in _omniboxSuggestions.take(6))
+                                      ListTile(
+                                        dense: true,
+                                        leading: Icon(
+                                          item.isUrl ? Icons.history : Icons.search,
+                                          size: 20,
+                                        ),
+                                        title: Text(
+                                          item.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        onTap: () => unawaited(_openInput(item.query)),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  );
+                    },
+                  ),
+                  );
+                },
+              ),
+            ),
+            if (AvenFlavor.isMobile && _toastDownload != null)
+              _DownloadToast(
+                item: _toastDownload!,
+                onOpen: () {
+                  final id = _toastDownload?['id'] ?? '';
+                  if (id.isEmpty) return;
+                  unawaited(GeckoPageEngine.openSaved(id));
+                  setState(() => _toastHoldId = null);
+                },
+                onCancel: () {
+                  final id = _toastDownload?['id'] ?? '';
+                  if (id.isEmpty) return;
+                  unawaited(GeckoPageEngine.cancelDownload(id));
+                },
+                onDismiss: () => setState(() => _toastHoldId = null),
+              ),
+            if (AvenFlavor.isMobile)
+              _PhoneTopBar(
+                tabCount: _tabs.length,
+                canBack: _canBack,
+                canForward: _canForward,
+                saved: _saved,
+                adBlockOn: _adBlock.isEnabled,
+                readerOn: _readerOn,
+                zoom: _zoom,
+                desktopSite: _desktopSite,
+                onBack: () {
+                  if (_canBack) {
+                    unawaited(_controller.goBack());
+                  } else if (!_onStart) {
+                    _showStart();
+                  }
+                },
+                onForward: () => _controller.goForward(),
+                onNewTab: _newTab,
+                onTabs: () => setState(() => _phoneTabsOpen = true),
+                onBookmark: _toggleBookmark,
+                onLibrary: _openLibrary,
+                onToggleAdBlock: _toggleAdBlock,
+                onToggleReader: () => unawaited(_toggleReader()),
+                onZoomOut: () => _setZoom(_zoom - 10),
+                onZoomIn: () => _setZoom(_zoom + 10),
+                onZoomReset: () => _setZoom(100),
+                onSettings: _openSettings,
+                onToggleDesktop: () => unawaited(_toggleDesktopSite()),
+                onIncognito: () => unawaited(_newIncognitoTab()),
+                onFind: () {
+                  if (_onStart) return;
+                  setState(() => _findOpen = true);
+                },
+                onDownloads: () => unawaited(_openLibrary(section: 2)),
+                onShare: () => unawaited(_sharePage()),
+                onCast: () => unawaited(_shareWithTv()),
+                playingVideo: _castMediaUrl != null,
+                onSiteSettings: () => unawaited(_showSiteSettings()),
+                canShare: !_onStart && isAvenWebUrl(_pageUrl),
+                canReload: !_onStart,
+                onReload: () {
+                  setState(() {
+                    _pageError = null;
+                    _readerOn = false;
+                  });
+                  unawaited(_controller.reload());
+                },
+              ),
+            if (AvenFlavor.isMobile && _findOpen)
+              Material(
+                color: AvenTone.elevated(context),
+                child: SafeArea(
+                  top: false,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _findText,
+                          autofocus: true,
+                          decoration: const InputDecoration(
+                            hintText: 'Sayfada bul',
+                            isDense: true,
+                            border: InputBorder.none,
+                          ),
+                          onChanged: (value) {
+                            if (value.trim().isEmpty) {
+                              unawaited(_controller.clearFind());
+                            } else {
+                              unawaited(_controller.findInPage(value));
+                            }
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          final value = _findText.text;
+                          if (value.isNotEmpty) {
+                            unawaited(_controller.findInPage(value));
+                          }
+                        },
+                        icon: const Icon(Icons.keyboard_arrow_down),
+                        tooltip: 'Sonraki',
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          unawaited(_controller.clearFind());
+                          setState(() => _findOpen = false);
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
         ),
+      ),
       ),
         ),
       ),

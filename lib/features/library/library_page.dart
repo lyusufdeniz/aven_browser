@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/platform/aven_flavor.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/platform/aven_layout.dart';
 import '../../data/settings_store.dart';
+import '../browser/gecko_engine.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key, required this.store, this.initialSection = 0});
@@ -16,14 +20,20 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  static const _sections = ['Yer imleri', 'Geçmiş'];
-  static const _icons = [Icons.star_outline, Icons.history];
+  static List<String> get _sections => AvenFlavor.isMobile
+      ? const ['Yer imleri', 'Geçmiş', 'İndirmeler']
+      : const ['Yer imleri', 'Geçmiş'];
+  static List<IconData> get _icons => AvenFlavor.isMobile
+      ? const [Icons.star_outline, Icons.history, Icons.download_outlined]
+      : const [Icons.star_outline, Icons.history];
   static const _linkLimit = 40;
 
   int _section = 0;
   bool _onLeft = true;
   List<WebLink> _bookmarks = const [];
   List<WebLink> _history = const [];
+  List<Map<String, String>> _downloads = const [];
+  Timer? _downloadPoll;
   late final List<FocusNode> _leftFocus =
       List.generate(_sections.length, (index) => FocusNode(debugLabel: 'library-left-$index'));
   late final List<FocusNode> _rightFocus =
@@ -50,15 +60,83 @@ class _LibraryPageState extends State<LibraryPage> {
     for (final node in _deleteFocus) {
       node.dispose();
     }
+    _downloadPoll?.cancel();
     super.dispose();
   }
 
+  bool get _downloadsActive => _downloads.any((item) {
+        final status = item['status'];
+        return status == 'İniyor' || status == 'Bekliyor' || status == 'Durdu';
+      });
+
+  void _syncDownloadPoll() {
+    final watch = _section == 2 && _downloadsActive;
+    if (watch && _downloadPoll == null) {
+      _downloadPoll = Timer.periodic(const Duration(milliseconds: 700), (_) {
+        unawaited(_refreshDownloads());
+      });
+    } else if (!watch) {
+      _downloadPoll?.cancel();
+      _downloadPoll = null;
+    }
+  }
+
+  Future<void> _refreshDownloads() async {
+    if (!AvenFlavor.isMobile) return;
+    final downloads = await GeckoPageEngine.fetchDownloads();
+    if (!mounted) return;
+    setState(() => _downloads = downloads);
+    _syncDownloadPoll();
+  }
+
+  String _downloadLabel(Map<String, String> item) {
+    final status = item['status'] ?? '';
+    final raw = int.tryParse(item['progress'] ?? '') ?? -1;
+    if (status == 'İniyor' && raw >= 0) return '$status · %$raw';
+    return status;
+  }
+
+  Widget _downloadActions(Map<String, String> item) {
+    final id = item['id'] ?? '';
+    final done = item['status'] == 'Tamamlandı';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (done)
+          IconButton(
+            tooltip: 'Aç',
+            onPressed: id.isEmpty ? null : () => unawaited(GeckoPageEngine.openSaved(id)),
+            icon: const Icon(Icons.open_in_new, size: 20),
+          ),
+        IconButton(
+          tooltip: done ? 'Sil' : 'İptal',
+          onPressed: id.isEmpty
+              ? null
+              : () async {
+                  await GeckoPageEngine.cancelDownload(id);
+                  await _refreshDownloads();
+                },
+          icon: Icon(done ? Icons.delete_outline : Icons.close, size: 20),
+        ),
+      ],
+    );
+  }
+
+  double _downloadProgress(Map<String, String> item) {
+    if (item['status'] == 'Tamamlandı') return 1;
+    final raw = int.tryParse(item['progress'] ?? '') ?? -1;
+    if (raw < 0) return -1;
+    return raw / 100;
+  }
+
   List<WebLink> get _visibleLinks {
+    if (_section == 2) return const [];
     final source = _section == 0 ? _bookmarks : _history;
     return source.take(_linkLimit).toList();
   }
 
   int get _rightCount {
+    if (_section == 2) return _downloads.isEmpty ? 1 : _downloads.length;
     final links = _visibleLinks;
     if (links.isEmpty) return 1;
     if (_section == 1) return links.length + 1; // clear button first
@@ -68,11 +146,16 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _load() async {
     final bookmarks = await widget.store.loadBookmarks();
     final history = await widget.store.loadHistory();
+    final downloads = AvenFlavor.isMobile
+        ? await GeckoPageEngine.fetchDownloads()
+        : const <Map<String, String>>[];
     if (!mounted) return;
     setState(() {
       _bookmarks = bookmarks;
       _history = history;
+      _downloads = downloads;
     });
+    _syncDownloadPoll();
   }
 
   Future<void> _removeBookmarkAt(int linkIndex) async {
@@ -97,10 +180,48 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _clearHistory() async {
-    await widget.store.clearHistory();
+    final range = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      builder: (context) {
+        void pick(String value) => Navigator.pop(context, value);
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  'Geçmişi sil',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+              ),
+              ListTile(title: const Text('Son 15 dakika'), onTap: () => pick('15m')),
+              ListTile(title: const Text('Son 1 saat'), onTap: () => pick('1h')),
+              ListTile(title: const Text('Son 24 saat'), onTap: () => pick('24h')),
+              ListTile(title: const Text('Son 7 gün'), onTap: () => pick('7d')),
+              ListTile(title: const Text('Son 4 hafta'), onTap: () => pick('4w')),
+              ListTile(title: const Text('Tüm zamanlar'), onTap: () => pick('all')),
+            ],
+          ),
+        );
+      },
+    );
+    if (range == null || !mounted) return;
+    final newerThan = switch (range) {
+      '15m' => const Duration(minutes: 15),
+      '1h' => const Duration(hours: 1),
+      '24h' => const Duration(hours: 24),
+      '7d' => const Duration(days: 7),
+      '4w' => const Duration(days: 28),
+      _ => null,
+    };
+    await widget.store.clearHistory(newerThan: newerThan);
     if (!mounted) return;
     setState(() => _history = const []);
-    _focusLeft(1);
+    await _load();
+    if (mounted) _focusLeft(1);
   }
 
   void _ensureVisible(FocusNode node) {
@@ -248,6 +369,15 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   void _activateRight(int index) {
+    if (_section == 2) {
+      if (index < 0 || index >= _downloads.length) return;
+      final item = _downloads[index];
+      final id = item['id'] ?? '';
+      if (item['status'] == 'Tamamlandı' && id.isNotEmpty) {
+        unawaited(GeckoPageEngine.openSaved(id));
+      }
+      return;
+    }
     final links = _visibleLinks;
     if (_section == 1) {
       if (index == 0) {
@@ -266,13 +396,32 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget build(BuildContext context) {
     final compact = AvenLayout.isCompact(context);
     return Scaffold(
-      backgroundColor: AvenColors.accentBlue,
+      backgroundColor: compact
+          ? Theme.of(context).scaffoldBackgroundColor
+          : AvenColors.accentBlue,
       body: SafeArea(
         child: compact
             ? Column(
                 children: [
                   SizedBox(
-                    height: 56,
+                    height: 48,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => Navigator.of(context).maybePop(),
+                          icon: const Icon(Icons.arrow_back),
+                        ),
+                        const Expanded(
+                          child: Text(
+                            'Kitaplık',
+                            style: TextStyle(fontSize: 18),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 48,
                     child: ListView(
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -280,25 +429,14 @@ class _LibraryPageState extends State<LibraryPage> {
                         for (var index = 0; index < _sections.length; index++)
                           Padding(
                             padding: const EdgeInsets.only(right: 8),
-                            child: _LibraryTile(
-                              focusNode: _leftFocus[index],
-                              autofocus: index == widget.initialSection,
+                            child: ChoiceChip(
                               selected: _section == index,
-                              compact: false,
-                              onKeyEvent: (event) => _onLeftKey(index, event),
-                              onFocus: () {
-                                if (_section == index && _onLeft) return;
-                                setState(() {
-                                  _section = index;
-                                  _onLeft = true;
-                                });
-                              },
-                              onTap: () {
+                              label: Text(_sections[index]),
+                              onSelected: (_) {
                                 setState(() => _section = index);
+                                _syncDownloadPoll();
                                 _focusRight();
                               },
-                              leading: Icon(_icons[index], size: 22),
-                              title: _sections[index],
                             ),
                           ),
                       ],
@@ -377,10 +515,35 @@ class _LibraryPageState extends State<LibraryPage> {
       clipBehavior: Clip.none,
       children: [
         Text(
-          _section == 0 ? 'Yer imleri' : 'Geçmiş',
+          _sections[_section],
           style: const TextStyle(fontSize: 18),
         ),
         const SizedBox(height: 16),
+        if (_section == 2 && _downloads.isEmpty)
+          _LibraryTile(
+            focusNode: _rightFocus[0],
+            selected: false,
+            onKeyEvent: (event) => _onRightKey(0, event),
+            onTap: () {},
+            leading: const Icon(Icons.download_outlined, size: 24),
+            title: 'Henüz indirme yok',
+            subtitle: 'Kaydedilen dosyalar burada görünür.',
+          ),
+        if (_section == 2)
+          for (var index = 0; index < _downloads.length; index++)
+            _LibraryTile(
+              focusNode: _rightFocus[index],
+              selected: false,
+              onKeyEvent: (event) => _onRightKey(index, event),
+              onTap: () => _activateRight(index),
+              leading: const Icon(Icons.download_done, size: 24),
+              title: _downloads[index]['title']?.isNotEmpty == true
+                  ? _downloads[index]['title']
+                  : 'İndirme',
+              subtitle: _downloadLabel(_downloads[index]),
+              progress: _downloadProgress(_downloads[index]),
+              trailing: _downloadActions(_downloads[index]),
+            ),
         if (_section == 1)
           _LibraryTile(
             focusNode: _rightFocus[0],
@@ -501,7 +664,7 @@ class _DeleteButton extends StatelessWidget {
                 child: Icon(
                   Icons.delete_outline,
                   size: 22,
-                  color: AvenColors.textMuted,
+                  color: AvenTone.textMuted(context),
                 ),
               ),
             ),
@@ -522,6 +685,7 @@ class _LibraryTile extends StatelessWidget {
     required this.leading,
     this.title,
     this.subtitle,
+    this.progress,
     this.trailing,
     this.autofocus = false,
     this.compact = false,
@@ -538,6 +702,7 @@ class _LibraryTile extends StatelessWidget {
   final Widget leading;
   final String? title;
   final String? subtitle;
+  final double? progress;
   final Widget? trailing;
 
   @override
@@ -559,17 +724,17 @@ class _LibraryTile extends StatelessWidget {
             borderRadius: 10,
             child: Material(
             color: selected
-                ? AvenColors.text.withValues(alpha: 0.08)
+                ? AvenTone.text(context).withValues(alpha: 0.08)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             clipBehavior: Clip.none,
             child: IconTheme(
               data: IconThemeData(
-                color: AvenColors.text,
+                color: AvenTone.text(context),
               ),
               child: DefaultTextStyle.merge(
-                style: const TextStyle(
-                  color: AvenColors.text,
+                style: TextStyle(
+                  color: AvenTone.text(context),
                 ),
                 child: InkWell(
                   onTap: onTap,
@@ -603,12 +768,19 @@ class _LibraryTile extends StatelessWidget {
                                       subtitle!,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 13,
-                                        color: AvenColors.textMuted,
+                                        color: AvenTone.textMuted(context),
                                       ),
                                     ),
                                   ),
+                                if (progress != null) ...[
+                                  const SizedBox(height: 8),
+                                  LinearProgressIndicator(
+                                    value: progress! < 0 ? null : progress!.clamp(0, 1),
+                                    minHeight: 3,
+                                  ),
+                                ],
                               ],
                             ),
                           ),

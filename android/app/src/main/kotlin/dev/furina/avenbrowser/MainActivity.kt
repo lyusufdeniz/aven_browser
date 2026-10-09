@@ -38,28 +38,58 @@ class MainActivity : FlutterActivity() {
     /** Bumps on every pause/resume so stale posted runnables cannot invert order. */
     @Volatile private var webViewLifecycle = 0
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 4101) EngineHooks.onRuntimePermissionResult(grantResults)
+        if (requestCode == 4102 || requestCode == 4103) {
+            AvenCast.onPermission(requestCode, grantResults)
+        }
+    }
+
+    override fun onDestroy() {
+        AvenCast.stop()
+        super.onDestroy()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         AdBlockLists.ensureLoaded(applicationContext)
+        EngineHooks.install(flutterEngine, this)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        AvenCast.attach(channel)
+        if (BuildConfig.FLAVOR == "tv") AvenCast.host(this)
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
+                    "flavor" -> result.success(BuildConfig.FLAVOR)
+                    "discoverTvs" -> AvenCast.discover(this, result)
+                    "sendToTv" -> AvenCast.send(
+                        call.argument<String>("host") ?: "",
+                        call.argument<Int>("port") ?: 0,
+                        call.argument<String>("url") ?: "",
+                        call.argument<Boolean>("play") == true,
+                        result,
+                    )
                     "tap" -> {
                         val screen = call.argument<Boolean>("screen") == true
                         if (screen) {
                             tapFlutterView(floatArg(call, "x"), floatArg(call, "y"))
-                        } else {
+                        } else if (!EngineHooks.tapPage(floatArg(call, "x"), floatArg(call, "y"))) {
                             tapWebView(floatArg(call, "x"), floatArg(call, "y"))
                         }
                         result.success(null)
                     }
                     "scroll" -> {
-                        scrollWebView(
-                            floatArg(call, "x"),
-                            floatArg(call, "y"),
-                            floatArg(call, "dx"),
-                            floatArg(call, "dy"),
-                        )
+                        val x = floatArg(call, "x")
+                        val y = floatArg(call, "y")
+                        val dx = floatArg(call, "dx")
+                        val dy = floatArg(call, "dy")
+                        if (!EngineHooks.scrollPage(x, y, dx, dy)) {
+                            scrollWebView(x, y, dx, dy)
+                        }
                         result.success(null)
                     }
                     "lockFocus" -> {
@@ -74,17 +104,17 @@ class MainActivity : FlutterActivity() {
                         setWebViewFocusable(true, requestFocus = true)
                         result.success(null)
                     }
-                    "webViewVersion" -> result.success(webViewVersion())
+                    "webViewVersion" -> result.success(EngineHooks.engineVersion() ?: webViewVersion())
                     "refreshSurface" -> {
                         refreshSurface()
                         result.success(null)
                     }
                     "pauseWebView" -> {
-                        pauseWebView()
+                        if (!EngineHooks.pausePage()) pauseWebView()
                         result.success(null)
                     }
                     "resumeWebView" -> {
-                        resumeWebView()
+                        if (!EngineHooks.resumePage()) resumeWebView()
                         result.success(null)
                     }
                     "setChromeOpen" -> {

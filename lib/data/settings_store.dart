@@ -82,7 +82,7 @@ enum BrowserAgent {
   };
 
   String get detail => switch (this) {
-    BrowserAgent.defaultAgent => 'Sistem WebView kimliği.',
+    BrowserAgent.defaultAgent => 'Motorun varsayılan kimliği.',
     BrowserAgent.desktop => 'Masaüstü tarayıcı gibi görünür.',
     BrowserAgent.mobile => 'Telefon tarayıcısı gibi görünür.',
     BrowserAgent.tv => 'TV tarayıcısı gibi görünür.',
@@ -109,6 +109,7 @@ class BrowserStore {
   static const _agentKey = 'user_agent';
   static const _liteKey = 'lite_browsing';
   static const _homeSuggestionsKey = 'home_suggestions';
+  static const _themeKey = 'theme_choice';
 
   Future<SearchEngine> loadEngine() async {
     final prefs = await SharedPreferences.getInstance();
@@ -172,15 +173,25 @@ class BrowserStore {
     await prefs.setString(_agentKey, agent.name);
   }
 
-  Future<bool> loadLiteBrowsing() async {
+  Future<bool> loadLiteBrowsing({bool fallback = true}) async {
     final prefs = await SharedPreferences.getInstance();
-    // TV default: calm browsing (fewer animations / less media work).
-    return prefs.getBool(_liteKey) ?? true;
+    // TV defaults to calm browsing. Phones pass fallback: false.
+    return prefs.getBool(_liteKey) ?? fallback;
   }
 
   Future<void> saveLiteBrowsing(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_liteKey, enabled);
+  }
+
+  Future<String> loadThemeChoice() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_themeKey) ?? 'system';
+  }
+
+  Future<void> saveThemeChoice(String choice) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_themeKey, choice);
   }
 
   Future<bool> loadHomeSuggestions() async {
@@ -230,9 +241,19 @@ class BrowserStore {
     return next;
   }
 
-  Future<void> clearHistory() async {
+  Future<void> clearHistory({Duration? newerThan}) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_historyKey);
+    if (newerThan == null) {
+      await prefs.remove(_historyKey);
+      return;
+    }
+    final cutoff = DateTime.now().subtract(newerThan).millisecondsSinceEpoch;
+    final kept = (await loadHistory()).where((item) {
+      final at = item.savedAt;
+      if (at == null) return true;
+      return at < cutoff;
+    }).toList();
+    await prefs.setStringList(_historyKey, kept.map((item) => item.toJson()).toList());
   }
 
   List<WebLink> _readList(SharedPreferences prefs, String key) {

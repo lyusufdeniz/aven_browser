@@ -1,8 +1,7 @@
 import 'dart:convert';
 
-import 'package:webview_flutter/webview_flutter.dart';
-
 import '../../core/adblock/ad_cosmetic.dart';
+import 'page_engine.dart';
 
 /// WebView JS injectors for calm/lite/media/ad cosmetics.
 class WebScripts {
@@ -153,11 +152,11 @@ class WebScripts {
 })();
 ''';
 
-  static Future<void> _ensurePlayerHelpers(WebViewController controller) async {
+  static Future<void> _ensurePlayerHelpers(JsRunner controller) async {
     await controller.runJavaScript(_playerHelpersJs);
   }
 
-  static Future<void> installMediaSiteHints(WebViewController controller) async {
+  static Future<void> installMediaSiteHints(JsRunner controller) async {
     try {
       await controller.runJavaScript(r'''
 (function(){
@@ -227,7 +226,7 @@ class WebScripts {
     } catch (_) {}
   }
 
-  static Future<void> installCalmMode(WebViewController controller) async {
+  static Future<void> installCalmMode(JsRunner controller) async {
     try {
       await _ensurePlayerHelpers(controller);
       await controller.runJavaScript(r'''
@@ -376,7 +375,7 @@ class WebScripts {
     } catch (_) {}
   }
 
-  static Future<void> installLiteCss(WebViewController controller, {required bool mediaSite}) async {
+  static Future<void> installLiteCss(JsRunner controller, {required bool mediaSite}) async {
     try {
       await _ensurePlayerHelpers(controller);
       await controller.runJavaScript('''
@@ -487,7 +486,7 @@ class WebScripts {
     } catch (_) {}
   }
 
-  static Future<void> installBannerCss(WebViewController controller) async {
+  static Future<void> installBannerCss(JsRunner controller) async {
     try {
       final css = avenBannerCosmeticCss;
       await controller.runJavaScript('''
@@ -504,7 +503,7 @@ class WebScripts {
     } catch (_) {}
   }
 
-  static Future<void> installAdblockCss(WebViewController controller) async {
+  static Future<void> installAdblockCss(JsRunner controller) async {
     try {
       final css = avenFullAdblockCosmeticCss;
       await controller.runJavaScript('''
@@ -522,7 +521,7 @@ class WebScripts {
   }
 
   static Future<void> installHooks(
-    WebViewController controller, {
+    JsRunner controller, {
     required String pageHooks,
     required String videoWatch,
   }) async {

@@ -25,6 +25,12 @@ mixin _BrowserNavigation on _BrowserPageBase {
       if (isAvenWebUrl(url)) {
         _onStart = false;
         _address.text = url;
+        _castMediaUrl = null;
+        _connection = url.startsWith('https://')
+            ? 'secure'
+            : url.startsWith('http://')
+                ? 'insecure'
+                : 'unknown';
       }
       _saved = _bookmarks.any((item) => item.url == url);
     });
@@ -74,7 +80,10 @@ mixin _BrowserNavigation on _BrowserPageBase {
     final forward = await _controller.canGoForward();
     if (!mounted) return;
     final label = (title == null || title.trim().isEmpty) ? url : title.trim();
-    if (isAvenWebUrl(url) && _pageError == null) {
+    final privateTab = AvenFlavor.isMobile &&
+        _tabIndex < _tabs.length &&
+        _tabs[_tabIndex].incognito;
+    if (isAvenWebUrl(url) && _pageError == null && !privateTab) {
       await _store.addHistory(
         WebLink(
           title: label,
@@ -84,6 +93,10 @@ mixin _BrowserNavigation on _BrowserPageBase {
       );
     }
     if (!mounted) return;
+    if (AvenFlavor.isMobile && _tabIndex < _tabs.length && isAvenWebUrl(url)) {
+      _tabs[_tabIndex].url = url;
+      _tabs[_tabIndex].title = label;
+    }
     setState(() {
       _pageUrl = url;
       _pageTitle = label;
@@ -230,6 +243,9 @@ mixin _BrowserNavigation on _BrowserPageBase {
   /// Keeps the last document loaded but stops media and freezes the WebView
   /// so home / chrome overlays do not leave audio playing underneath.
   Future<void> _suspendWebPage() async {
+    // Phone engine stays down on the start screen. An eval here would boot
+    // Gecko (GPU + content process) under the home page.
+    if (AvenFlavor.isMobile && _onStart) return;
     _mediaEpoch++;
     _webSuspended = true;
     try {

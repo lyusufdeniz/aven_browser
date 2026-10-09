@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Aven",
+  "version": "1.0.0",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "aven@furina.dev"
+    }
+  },
+  "permissions": ["nativeMessaging", "tabs", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false,
+      "match_about_blank": true
+    }
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  }
+}

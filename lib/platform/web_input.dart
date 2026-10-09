@@ -149,6 +149,40 @@ class WebInput {
     return _channel.invokeMethod<void>('setLoadsImages', {'enabled': enabled});
   }
 
+  /// Looks for Aven TV browsers advertising on the same Wi-Fi.
+  Future<({List<({String name, String host, int port})> devices, String error})> discoverTvs() async {
+    final raw = await _channel.invokeMethod<dynamic>('discoverTvs');
+    final map = raw is Map ? raw : const {};
+    final devices = <({String name, String host, int port})>[];
+    final list = map['devices'];
+    if (list is List) {
+      for (final item in list) {
+        if (item is! Map) continue;
+        final host = '${item['host'] ?? ''}';
+        final port = item['port'];
+        final parsed = port is int ? port : int.tryParse('$port') ?? 0;
+        if (host.isEmpty || parsed <= 0) continue;
+        devices.add((name: '${item['name'] ?? 'Aven TV'}', host: host, port: parsed));
+      }
+    }
+    return (devices: devices, error: '${map['error'] ?? ''}');
+  }
+
+  Future<bool> sendToTv({
+    required String host,
+    required int port,
+    required String url,
+    required bool play,
+  }) async {
+    final raw = await _channel.invokeMethod<bool>('sendToTv', {
+      'host': host,
+      'port': port,
+      'url': url,
+      'play': play,
+    });
+    return raw == true;
+  }
+
   /// Opens the system speech recognizer and returns the first match.
   Future<String?> recognizeSpeech({String locale = 'tr-TR'}) {
     return _channel.invokeMethod<String>('recognizeSpeech', {'locale': locale});

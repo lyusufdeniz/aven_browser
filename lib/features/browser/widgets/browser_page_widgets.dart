@@ -475,6 +475,7 @@ class _CursorDot extends StatelessWidget {
 
 class _StartPage extends StatefulWidget {
   const _StartPage({
+    this.phone = false,
     required this.address,
     required this.focusNode,
     required this.editing,
@@ -488,9 +489,11 @@ class _StartPage extends StatefulWidget {
     required this.onOpenBookmark,
     required this.onOpenBookmarks,
     required this.onOpenHistory,
+    required this.onOpenDownloads,
     required this.onSettings,
   });
 
+  final bool phone;
   final TextEditingController address;
   final FocusNode focusNode;
   final bool editing;
@@ -504,6 +507,7 @@ class _StartPage extends StatefulWidget {
   final ValueChanged<String> onOpenBookmark;
   final VoidCallback onOpenBookmarks;
   final VoidCallback onOpenHistory;
+  final VoidCallback onOpenDownloads;
   final VoidCallback onSettings;
 
   @override
@@ -1003,34 +1007,77 @@ class _StartPageState extends State<_StartPage> {
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
       child: ColoredBox(
-        color: AvenColors.background,
+        color: widget.phone
+            ? Theme.of(context).scaffoldBackgroundColor
+            : AvenColors.background,
         child: LayoutBuilder(
           builder: (context, constraints) {
             return SingleChildScrollView(
               controller: _pageScroll,
               physics: const ClampingScrollPhysics(),
               clipBehavior: Clip.none,
-              padding: const EdgeInsets.fromLTRB(28, 16, 28, 48),
+              padding: EdgeInsets.fromLTRB(
+                widget.phone ? 16 : 28,
+                widget.phone ? 8 : 16,
+                widget.phone ? 16 : 28,
+                48,
+              ),
+              child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(
                   minHeight: (constraints.maxHeight - 64).clamp(0.0, double.infinity),
                   maxWidth: 980,
                 ),
                 child: Column(
+                  mainAxisAlignment: widget.phone
+                      ? MainAxisAlignment.center
+                      : MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'aven',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontFamily: 'Cal Sans',
-                        fontSize: 56,
+                        fontSize: widget.phone ? 48 : 56,
                         fontWeight: FontWeight.w600,
                         letterSpacing: -1.2,
                         height: 1,
                       ),
                     ),
+                    if (widget.phone && widget.history.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                        child: Text(
+                          'Son gezinmeler',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AvenTone.textMuted(context),
+                          ),
+                        ),
+                      ),
+                      for (final item in widget.history.take(3))
+                        ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                          leading: const Icon(Icons.public, size: 20),
+                          title: Text(
+                            item.title.trim().isEmpty ? item.url : item.title.trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            Uri.tryParse(item.url)?.host ?? item.url,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => widget.onSubmit(item.url),
+                        ),
+                    ],
+                    if (!widget.phone) ...[
                     const SizedBox(height: 18),
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(0),
@@ -1102,45 +1149,79 @@ class _StartPageState extends State<_StartPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        FocusTraversalOrder(
-                          order: const NumericFocusOrder(1),
-                          child: _StartAction(
-                            focusNode: _actionFocus[0],
-                            icon: Icons.history,
-                            label: 'Geçmiş',
-                            onPressed: widget.onOpenHistory,
-                            onKeyEvent: (event) => _onActionKey(0, event),
-                          ),
+                    ],
+                    if (widget.phone)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 28),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _PhoneShortcut(
+                              icon: Icons.history,
+                              label: 'Geçmiş',
+                              onPressed: widget.onOpenHistory,
+                            ),
+                            _PhoneShortcut(
+                              icon: Icons.star_outline,
+                              label: 'Yer imleri',
+                              onPressed: widget.onOpenBookmarks,
+                            ),
+                            _PhoneShortcut(
+                              icon: Icons.download_outlined,
+                              label: 'İndirmeler',
+                              onPressed: widget.onOpenDownloads,
+                            ),
+                            _PhoneShortcut(
+                              icon: Icons.settings,
+                              label: 'Ayarlar',
+                              onPressed: widget.onSettings,
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 14),
-                        FocusTraversalOrder(
-                          order: const NumericFocusOrder(2),
-                          child: _StartAction(
-                            focusNode: _actionFocus[1],
-                            icon: Icons.star_outline,
-                            label: 'Yer imleri',
-                            onPressed: widget.onOpenBookmarks,
-                            onKeyEvent: (event) => _onActionKey(1, event),
-                          ),
+                      )
+                    else
+                      const SizedBox(height: 16),
+                    if (!widget.phone)
+                      Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            FocusTraversalOrder(
+                              order: const NumericFocusOrder(1),
+                              child: _StartAction(
+                                focusNode: _actionFocus[0],
+                                icon: Icons.history,
+                                label: 'Geçmiş',
+                                onPressed: widget.onOpenHistory,
+                                onKeyEvent: (event) => _onActionKey(0, event),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            FocusTraversalOrder(
+                              order: const NumericFocusOrder(2),
+                              child: _StartAction(
+                                focusNode: _actionFocus[1],
+                                icon: Icons.star_outline,
+                                label: 'Yer imleri',
+                                onPressed: widget.onOpenBookmarks,
+                                onKeyEvent: (event) => _onActionKey(1, event),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            FocusTraversalOrder(
+                              order: const NumericFocusOrder(3),
+                              child: _StartAction(
+                                focusNode: _actionFocus[2],
+                                icon: Icons.settings,
+                                label: 'Ayarlar',
+                                onPressed: widget.onSettings,
+                                onKeyEvent: (event) => _onActionKey(2, event),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 14),
-                        FocusTraversalOrder(
-                          order: const NumericFocusOrder(3),
-                          child: _StartAction(
-                            focusNode: _actionFocus[2],
-                            icon: Icons.settings,
-                            label: 'Ayarlar',
-                            onPressed: widget.onSettings,
-                            onKeyEvent: (event) => _onActionKey(2, event),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (!showQuery) ...[
+                      ),
+                    if (!widget.phone && !showQuery) ...[
                       if (_showSiteRail) ...[
                         const SizedBox(height: 22),
                         const Align(
@@ -1254,6 +1335,7 @@ class _StartPageState extends State<_StartPage> {
                     const SizedBox(height: 24),
                   ],
                 ),
+              ),
               ),
             );
           },
@@ -1795,6 +1877,826 @@ class _StartAction extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _PhoneShortcut extends StatelessWidget {
+  const _PhoneShortcut({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        width: 72,
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: AvenTone.elevated(context),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 24),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhoneOmnibox extends StatelessWidget {
+  const _PhoneOmnibox({
+    required this.address,
+    required this.addressFocus,
+    required this.editing,
+    required this.canShare,
+    required this.voiceBusy,
+    required this.onVoice,
+    required this.loading,
+    required this.progress,
+    required this.onTapField,
+    required this.onSubmit,
+    required this.onShare,
+    this.incognito = false,
+    this.connection = 'unknown',
+    this.onSecurity,
+  });
+
+  final TextEditingController address;
+  final FocusNode addressFocus;
+  final bool editing;
+  final bool canShare;
+  final bool voiceBusy;
+  final VoidCallback onVoice;
+  final ValueNotifier<bool> loading;
+  final ValueNotifier<int> progress;
+  final VoidCallback onTapField;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onShare;
+  final bool incognito;
+  final String connection;
+  final VoidCallback? onSecurity;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = incognito ? Colors.white : AvenTone.text(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      child: Material(
+        color: incognito ? const Color(0xFF2A2A32) : AvenTone.elevated(context),
+        borderRadius: BorderRadius.circular(28),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: address,
+              focusNode: addressFocus,
+              onTap: onTapField,
+              textInputAction: TextInputAction.go,
+              onSubmitted: onSubmit,
+              style: TextStyle(fontSize: 16, color: ink),
+              cursorColor: ink,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: incognito ? 'Gizli ara' : 'Ara veya adres yaz',
+                hintStyle: TextStyle(color: AvenTone.textMuted(context)),
+                prefixIcon: _securityIcon(ink),
+                prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 40),
+                suffixIcon: ListenableBuilder(
+                  listenable: Listenable.merge([address, addressFocus]),
+                  builder: (context, _) {
+                    final showClear = addressFocus.hasFocus && address.text.isNotEmpty;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (showClear)
+                          IconButton(
+                            onPressed: address.clear,
+                            icon: Icon(Icons.close, size: 20, color: ink),
+                            tooltip: 'Temizle',
+                          ),
+                        IconButton(
+                          onPressed: voiceBusy ? null : onVoice,
+                          icon: Icon(
+                            voiceBusy ? Icons.hourglass_top : Icons.mic_none,
+                            size: 22,
+                            color: ink,
+                          ),
+                          tooltip: 'Sesle ara',
+                        ),
+                        IconButton(
+                          onPressed: canShare ? onShare : null,
+                          icon: Icon(
+                            Icons.share_outlined,
+                            size: 22,
+                            color: canShare ? ink : ink.withValues(alpha: 0.28),
+                          ),
+                          tooltip: 'Paylaş',
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                suffixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 40),
+                filled: true,
+                fillColor: AvenTone.elevated(context),
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                border: const OutlineInputBorder(borderSide: BorderSide.none),
+              ),
+            ),
+            ValueListenableBuilder<bool>(
+              valueListenable: loading,
+              builder: (context, busy, _) {
+                if (!busy) return const SizedBox(height: 2);
+                return ValueListenableBuilder<int>(
+                  valueListenable: progress,
+                  builder: (context, value, _) {
+                    return LinearProgressIndicator(
+                      value: (value / 100).clamp(0.04, 1.0),
+                      minHeight: 2,
+                      color: ink,
+                      backgroundColor: ink.withValues(alpha: 0.12),
+                    );
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _securityIcon(Color ink) {
+    if (connection == 'unknown') {
+      return Icon(
+        incognito ? Icons.visibility_off_outlined : Icons.search,
+        size: 22,
+        color: ink,
+      );
+    }
+    final (IconData icon, Color color) = switch (connection) {
+      'secure' => (Icons.lock, const Color(0xFF188038)),
+      'warning' => (Icons.warning_amber, const Color(0xFFE37400)),
+      _ => (Icons.lock_open, const Color(0xFFD93025)),
+    };
+    return IconButton(
+      onPressed: onSecurity,
+      tooltip: 'Bağlantı güvenliği',
+      icon: Icon(icon, size: 20, color: incognito ? Colors.white : color),
+    );
+  }
+}
+
+class _SitePermRow extends StatefulWidget {
+  const _SitePermRow({
+    required this.id,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String id;
+  final String label;
+  final String value;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_SitePermRow> createState() => _SitePermRowState();
+}
+
+class _SitePermRowState extends State<_SitePermRow> {
+  late String _value = widget.value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.label),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            showSelectedIcon: false,
+            segments: const [
+              ButtonSegment(value: 'ask', label: Text('Sor')),
+              ButtonSegment(value: 'allow', label: Text('İzin')),
+              ButtonSegment(value: 'block', label: Text('Engel')),
+            ],
+            selected: {_value},
+            onSelectionChanged: (next) {
+              final value = next.first;
+              setState(() => _value = value);
+              widget.onChanged(value);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DownloadToast extends StatelessWidget {
+  const _DownloadToast({
+    required this.item,
+    required this.onOpen,
+    required this.onCancel,
+    required this.onDismiss,
+  });
+
+  final Map<String, String> item;
+  final VoidCallback onOpen;
+  final VoidCallback onCancel;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = item['status'] ?? '';
+    final raw = int.tryParse(item['progress'] ?? '') ?? -1;
+    final done = status == 'Tamamlandı';
+    final value = done ? 1.0 : (raw < 0 ? null : raw / 100);
+    final title = (item['title'] ?? '').trim().isEmpty ? 'İndirme' : item['title']!.trim();
+    final label = status == 'İniyor' && raw >= 0 ? '$status · %$raw' : status;
+    return Material(
+      color: AvenTone.elevated(context),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(fontSize: 12, color: AvenTone.textMuted(context)),
+            ),
+            const SizedBox(height: 6),
+            LinearProgressIndicator(value: value, minHeight: 3),
+            Align(
+              alignment: Alignment.centerRight,
+              child: done
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(onPressed: onDismiss, child: const Text('Kapat')),
+                        TextButton(onPressed: onOpen, child: const Text('Dosyayı aç')),
+                      ],
+                    )
+                  : TextButton(onPressed: onCancel, child: const Text('İptal')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PhoneTopBar extends StatelessWidget {
+  const _PhoneTopBar({
+    required this.tabCount,
+    required this.canBack,
+    required this.canForward,
+    required this.saved,
+    required this.adBlockOn,
+    required this.readerOn,
+    required this.zoom,
+    required this.desktopSite,
+    required this.onBack,
+    required this.onForward,
+    required this.onNewTab,
+    required this.onTabs,
+    required this.onBookmark,
+    required this.onLibrary,
+    required this.onToggleAdBlock,
+    required this.onToggleReader,
+    required this.onZoomOut,
+    required this.onZoomIn,
+    required this.onZoomReset,
+    required this.onSettings,
+    required this.onToggleDesktop,
+    required this.onIncognito,
+    required this.onFind,
+    required this.onDownloads,
+    required this.onShare,
+    required this.onCast,
+    required this.playingVideo,
+    required this.onSiteSettings,
+    required this.canShare,
+    required this.canReload,
+    required this.onReload,
+  });
+
+  final int tabCount;
+  final bool canBack;
+  final bool canForward;
+  final bool saved;
+  final bool adBlockOn;
+  final bool readerOn;
+  final int zoom;
+  final bool desktopSite;
+  final VoidCallback onBack;
+  final VoidCallback onForward;
+  final VoidCallback onNewTab;
+  final VoidCallback onTabs;
+  final VoidCallback onBookmark;
+  final VoidCallback onLibrary;
+  final VoidCallback onToggleAdBlock;
+  final VoidCallback onToggleReader;
+  final VoidCallback onZoomOut;
+  final VoidCallback onZoomIn;
+  final VoidCallback onZoomReset;
+  final VoidCallback onSettings;
+  final VoidCallback onToggleDesktop;
+  final VoidCallback onIncognito;
+  final VoidCallback onFind;
+  final VoidCallback onDownloads;
+  final VoidCallback onShare;
+  final VoidCallback onCast;
+  final bool playingVideo;
+  final VoidCallback onSiteSettings;
+  final bool canShare;
+  final bool canReload;
+  final VoidCallback onReload;
+
+  void _openMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.add),
+                title: const Text('Yeni sekme'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onNewTab();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.visibility_off_outlined),
+                title: const Text('Yeni gizli sekme'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onIncognito();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('Yenile'),
+                enabled: canReload,
+                onTap: canReload
+                    ? () {
+                        Navigator.pop(context);
+                        onReload();
+                      }
+                    : null,
+              ),
+              ListTile(
+                leading: Icon(saved ? Icons.star : Icons.star_border),
+                title: Text(saved ? 'Yer imini kaldır' : 'Yer imi ekle'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onBookmark();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Kitaplık'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onLibrary();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.download_outlined),
+                title: const Text('İndirmeler'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onDownloads();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.connected_tv),
+                title: Text(playingVideo ? 'Aven TV\'de oynat' : 'Aven TV ile paylaş'),
+                enabled: canShare,
+                onTap: canShare
+                    ? () {
+                        Navigator.pop(context);
+                        onCast();
+                      }
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.share_outlined),
+                title: const Text('Paylaş'),
+                enabled: canShare,
+                onTap: canShare
+                    ? () {
+                        Navigator.pop(context);
+                        onShare();
+                      }
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.search),
+                title: const Text('Sayfada bul'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onFind();
+                },
+              ),
+              ListTile(
+                leading: Icon(desktopSite ? Icons.phone_android : Icons.desktop_windows_outlined),
+                title: Text(desktopSite ? 'Mobil site iste' : 'Masaüstü sitesi iste'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onToggleDesktop();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.tune),
+                title: const Text('Site ayarları'),
+                enabled: canShare,
+                onTap: canShare
+                    ? () {
+                        Navigator.pop(context);
+                        onSiteSettings();
+                      }
+                    : null,
+              ),
+              ListTile(
+                leading: const Icon(Icons.chrome_reader_mode_outlined),
+                title: Text(readerOn ? 'Okuma modunu kapat' : 'Okuma modu'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onToggleReader();
+                },
+              ),
+              ListTile(
+                leading: Icon(adBlockOn ? Icons.shield : Icons.shield_outlined),
+                title: Text(adBlockOn ? 'Reklam engellemeyi kapat' : 'Reklam engellemeyi aç'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onToggleAdBlock();
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.zoom_in),
+                    const SizedBox(width: 16),
+                    Expanded(child: Text('Yakınlaştırma %$zoom')),
+                    IconButton(
+                      onPressed: onZoomOut,
+                      icon: const Icon(Icons.remove),
+                    ),
+                    IconButton(
+                      onPressed: onZoomReset,
+                      icon: const Icon(Icons.replay),
+                    ),
+                    IconButton(
+                      onPressed: onZoomIn,
+                      icon: const Icon(Icons.add),
+                    ),
+                  ],
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.settings),
+                title: const Text('Ayarlar'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onSettings();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = AvenTone.text(context);
+    return Material(
+      color: AvenTone.background(context),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 52,
+          child: Row(
+            children: [
+              Expanded(
+                child: IconButton(
+                  onPressed: canBack ? onBack : null,
+                  icon: Icon(Icons.arrow_back, color: canBack ? ink : ink.withValues(alpha: 0.28)),
+                  tooltip: 'Geri',
+                ),
+              ),
+              Expanded(
+                child: IconButton(
+                  onPressed: canForward ? onForward : null,
+                  icon: Icon(Icons.arrow_forward, color: canForward ? ink : ink.withValues(alpha: 0.28)),
+                  tooltip: 'İleri',
+                ),
+              ),
+              Expanded(
+                child: IconButton(
+                  onPressed: onNewTab,
+                  icon: Icon(Icons.add, color: ink),
+                  tooltip: 'Yeni sekme',
+                ),
+              ),
+              Expanded(
+                child: IconButton(
+                  onPressed: onTabs,
+                  tooltip: 'Sekmeler',
+                  icon: Container(
+                    width: 24,
+                    height: 24,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: ink, width: 1.6),
+                    ),
+                    child: Text(
+                      '$tabCount',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: ink,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: IconButton(
+                  onPressed: () => _openMenu(context),
+                  icon: Icon(Icons.more_vert, color: ink),
+                  tooltip: 'Menü',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CastTvSheet extends StatefulWidget {
+  const _CastTvSheet();
+
+  @override
+  State<_CastTvSheet> createState() => _CastTvSheetState();
+}
+
+class _CastTvSheetState extends State<_CastTvSheet> {
+  final _input = WebInput();
+  List<({String name, String host, int port})> _devices = const [];
+  String? _message;
+  bool _busy = true;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_scan());
+  }
+
+  Future<void> _scan() async {
+    try {
+      final found = await _input.discoverTvs();
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _devices = found.devices;
+        _message = found.error == 'permission'
+            ? 'Yakındaki cihaz izni gerekli'
+            : found.devices.isEmpty
+                ? 'Aynı ağda açık bir Aven TV bulunamadı'
+                : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _message = 'Aven TV aranamadı';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: _busy
+          ? const Padding(
+              padding: EdgeInsets.all(28),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 16),
+                  Text('Aven TV aranıyor'),
+                ],
+              ),
+            )
+          : ListView(
+              shrinkWrap: true,
+              children: [
+                if (_message != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                    child: Text(_message!),
+                  ),
+                for (final device in _devices)
+                  ListTile(
+                    leading: const Icon(Icons.tv),
+                    title: Text(device.name),
+                    subtitle: Text(device.host),
+                    onTap: () => Navigator.pop(context, device),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _PhoneTabGrid extends StatelessWidget {
+  const _PhoneTabGrid({
+    required this.tabs,
+    required this.tabIndex,
+    required this.onCloseGrid,
+    required this.onSelectTab,
+    required this.onCloseTab,
+    required this.onCloseAll,
+    required this.onNewTab,
+    required this.onIncognito,
+  });
+
+  final List<_PageTab> tabs;
+  final int tabIndex;
+  final VoidCallback onCloseGrid;
+  final ValueChanged<int> onSelectTab;
+  final ValueChanged<int> onCloseTab;
+  final VoidCallback onCloseAll;
+  final VoidCallback onNewTab;
+  final VoidCallback onIncognito;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AvenTone.background(context),
+      child: SafeArea(
+        child: Column(
+          children: [
+            SizedBox(
+              height: 48,
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: onCloseGrid,
+                    icon: const Icon(Icons.close),
+                  ),
+                  Expanded(
+                    child: Text(
+                      tabs.length == 1 ? '1 sekme' : '${tabs.length} sekme',
+                      style: const TextStyle(fontSize: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: GridView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 0.78,
+                ),
+                itemCount: tabs.length,
+                itemBuilder: (context, index) {
+                  final tab = tabs[index];
+                  final selected = index == tabIndex;
+                  final url = tab.url;
+                  return Material(
+                    color: tab.incognito
+                        ? const Color(0xFF2A2A32)
+                        : AvenTone.elevated(context),
+                    borderRadius: BorderRadius.circular(18),
+                    child: InkWell(
+                      onTap: () => onSelectTab(index),
+                      borderRadius: BorderRadius.circular(18),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(
+                            color: selected ? AvenTone.text(context) : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 4, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      tab.incognito ? 'Gizli · ${tab.title}' : tab.title,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: tab.incognito ? Colors.white : null,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: () => onCloseTab(index),
+                                    icon: const Icon(Icons.close, size: 18),
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+                              Text(
+                                url == null || url.isEmpty ? 'Yeni sekme' : url,
+                                maxLines: 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AvenColors.textMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: onCloseAll,
+                    child: const Text('Tümünü kapat'),
+                  ),
+                  TextButton(
+                    onPressed: onIncognito,
+                    child: const Text('Gizli'),
+                  ),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: onNewTab,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Yeni sekme'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

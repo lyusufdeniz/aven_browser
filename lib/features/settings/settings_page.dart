@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/theme/aven_theme.dart';
+import '../../core/platform/aven_flavor.dart';
 import '../../core/platform/aven_layout.dart';
 import '../../core/aven_app_info.dart';
 import '../../core/url/url_input.dart';
@@ -58,7 +59,10 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _load();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _focusLeft(0));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || AvenLayout.isCompact(context)) return;
+      _focusLeft(0);
+    });
   }
 
   @override
@@ -76,7 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final engine = await widget.store.loadEngine();
     final block = await widget.store.loadAdBlock();
     final agent = await widget.store.loadAgent();
-    final lite = await widget.store.loadLiteBrowsing();
+    final lite = await widget.store.loadLiteBrowsing(fallback: !AvenFlavor.isMobile);
     final homeSuggestions = await widget.store.loadHomeSuggestions();
     if (!mounted) return;
     setState(() {
@@ -112,6 +116,12 @@ class _SettingsPageState extends State<SettingsPage> {
     await widget.store.saveLiteBrowsing(enabled);
     if (!mounted) return;
     setState(() => _lite = enabled);
+  }
+
+  Future<void> _selectTheme(String choice) async {
+    await widget.store.saveThemeChoice(choice);
+    avenThemeChoice.value = choice;
+    if (mounted) setState(() {});
   }
 
   Future<void> _selectHomeSuggestions(bool enabled) async {
@@ -224,48 +234,12 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     final compact = AvenLayout.isCompact(context);
     return Scaffold(
-      backgroundColor: AvenColors.accentBlue,
+      backgroundColor: compact
+          ? Theme.of(context).scaffoldBackgroundColor
+          : AvenColors.accentBlue,
       body: SafeArea(
         child: compact
-            ? Column(
-                children: [
-                  SizedBox(
-                    height: 56,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      children: [
-                        for (var index = 0; index < _sections.length; index++)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: _FocusTile(
-                              focusNode: _leftFocus[index],
-                              autofocus: index == 0,
-                              selected: _section == index,
-                              compact: false,
-                              onKeyEvent: (event) => _onLeftKey(index, event),
-                              onFocus: () {
-                                if (_section == index && _onLeft) return;
-                                setState(() {
-                                  _section = index;
-                                  _onLeft = true;
-                                });
-                              },
-                              onTap: () {
-                                setState(() => _section = index);
-                                _focusRight();
-                              },
-                              leading: Icon(_icons[index], size: 22),
-                              title: _sections[index],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  const Divider(height: 1, color: AvenColors.elevated),
-                  Expanded(child: _panel(compact: true)),
-                ],
-              )
+            ? _phoneSettings(context)
             : Row(
                 children: [
                   AnimatedContainer(
@@ -325,6 +299,107 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ),
       ),
+    );
+  }
+
+  Widget _phoneSettings(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 28),
+      children: [
+        Row(
+          children: [
+            IconButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back),
+            ),
+            const Expanded(
+              child: Text('Ayarlar', style: TextStyle(fontSize: 18)),
+            ),
+          ],
+        ),
+        const _PhoneSettingsHeading('Ağ'),
+        for (final block in _blocks)
+          _PhoneSettingsOption(
+            title: block.label,
+            subtitle: switch (block) {
+              AdBlock.off =>
+                'Engelleme yok. Film ve dizi sitelerinde oynatıcıların bozulmaması için önerilir.',
+              AdBlock.local =>
+                'Uygulama içi host listesi ve gizli reklam stilleri. Ağ ayarı değişmez, ek izin istemez.',
+              AdBlock.adguard =>
+                'Yerel listeye ek olarak DNS engelleme. Ağ izni ister; daha agresif engeller.',
+            },
+            selected: _block == block,
+            onTap: () => _selectBlock(block),
+          ),
+        const _PhoneSettingsHeading('Ana ekran'),
+        _PhoneSettingsOption(
+          title: 'Göster',
+          subtitle: 'Ana ekranda film, spor ve haber öneri kartları görünür.',
+          selected: _homeSuggestions,
+          onTap: () => _selectHomeSuggestions(true),
+        ),
+        _PhoneSettingsOption(
+          title: 'Gizle',
+          subtitle: 'Ana ekranda yalnızca arama, kısayollar ve yer imleri kalır.',
+          selected: !_homeSuggestions,
+          onTap: () => _selectHomeSuggestions(false),
+        ),
+        const _PhoneSettingsHeading('Arama'),
+        for (final engine in _engines)
+          _PhoneSettingsOption(
+            title: engine.label,
+            selected: _engine == engine,
+            onTap: () => _selectEngine(engine),
+          ),
+        const _PhoneSettingsHeading('Görünüm'),
+        _PhoneSettingsOption(
+          title: 'Sistem',
+          subtitle: 'Telefonun açık veya koyu rengine uyar.',
+          selected: avenThemeChoice.value == 'system',
+          onTap: () => _selectTheme('system'),
+        ),
+        _PhoneSettingsOption(
+          title: 'Açık',
+          subtitle: 'Beyaz tema.',
+          selected: avenThemeChoice.value == 'light',
+          onTap: () => _selectTheme('light'),
+        ),
+        _PhoneSettingsOption(
+          title: 'Koyu',
+          subtitle: 'Siyah tema.',
+          selected: avenThemeChoice.value == 'dark',
+          onTap: () => _selectTheme('dark'),
+        ),
+        const _PhoneSettingsHeading('Hakkında'),
+        _PhoneSettingsOption(
+          title: 'Sürüm',
+          subtitle: AvenAppInfo.version,
+          icon: Icons.tag,
+          selected: false,
+          onTap: () {},
+        ),
+        _PhoneSettingsOption(
+          title: 'Geliştirici',
+          subtitle: AvenAppInfo.developer,
+          icon: Icons.public,
+          selected: false,
+          onTap: () {},
+        ),
+        const _PhoneSettingsHeading('Performans'),
+        _PhoneSettingsOption(
+          title: 'Açık',
+          subtitle: 'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
+          selected: _lite,
+          onTap: () => _selectLite(true),
+        ),
+        _PhoneSettingsOption(
+          title: 'Kapalı',
+          subtitle: 'Siteler normal yüklenir.',
+          selected: !_lite,
+          onTap: () => _selectLite(false),
+        ),
+      ],
     );
   }
 
@@ -461,6 +536,51 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+}
+
+class _PhoneSettingsHeading extends StatelessWidget {
+  const _PhoneSettingsHeading(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 22, 16, 6),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 13, color: AvenTone.textMuted(context)),
+      ),
+    );
+  }
+}
+
+class _PhoneSettingsOption extends StatelessWidget {
+  const _PhoneSettingsOption({
+    required this.title,
+    required this.selected,
+    required this.onTap,
+    this.subtitle,
+    this.icon,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      onTap: onTap,
+      leading: Icon(
+        icon ?? (selected ? Icons.radio_button_checked : Icons.radio_button_off),
+      ),
+      title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle!),
+    );
+  }
 }
 
 class _FocusTile extends StatelessWidget {
