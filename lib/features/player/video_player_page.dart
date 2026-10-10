@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/l10n/aven_strings.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/theme/aven_dialog.dart';
 import '../../platform/web_input.dart';
@@ -162,7 +163,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         label == 'HLS') {
       return hint;
     }
-    if (hint != 'Akış' && !label.contains(hint)) return '$hint · $label';
+    if (hint != avenText('aven_stream') && !label.contains(hint)) return '$hint · $label';
     return label;
   }
 
@@ -317,7 +318,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     if (!mounted) return;
     setState(() {
       _loading = false;
-      _error = 'Bu kaynak açılamadı.';
+      _error = avenText('aven_source_failed');
     });
     assert(() {
       debugPrint('Aven player open failed: $lastError');
@@ -624,7 +625,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     setState(() {
       _cues = cues;
       _subtitleLabel = track.label;
-      if (cues.isEmpty) _error = 'Altyazı dosyası okunamadı.';
+      if (cues.isEmpty) _error = avenText('aven_subtitle_unreadable');
     });
     _revealControls();
   }
@@ -683,7 +684,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       return await showGeneralDialog<T>(
         context: context,
         barrierDismissible: true,
-        barrierLabel: 'Kapat',
+        barrierLabel: avenText('aven_close'),
         barrierColor: AvenColors.scrim,
         transitionDuration: const Duration(milliseconds: 120),
         pageBuilder: (dialogContext, animation, secondaryAnimation) {
@@ -862,10 +863,10 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         builder: (context) {
           return AvenConfirmDialog(
             icon: Icons.close_rounded,
-            title: 'Oynatıcıdan çık',
-            message: 'Harici oynatıcı kapatılsın mı?',
-            cancelLabel: 'İptal',
-            confirmLabel: 'Çık',
+            title: avenText('aven_player_exit_title'),
+            message: avenText('aven_player_exit_message'),
+            cancelLabel: avenText('aven_cancel'),
+            confirmLabel: avenText('aven_quit'),
             autofocusConfirm: false,
           );
         },
@@ -883,13 +884,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
 
   Future<void> _pickSpeed() async {
     final picked = await _showTvPicker<double>(
-      title: 'Hız',
+      title: avenText('aven_speed'),
       returnFocusIndex: 4,
       options: [
         for (final value in _speeds)
           _PickerOption(
             value: value,
-            title: value == 1 ? 'Normal' : '${value}x',
+            title: value == 1 ? avenText('aven_speed_normal') : '${value}x',
             selected: value == _speed,
             autofocus: value == _speed,
           ),
@@ -902,7 +903,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final sources = _sources;
     if (sources.isEmpty) return;
     final picked = await _showTvPicker<VideoSource>(
-      title: 'Kalite',
+      title: avenText('aven_quality'),
       returnFocusIndex: _qualityIndex,
       options: [
         for (var i = 0; i < sources.length; i++)
@@ -929,7 +930,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final quality = qualityLabelForUrl(source.url);
     final duration = formatSourceDuration(source.durationSeconds);
     if (duration.isEmpty) return quality;
-    if (source.label.contains(quality) || quality == 'Akış') return duration;
+    if (source.label.contains(quality) || quality == avenText('aven_stream')) return duration;
     return '$quality · $duration';
   }
 
@@ -939,19 +940,19 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       return kind == 'subtitles' || kind == 'captions';
     }).toList();
     final picked = await _showTvPicker<Object?>(
-      title: 'Altyazı',
+      title: avenText('aven_subtitles'),
       returnFocusIndex: 6,
       options: [
         _PickerOption(
           value: 'off',
-          title: 'Kapalı',
+          title: avenText('aven_off'),
           selected: _subtitleLabel == null,
           autofocus: _subtitleLabel == null,
         ),
         if (tracks.isEmpty)
-          const _PickerOption<Object?>(
+          _PickerOption<Object?>(
             value: null,
-            title: 'Bu kaynakta altyazı yok',
+            title: avenText('aven_subtitles_none'),
             selected: false,
             autofocus: false,
             enabled: false,
@@ -1156,7 +1157,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                               final progressFocused =
                                   _barFocus[_progressIndex].hasFocus;
                               final qualityLabel = _source == null
-                                  ? 'Kalite'
+                                  ? avenText('aven_quality')
                                   : (_source!.label.isNotEmpty
                                       ? _source!.label
                                       : qualityLabelForUrl(_source!.url));
@@ -1276,7 +1277,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                                               ? Icons.pause
                                               : Icons.play_arrow,
                                           label:
-                                              playing ? 'Duraklat' : 'Oynat',
+                                              playing ? avenText('aven_pause') : avenText('aven_play'),
                                           onPressed: _togglePlay,
                                           onKey: (e) => _onBarKey(
                                             _playIndex,
@@ -1324,7 +1325,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                                           focused: _barFocus[4].hasFocus,
                                           icon: Icons.speed,
                                           label: _speed == 1
-                                              ? 'Hız'
+                                              ? avenText('aven_speed')
                                               : '${_speed}x',
                                           onPressed: _pickSpeed,
                                           onKey: (e) =>
@@ -1351,7 +1352,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                                           focused: _barFocus[6].hasFocus,
                                           icon: Icons
                                               .closed_caption_outlined,
-                                          label: _subtitleLabel ?? 'Altyazı',
+                                          label: _subtitleLabel ?? avenText('aven_subtitles'),
                                           onPressed: _pickSubtitle,
                                           onKey: (e) => _onBarKey(
                                             6,

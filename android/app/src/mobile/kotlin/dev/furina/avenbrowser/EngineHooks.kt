@@ -14,11 +14,13 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
+import android.view.autofill.AutofillManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.StandardMessageCodec
@@ -228,6 +230,9 @@ internal object GeckoBrowser {
         if (geckoView.session == null) {
             geckoView.setSession(current)
         }
+        geckoView.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+        geckoView.isFocusable = true
+        geckoView.isFocusableInTouchMode = true
         view = geckoView
     }
 
@@ -593,7 +598,7 @@ internal object GeckoBrowser {
             else -> "secure"
         }
         val cert = info.certificate
-        val format = SimpleDateFormat("d MMM yyyy", Locale("tr"))
+        val format = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
         security = hashMapOf(
             "mode" to mode,
             "host" to (info.host ?: siteHost(url ?: "")),
@@ -669,11 +674,9 @@ internal object GeckoBrowser {
     }
 
     private fun askPermission(host: String, id: String, done: (Boolean) -> Unit) {
-        val label = sitePerms.firstOrNull { it.first == id }?.second ?: id
         val payload = mapOf(
-            "host" to host.ifBlank { "Bu site" },
+            "host" to host,
             "id" to id,
-            "label" to label,
         )
         main.post {
             val messenger = channel
@@ -782,16 +785,16 @@ internal object GeckoBrowser {
                     else -> -1
                 }
                 val label = when (status) {
-                    DownloadManager.STATUS_SUCCESSFUL -> "Tamamlandı"
-                    DownloadManager.STATUS_RUNNING -> "İniyor"
-                    DownloadManager.STATUS_PENDING -> "Bekliyor"
-                    DownloadManager.STATUS_PAUSED -> "Durdu"
-                    DownloadManager.STATUS_FAILED -> "Başarısız"
+                    DownloadManager.STATUS_SUCCESSFUL -> "success"
+                    DownloadManager.STATUS_RUNNING -> "running"
+                    DownloadManager.STATUS_PENDING -> "pending"
+                    DownloadManager.STATUS_PAUSED -> "paused"
+                    DownloadManager.STATUS_FAILED -> "failed"
                     else -> ""
                 }
                 items.add(
                     mapOf(
-                        "title" to (if (titleCol >= 0) cursor.getString(titleCol) else "İndirme"),
+                        "title" to (if (titleCol >= 0) cursor.getString(titleCol) ?: "" else ""),
                         "status" to label,
                         "id" to (if (idCol >= 0) cursor.getLong(idCol).toString() else ""),
                         "progress" to progress.toString(),
@@ -813,7 +816,7 @@ internal object GeckoBrowser {
                 emit("downloads", items)
                 val active = items.any {
                     val status = it["status"]
-                    status == "İniyor" || status == "Bekliyor" || status == "Durdu"
+                    status == "running" || status == "pending" || status == "paused"
                 }
                 if (active) {
                     main.postDelayed(this, 600)
@@ -909,6 +912,8 @@ internal object GeckoBrowser {
                 showing()?.finder?.clear()
                 result.success(null)
             }
+            "requestAutofill" -> result.success(requestAutofill())
+            "openAutofillSettings" -> result.success(openAutofillSettings())
             "listDownloads" -> result.success(listDownloads())
             "downloadUrl" -> {
                 val raw = (arguments as? Map<*, *>)?.get("url") as? String ?: ""
@@ -1019,6 +1024,46 @@ internal object GeckoBrowser {
             .put("zoom", textZoom)
         val currentPort = port
         if (currentPort == null) evalQueue.add(message) else currentPort.postMessage(message)
+    }
+
+    private fun markAutofill(root: View) {
+        var node: View? = root
+        while (node != null) {
+            node.importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+            val parent = node.parent
+            node = parent as? View
+        }
+    }
+
+    private fun requestAutofill(): String {
+        val activity = hostActivity
+        val gecko = view
+        val manager = activity?.getSystemService(AutofillManager::class.java)
+            ?: return "unsupported"
+        if (!manager.isAutofillSupported) return "unsupported"
+        if (!manager.isEnabled || !manager.hasEnabledAutofillServices()) return "off"
+        if (gecko == null || !gecko.isAttachedToWindow) return "failed"
+        return try {
+            markAutofill(gecko)
+            manager.notifyViewEntered(gecko)
+            manager.requestAutofill(gecko)
+            "ok"
+        } catch (_: Throwable) {
+            "failed"
+        }
+    }
+
+    private fun openAutofillSettings(): Boolean {
+        val activity = hostActivity ?: return false
+        val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+            data = Uri.parse("package:com.google.android.gms")
+        }
+        return try {
+            activity.startActivity(intent)
+            true
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     private fun textureOf(root: View?): TextureView? {

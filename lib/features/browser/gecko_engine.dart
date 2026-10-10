@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../core/l10n/aven_strings.dart';
 import 'page_engine.dart';
 
 /// Phone engine: Mozilla GeckoView.
@@ -68,8 +69,9 @@ class GeckoPageEngine implements PageEngine {
       case 'permissionPrompt':
         final raw = call.arguments;
         final map = raw is Map ? raw : const {};
-        final host = '${map['host'] ?? 'Bu site'}';
-        final label = '${map['label'] ?? 'İzin'}';
+        final hostRaw = '${map['host'] ?? ''}'.trim();
+        final host = hostRaw.isEmpty ? avenText('aven_this_site') : hostRaw;
+        final label = permissionLabel('${map['id'] ?? ''}');
         if (onPermissionPrompt == null) return false;
         return onPermissionPrompt!(host, label);
       case 'downloads':
@@ -206,6 +208,15 @@ class GeckoPageEngine implements PageEngine {
       'current': int.tryParse('${raw?['current']}') ?? 0,
       'total': int.tryParse('${raw?['total']}') ?? 0,
     };
+  }
+
+  Future<String> requestAutofill() async {
+    final status = await _channel.invokeMethod<String>('requestAutofill');
+    return status ?? 'failed';
+  }
+
+  Future<void> openAutofillSettings() {
+    return _channel.invokeMethod<void>('openAutofillSettings');
   }
 
   Future<Uint8List?> capturePreview() async {

@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/l10n/aven_strings.dart';
+
 import '../core/url/url_input.dart';
 
 class WebLink {
@@ -49,9 +51,15 @@ enum AdBlock {
   }
 
   String get label => switch (this) {
-    AdBlock.off => 'Kapalı',
-    AdBlock.local => 'Yerel liste',
-    AdBlock.adguard => 'DNS engelleme',
+    AdBlock.off => avenText('aven_off'),
+    AdBlock.local => avenText('aven_adblock_local'),
+    AdBlock.adguard => avenText('aven_adblock_dns'),
+  };
+
+  String get detail => switch (this) {
+    AdBlock.off => avenText('aven_adblock_off_detail'),
+    AdBlock.local => avenText('aven_adblock_local_detail'),
+    AdBlock.adguard => avenText('aven_adblock_dns_detail'),
   };
 
   /// True when host intercept / cosmetics should run.
@@ -75,17 +83,17 @@ enum BrowserAgent {
   }
 
   String get label => switch (this) {
-    BrowserAgent.defaultAgent => 'Varsayılan',
-    BrowserAgent.desktop => 'Masaüstü',
-    BrowserAgent.mobile => 'Mobil',
-    BrowserAgent.tv => 'Android TV',
+    BrowserAgent.defaultAgent => avenText('aven_agent_default'),
+    BrowserAgent.desktop => avenText('aven_agent_desktop'),
+    BrowserAgent.mobile => avenText('aven_agent_mobile'),
+    BrowserAgent.tv => avenText('aven_agent_tv'),
   };
 
   String get detail => switch (this) {
-    BrowserAgent.defaultAgent => 'Motorun varsayılan kimliği.',
-    BrowserAgent.desktop => 'Masaüstü tarayıcı gibi görünür.',
-    BrowserAgent.mobile => 'Telefon tarayıcısı gibi görünür.',
-    BrowserAgent.tv => 'TV tarayıcısı gibi görünür.',
+    BrowserAgent.defaultAgent => avenText('aven_agent_default_detail'),
+    BrowserAgent.desktop => avenText('aven_agent_desktop_detail'),
+    BrowserAgent.mobile => avenText('aven_agent_mobile_detail'),
+    BrowserAgent.tv => avenText('aven_agent_tv_detail'),
   };
 
   String? get value => switch (this) {

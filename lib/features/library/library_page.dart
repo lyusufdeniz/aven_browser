@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/l10n/aven_strings.dart';
 import '../../core/platform/aven_flavor.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/platform/aven_layout.dart';
@@ -20,9 +21,9 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  static List<String> get _sections => AvenFlavor.isMobile
-      ? const ['Yer imleri', 'Geçmiş', 'İndirmeler']
-      : const ['Yer imleri', 'Geçmiş'];
+  List<String> get _sections => AvenFlavor.isMobile
+      ? [avenText('aven_bookmarks'), avenText('aven_history'), avenText('aven_downloads')]
+      : [avenText('aven_bookmarks'), avenText('aven_history')];
   static List<IconData> get _icons => AvenFlavor.isMobile
       ? const [Icons.star_outline, Icons.history, Icons.download_outlined]
       : const [Icons.star_outline, Icons.history];
@@ -34,8 +35,10 @@ class _LibraryPageState extends State<LibraryPage> {
   List<WebLink> _history = const [];
   List<Map<String, String>> _downloads = const [];
   Timer? _downloadPoll;
-  late final List<FocusNode> _leftFocus =
-      List.generate(_sections.length, (index) => FocusNode(debugLabel: 'library-left-$index'));
+  late final List<FocusNode> _leftFocus = List.generate(
+    AvenFlavor.isMobile ? 3 : 2,
+    (index) => FocusNode(debugLabel: 'library-left-$index'),
+  );
   late final List<FocusNode> _rightFocus =
       List.generate(_linkLimit + 2, (index) => FocusNode(debugLabel: 'library-right-$index'));
   late final List<FocusNode> _deleteFocus =
@@ -66,7 +69,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   bool get _downloadsActive => _downloads.any((item) {
         final status = item['status'];
-        return status == 'İniyor' || status == 'Bekliyor' || status == 'Durdu';
+        return downloadIsActive(status);
       });
 
   void _syncDownloadPoll() {
@@ -90,26 +93,23 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   String _downloadLabel(Map<String, String> item) {
-    final status = item['status'] ?? '';
-    final raw = int.tryParse(item['progress'] ?? '') ?? -1;
-    if (status == 'İniyor' && raw >= 0) return '$status · %$raw';
-    return status;
+    return downloadStatusLabel(item['status'], item['progress']);
   }
 
   Widget _downloadActions(Map<String, String> item) {
     final id = item['id'] ?? '';
-    final done = item['status'] == 'Tamamlandı';
+    final done = item['status'] == 'success';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (done)
           IconButton(
-            tooltip: 'Aç',
+            tooltip: avenText('aven_open'),
             onPressed: id.isEmpty ? null : () => unawaited(GeckoPageEngine.openSaved(id)),
             icon: const Icon(Icons.open_in_new, size: 20),
           ),
         IconButton(
-          tooltip: done ? 'Sil' : 'İptal',
+          tooltip: done ? avenText('aven_delete') : avenText('aven_cancel'),
           onPressed: id.isEmpty
               ? null
               : () async {
@@ -123,7 +123,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   double _downloadProgress(Map<String, String> item) {
-    if (item['status'] == 'Tamamlandı') return 1;
+    if (item['status'] == 'success') return 1;
     final raw = int.tryParse(item['progress'] ?? '') ?? -1;
     if (raw < 0) return -1;
     return raw / 100;
@@ -190,19 +190,19 @@ class _LibraryPageState extends State<LibraryPage> {
           child: ListView(
             shrinkWrap: true,
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                 child: Text(
-                  'Geçmişi sil',
+                  avenText('aven_clear_history'),
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 ),
               ),
-              ListTile(title: const Text('Son 15 dakika'), onTap: () => pick('15m')),
-              ListTile(title: const Text('Son 1 saat'), onTap: () => pick('1h')),
-              ListTile(title: const Text('Son 24 saat'), onTap: () => pick('24h')),
-              ListTile(title: const Text('Son 7 gün'), onTap: () => pick('7d')),
-              ListTile(title: const Text('Son 4 hafta'), onTap: () => pick('4w')),
-              ListTile(title: const Text('Tüm zamanlar'), onTap: () => pick('all')),
+              ListTile(title: Text(avenText('aven_range_15m')), onTap: () => pick('15m')),
+              ListTile(title: Text(avenText('aven_range_1h')), onTap: () => pick('1h')),
+              ListTile(title: Text(avenText('aven_range_24h')), onTap: () => pick('24h')),
+              ListTile(title: Text(avenText('aven_range_7d')), onTap: () => pick('7d')),
+              ListTile(title: Text(avenText('aven_range_4w')), onTap: () => pick('4w')),
+              ListTile(title: Text(avenText('aven_range_all')), onTap: () => pick('all')),
             ],
           ),
         );
@@ -373,7 +373,7 @@ class _LibraryPageState extends State<LibraryPage> {
       if (index < 0 || index >= _downloads.length) return;
       final item = _downloads[index];
       final id = item['id'] ?? '';
-      if (item['status'] == 'Tamamlandı' && id.isNotEmpty) {
+      if (item['status'] == 'success' && id.isNotEmpty) {
         unawaited(GeckoPageEngine.openSaved(id));
       }
       return;
@@ -411,10 +411,10 @@ class _LibraryPageState extends State<LibraryPage> {
                           onPressed: () => Navigator.of(context).maybePop(),
                           icon: const Icon(Icons.arrow_back),
                         ),
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            'Kitaplık',
-                            style: TextStyle(fontSize: 18),
+                            avenText('aven_library'),
+                            style: const TextStyle(fontSize: 18),
                           ),
                         ),
                       ],
@@ -467,9 +467,9 @@ class _LibraryPageState extends State<LibraryPage> {
                                 alignment: Alignment.centerLeft,
                                 child: Opacity(
                                   opacity: _onLeft ? 1 : 0,
-                                  child: const Text(
-                                    'Kitaplık',
-                                    style: TextStyle(fontSize: 18),
+                                  child: Text(
+                                    avenText('aven_library'),
+                                    style: const TextStyle(fontSize: 18),
                                   ),
                                 ),
                               ),
@@ -526,8 +526,8 @@ class _LibraryPageState extends State<LibraryPage> {
             onKeyEvent: (event) => _onRightKey(0, event),
             onTap: () {},
             leading: const Icon(Icons.download_outlined, size: 24),
-            title: 'Henüz indirme yok',
-            subtitle: 'Kaydedilen dosyalar burada görünür.',
+            title: avenText('aven_no_downloads'),
+            subtitle: avenText('aven_no_downloads_detail'),
           ),
         if (_section == 2)
           for (var index = 0; index < _downloads.length; index++)
@@ -539,7 +539,7 @@ class _LibraryPageState extends State<LibraryPage> {
               leading: const Icon(Icons.download_done, size: 24),
               title: _downloads[index]['title']?.isNotEmpty == true
                   ? _downloads[index]['title']
-                  : 'İndirme',
+                  : avenText('aven_download'),
               subtitle: _downloadLabel(_downloads[index]),
               progress: _downloadProgress(_downloads[index]),
               trailing: _downloadActions(_downloads[index]),
@@ -555,8 +555,10 @@ class _LibraryPageState extends State<LibraryPage> {
             },
             onTap: () => _activateRight(0),
             leading: const Icon(Icons.delete_outline, size: 24),
-            title: 'Geçmişi temizle',
-            subtitle: links.isEmpty ? 'Geçmiş boş.' : '${links.length} kayıt silinir.',
+            title: avenText('aven_clear_history'),
+            subtitle: links.isEmpty
+                ? avenText('aven_history_empty')
+                : avenText('aven_history_count', [links.length]),
           ),
         if (links.isEmpty && _section == 0)
           _LibraryTile(
@@ -569,8 +571,8 @@ class _LibraryPageState extends State<LibraryPage> {
             },
             onTap: () {},
             leading: const Icon(Icons.info_outline, size: 24),
-            title: 'Henüz yer imi yok',
-            subtitle: 'Siteleri menüden kaydedebilirsin.',
+            title: avenText('aven_no_bookmarks'),
+            subtitle: avenText('aven_no_bookmarks_detail'),
           ),
         if (links.isEmpty && _section == 1)
           const SizedBox.shrink()

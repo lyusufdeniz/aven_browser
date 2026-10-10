@@ -65,6 +65,7 @@ class MainActivity : FlutterActivity() {
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "flavor" -> result.success(BuildConfig.FLAVOR)
+                    "appStrings" -> result.success(appStrings())
                     "discoverTvs" -> AvenCast.discover(this, result)
                     "sendToTv" -> AvenCast.send(
                         call.argument<String>("host") ?: "",
@@ -164,6 +165,17 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun appStrings(): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        val fields = Class.forName("dev.furina.avenbrowser.R\$string").fields
+        for (field in fields) {
+            if (!field.name.startsWith("aven_")) continue
+            val id = field.getInt(null)
+            out[field.name] = getString(id)
+        }
+        return out
     }
 
     private fun isPipSupported(): Boolean {

@@ -1,5 +1,14 @@
+import 'dart:convert';
+
+import '../../core/l10n/aven_strings.dart';
+
 /// Compact article reader for TV WebView (enter / exit via JS).
-const readerToggleScript = r'''
+String get readerToggleScript => _readerToggleScript.replaceAll(
+  '__AVEN_READER_HINT__',
+  jsonEncode(avenText('aven_reader_hint')),
+);
+
+const _readerToggleScript = r'''
 (function(){
   function restore(){
     try {
@@ -178,7 +187,7 @@ const readerToggleScript = r'''
   wrap.style.cssText = 'max-width:44rem;margin:0 auto;padding:2rem 2.4rem 4rem;overflow:visible;color:#F3F5F7;';
 
   var hint = document.createElement('p');
-  hint.textContent = 'Okuyucu · menüden geri dön';
+  hint.textContent = __AVEN_READER_HINT__;
   hint.style.cssText = 'margin:0 0 1.2rem;font-size:0.95rem;color:#C5CAD0!important;opacity:1!important;';
   wrap.appendChild(hint);
 

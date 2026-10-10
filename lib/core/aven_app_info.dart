@@ -4,5 +4,5 @@ abstract final class AvenAppInfo {
   static const version = '1.0.0';
   static const versionCode = 1;
   static const developer = 'furina.dev';
-  static const packageId = 'dev.furina.avenbrowser';
+  static const packageId = 'dev.furina.aven';
 }

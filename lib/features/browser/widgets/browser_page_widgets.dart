@@ -41,24 +41,24 @@ class _PageError {
 
   factory _PageError.fromHttp(int code, String url) {
     final title = switch (code) {
-      400 => 'Geçersiz istek',
-      401 => 'Giriş gerekli',
-      403 => 'Erişim engellendi',
-      404 => 'Sayfa bulunamadı',
-      408 => 'İstek zaman aşımı',
-      410 => 'Sayfa kaldırıldı',
-      429 => 'Çok fazla istek',
-      500 => 'Sunucu hatası',
-      502 => 'Ağ geçidi hatası',
-      503 => 'Servis kullanılamıyor',
-      504 => 'Ağ geçidi zaman aşımı',
-      _ when code >= 500 => 'Sunucu hatası',
-      _ => 'Sayfa yüklenemedi',
+      400 => avenText('aven_error_invalid_request'),
+      401 => avenText('aven_error_sign_in'),
+      403 => avenText('aven_error_forbidden'),
+      404 => avenText('aven_error_not_found'),
+      408 => avenText('aven_error_timeout'),
+      410 => avenText('aven_error_gone'),
+      429 => avenText('aven_error_too_many'),
+      500 => avenText('aven_error_server'),
+      502 => avenText('aven_error_bad_gateway'),
+      503 => avenText('aven_error_unavailable'),
+      504 => avenText('aven_error_gateway_timeout'),
+      _ when code >= 500 => avenText('aven_error_server'),
+      _ => avenText('aven_error_load'),
     };
     return _PageError(
       code: code,
       title: title,
-      detail: 'Sunucu $code kodu döndürdü.',
+      detail: avenText('aven_error_http_code', [code]),
       url: url,
     );
   }
@@ -66,16 +66,16 @@ class _PageError {
   factory _PageError.fromResource(WebResourceError error) {
     final type = error.errorType;
     final title = switch (type) {
-      WebResourceErrorType.hostLookup => 'Site bulunamadı',
-      WebResourceErrorType.timeout => 'Bağlantı zaman aşımı',
-      WebResourceErrorType.connect => 'Bağlantı kurulamadı',
-      WebResourceErrorType.failedSslHandshake => 'Güvenli bağlantı başarısız',
-      WebResourceErrorType.tooManyRequests => 'Çok fazla istek',
-      WebResourceErrorType.unsafeResource => 'Güvensiz kaynak',
-      WebResourceErrorType.webContentProcessTerminated => 'Sayfa çöktü',
-      WebResourceErrorType.badUrl => 'Geçersiz adres',
-      WebResourceErrorType.fileNotFound => 'Sayfa bulunamadı',
-      _ => 'Sayfa yüklenemedi',
+      WebResourceErrorType.hostLookup => avenText('aven_error_host'),
+      WebResourceErrorType.timeout => avenText('aven_error_connect_timeout'),
+      WebResourceErrorType.connect => avenText('aven_error_connect'),
+      WebResourceErrorType.failedSslHandshake => avenText('aven_error_ssl'),
+      WebResourceErrorType.tooManyRequests => avenText('aven_error_too_many'),
+      WebResourceErrorType.unsafeResource => avenText('aven_error_unsafe'),
+      WebResourceErrorType.webContentProcessTerminated => avenText('aven_error_crashed'),
+      WebResourceErrorType.badUrl => avenText('aven_error_bad_url'),
+      WebResourceErrorType.fileNotFound => avenText('aven_error_not_found'),
+      _ => avenText('aven_error_load'),
     };
     return _PageError(
       title: title,
@@ -336,7 +336,7 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                             order: const NumericFocusOrder(0),
                             child: _ErrorAction(
                               focusNode: _retryFocus,
-                              label: 'Yeniden dene',
+                              label: avenText('aven_retry'),
                               icon: Icons.refresh,
                               onPressed: widget.onRetry,
                               onKeyEvent: (event) => _onKey(0, event),
@@ -347,7 +347,7 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                             order: const NumericFocusOrder(1),
                             child: _ErrorAction(
                               focusNode: _homeFocus,
-                              label: 'Başlangıç',
+                              label: avenText('aven_home'),
                               icon: Icons.home_outlined,
                               onPressed: widget.onHome,
                               onKeyEvent: (event) => _onKey(1, event),
@@ -1051,7 +1051,7 @@ class _StartPageState extends State<_StartPage> {
                       Padding(
                         padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
                         child: Text(
-                          'Son gezinmeler',
+                          avenText('aven_recent'),
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -1158,22 +1158,22 @@ class _StartPageState extends State<_StartPage> {
                           children: [
                             _PhoneShortcut(
                               icon: Icons.history,
-                              label: 'Geçmiş',
+                              label: avenText('aven_history'),
                               onPressed: widget.onOpenHistory,
                             ),
                             _PhoneShortcut(
                               icon: Icons.star_outline,
-                              label: 'Yer imleri',
+                              label: avenText('aven_bookmarks'),
                               onPressed: widget.onOpenBookmarks,
                             ),
                             _PhoneShortcut(
                               icon: Icons.download_outlined,
-                              label: 'İndirmeler',
+                              label: avenText('aven_downloads'),
                               onPressed: widget.onOpenDownloads,
                             ),
                             _PhoneShortcut(
                               icon: Icons.settings,
-                              label: 'Ayarlar',
+                              label: avenText('aven_settings'),
                               onPressed: widget.onSettings,
                             ),
                           ],
@@ -1191,7 +1191,7 @@ class _StartPageState extends State<_StartPage> {
                               child: _StartAction(
                                 focusNode: _actionFocus[0],
                                 icon: Icons.history,
-                                label: 'Geçmiş',
+                                label: avenText('aven_history'),
                                 onPressed: widget.onOpenHistory,
                                 onKeyEvent: (event) => _onActionKey(0, event),
                               ),
@@ -1202,7 +1202,7 @@ class _StartPageState extends State<_StartPage> {
                               child: _StartAction(
                                 focusNode: _actionFocus[1],
                                 icon: Icons.star_outline,
-                                label: 'Yer imleri',
+                                label: avenText('aven_bookmarks'),
                                 onPressed: widget.onOpenBookmarks,
                                 onKeyEvent: (event) => _onActionKey(1, event),
                               ),
@@ -1213,7 +1213,7 @@ class _StartPageState extends State<_StartPage> {
                               child: _StartAction(
                                 focusNode: _actionFocus[2],
                                 icon: Icons.settings,
-                                label: 'Ayarlar',
+                                label: avenText('aven_settings'),
                                 onPressed: widget.onSettings,
                                 onKeyEvent: (event) => _onActionKey(2, event),
                               ),
@@ -1224,10 +1224,10 @@ class _StartPageState extends State<_StartPage> {
                     if (!widget.phone && !showQuery) ...[
                       if (_showSiteRail) ...[
                         const SizedBox(height: 22),
-                        const Align(
+                        Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'Öneriler',
+                            avenText('aven_suggestions'),
                             style: TextStyle(
                               fontSize: 16,
                               color: AvenColors.textMuted,
@@ -1276,10 +1276,10 @@ class _StartPageState extends State<_StartPage> {
                       ],
                       if (bookmarks.isNotEmpty) ...[
                         const SizedBox(height: 22),
-                        const Align(
+                        Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            'Yer imleri',
+                            avenText('aven_bookmarks'),
                             style: TextStyle(
                               fontSize: 16,
                               color: AvenColors.textMuted,
@@ -1980,7 +1980,7 @@ class _PhoneOmnibox extends StatelessWidget {
               cursorColor: ink,
               decoration: InputDecoration(
                 isDense: true,
-                hintText: incognito ? 'Gizli ara' : 'Ara veya adres yaz',
+                hintText: incognito ? avenText('aven_search_private') : avenText('aven_search_hint'),
                 hintStyle: TextStyle(color: AvenTone.textMuted(context)),
                 prefixIcon: _securityIcon(ink),
                 prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 40),
@@ -1995,7 +1995,7 @@ class _PhoneOmnibox extends StatelessWidget {
                           IconButton(
                             onPressed: address.clear,
                             icon: Icon(Icons.close, size: 20, color: ink),
-                            tooltip: 'Temizle',
+                            tooltip: avenText('aven_clear'),
                           ),
                         IconButton(
                           onPressed: voiceBusy ? null : onVoice,
@@ -2004,7 +2004,7 @@ class _PhoneOmnibox extends StatelessWidget {
                             size: 22,
                             color: ink,
                           ),
-                          tooltip: 'Sesle ara',
+                          tooltip: avenText('aven_voice'),
                         ),
                         IconButton(
                           onPressed: canShare ? onShare : null,
@@ -2013,7 +2013,7 @@ class _PhoneOmnibox extends StatelessWidget {
                             size: 22,
                             color: canShare ? ink : ink.withValues(alpha: 0.28),
                           ),
-                          tooltip: 'Paylaş',
+                          tooltip: avenText('aven_share'),
                         ),
                       ],
                     );
@@ -2064,7 +2064,7 @@ class _PhoneOmnibox extends StatelessWidget {
     };
     return IconButton(
       onPressed: onSecurity,
-      tooltip: 'Bağlantı güvenliği',
+      tooltip: avenText('aven_connection'),
       icon: Icon(icon, size: 20, color: incognito ? Colors.white : color),
     );
   }
@@ -2103,9 +2103,9 @@ class _SitePermRowState extends State<_SitePermRow> {
   };
 
   String _choiceLabel(String value) => switch (value) {
-    'allow' => 'İzin',
-    'block' => 'Engel',
-    _ => 'Sor',
+    'allow' => avenText('aven_allow'),
+    'block' => avenText('aven_block'),
+    _ => avenText('aven_ask'),
   };
 
   @override
@@ -2146,21 +2146,21 @@ class _SitePermRowState extends State<_SitePermRow> {
             children: [
               _choice(
                 value: 'ask',
-                label: 'Sor',
+                label: avenText('aven_ask'),
                 icon: Icons.help_outline,
                 ink: ink,
                 paper: paper,
               ),
               _choice(
                 value: 'allow',
-                label: 'İzin',
+                label: avenText('aven_allow'),
                 icon: Icons.check_circle_outline,
                 ink: ink,
                 paper: paper,
               ),
               _choice(
                 value: 'block',
-                label: 'Engel',
+                label: avenText('aven_block'),
                 icon: Icons.block,
                 ink: ink,
                 paper: paper,
@@ -2214,7 +2214,7 @@ class _SitePermRowState extends State<_SitePermRow> {
                   ),
                   if (isDefault)
                     Text(
-                      'Varsayılan',
+                      avenText('aven_default'),
                       style: TextStyle(
                         fontSize: 10,
                         color: selected ? paper.withValues(alpha: 0.75) : ink.withValues(alpha: 0.55),
@@ -2247,10 +2247,10 @@ class _DownloadToast extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = item['status'] ?? '';
     final raw = int.tryParse(item['progress'] ?? '') ?? -1;
-    final done = status == 'Tamamlandı';
+    final done = status == 'success';
     final value = done ? 1.0 : (raw < 0 ? null : raw / 100);
-    final title = (item['title'] ?? '').trim().isEmpty ? 'İndirme' : item['title']!.trim();
-    final label = status == 'İniyor' && raw >= 0 ? '$status · %$raw' : status;
+    final title = (item['title'] ?? '').trim().isEmpty ? avenText('aven_download') : item['title']!.trim();
+    final label = downloadStatusLabel(status, item['progress']);
     return Material(
       color: AvenTone.elevated(context),
       child: Padding(
@@ -2273,11 +2273,11 @@ class _DownloadToast extends StatelessWidget {
                   ? Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        TextButton(onPressed: onDismiss, child: const Text('Kapat')),
-                        TextButton(onPressed: onOpen, child: const Text('Dosyayı aç')),
+                        TextButton(onPressed: onDismiss, child: Text(avenText('aven_close'))),
+                        TextButton(onPressed: onOpen, child: Text(avenText('aven_open_file'))),
                       ],
                     )
-                  : TextButton(onPressed: onCancel, child: const Text('İptal')),
+                  : TextButton(onPressed: onCancel, child: Text(avenText('aven_cancel'))),
             ),
           ],
         ),
@@ -2312,7 +2312,6 @@ class _PhoneTopBar extends StatelessWidget {
     required this.onIncognito,
     required this.onFind,
     required this.onDownloads,
-    required this.onShare,
     required this.onCast,
     required this.playingVideo,
     required this.onSiteSettings,
@@ -2345,7 +2344,6 @@ class _PhoneTopBar extends StatelessWidget {
   final VoidCallback onIncognito;
   final VoidCallback onFind;
   final VoidCallback onDownloads;
-  final VoidCallback onShare;
   final VoidCallback onCast;
   final bool playingVideo;
   final VoidCallback onSiteSettings;
@@ -2365,7 +2363,7 @@ class _PhoneTopBar extends StatelessWidget {
             children: [
               ListTile(
                 leading: const Icon(Icons.add),
-                title: const Text('Yeni sekme'),
+                title: Text(avenText('aven_new_tab')),
                 onTap: () {
                   Navigator.pop(context);
                   onNewTab();
@@ -2373,7 +2371,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.visibility_off_outlined),
-                title: const Text('Yeni gizli sekme'),
+                title: Text(avenText('aven_new_private')),
                 onTap: () {
                   Navigator.pop(context);
                   onIncognito();
@@ -2381,7 +2379,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.refresh),
-                title: const Text('Yenile'),
+                title: Text(avenText('aven_reload')),
                 enabled: canReload,
                 onTap: canReload
                     ? () {
@@ -2392,7 +2390,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: Icon(saved ? Icons.star : Icons.star_border),
-                title: Text(saved ? 'Yer imini kaldır' : 'Yer imi ekle'),
+                title: Text(saved ? avenText('aven_bookmark_remove') : avenText('aven_bookmark_add')),
                 onTap: () {
                   Navigator.pop(context);
                   onBookmark();
@@ -2400,7 +2398,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.history),
-                title: const Text('Kitaplık'),
+                title: Text(avenText('aven_library')),
                 onTap: () {
                   Navigator.pop(context);
                   onLibrary();
@@ -2408,7 +2406,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.download_outlined),
-                title: const Text('İndirmeler'),
+                title: Text(avenText('aven_downloads')),
                 onTap: () {
                   Navigator.pop(context);
                   onDownloads();
@@ -2416,7 +2414,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.connected_tv),
-                title: Text(playingVideo ? 'Aven TV\'de oynat' : 'Aven TV ile paylaş'),
+                title: Text(playingVideo ? avenText('aven_cast_play') : avenText('aven_cast_share')),
                 enabled: canShare,
                 onTap: canShare
                     ? () {
@@ -2426,19 +2424,8 @@ class _PhoneTopBar extends StatelessWidget {
                     : null,
               ),
               ListTile(
-                leading: const Icon(Icons.share_outlined),
-                title: const Text('Paylaş'),
-                enabled: canShare,
-                onTap: canShare
-                    ? () {
-                        Navigator.pop(context);
-                        onShare();
-                      }
-                    : null,
-              ),
-              ListTile(
                 leading: const Icon(Icons.search),
-                title: const Text('Sayfada bul'),
+                title: Text(avenText('aven_find')),
                 onTap: () {
                   Navigator.pop(context);
                   onFind();
@@ -2446,7 +2433,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: Icon(desktopSite ? Icons.phone_android : Icons.desktop_windows_outlined),
-                title: Text(desktopSite ? 'Mobil site iste' : 'Masaüstü sitesi iste'),
+                title: Text(desktopSite ? avenText('aven_site_mobile') : avenText('aven_site_desktop')),
                 onTap: () {
                   Navigator.pop(context);
                   onToggleDesktop();
@@ -2454,7 +2441,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.tune),
-                title: const Text('Site ayarları'),
+                title: Text(avenText('aven_site_settings')),
                 enabled: canShare,
                 onTap: canShare
                     ? () {
@@ -2465,7 +2452,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.chrome_reader_mode_outlined),
-                title: Text(readerOn ? 'Okuma modunu kapat' : 'Okuma modu'),
+                title: Text(readerOn ? avenText('aven_reader_off') : avenText('aven_reader_on')),
                 onTap: () {
                   Navigator.pop(context);
                   onToggleReader();
@@ -2473,7 +2460,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: Icon(adBlockOn ? Icons.shield : Icons.shield_outlined),
-                title: Text(adBlockOn ? 'Reklam engellemeyi kapat' : 'Reklam engellemeyi aç'),
+                title: Text(adBlockOn ? avenText('aven_adblock_turn_off') : avenText('aven_adblock_turn_on')),
                 onTap: () {
                   Navigator.pop(context);
                   onToggleAdBlock();
@@ -2485,7 +2472,7 @@ class _PhoneTopBar extends StatelessWidget {
                   children: [
                     const Icon(Icons.zoom_in),
                     const SizedBox(width: 16),
-                    Expanded(child: Text('Yakınlaştırma %$zoom')),
+                    Expanded(child: Text(avenText('aven_zoom_percent', [zoom]))),
                     IconButton(
                       onPressed: onZoomOut,
                       icon: const Icon(Icons.remove),
@@ -2503,7 +2490,7 @@ class _PhoneTopBar extends StatelessWidget {
               ),
               ListTile(
                 leading: const Icon(Icons.settings),
-                title: const Text('Ayarlar'),
+                title: Text(avenText('aven_settings')),
                 onTap: () {
                   Navigator.pop(context);
                   onSettings();
@@ -2531,27 +2518,27 @@ class _PhoneTopBar extends StatelessWidget {
                 child: IconButton(
                   onPressed: canBack ? onBack : null,
                   icon: Icon(Icons.arrow_back, color: canBack ? ink : ink.withValues(alpha: 0.28)),
-                  tooltip: 'Geri',
+                  tooltip: avenText('aven_back'),
                 ),
               ),
               Expanded(
                 child: IconButton(
                   onPressed: canForward ? onForward : null,
                   icon: Icon(Icons.arrow_forward, color: canForward ? ink : ink.withValues(alpha: 0.28)),
-                  tooltip: 'İleri',
+                  tooltip: avenText('aven_forward'),
                 ),
               ),
               Expanded(
                 child: IconButton(
                   onPressed: onNewTab,
                   icon: Icon(Icons.add, color: ink),
-                  tooltip: 'Yeni sekme',
+                  tooltip: avenText('aven_new_tab'),
                 ),
               ),
               Expanded(
                 child: IconButton(
                   onPressed: onTabs,
-                  tooltip: 'Sekmeler',
+                  tooltip: avenText('aven_tabs'),
                   icon: Container(
                     width: 24,
                     height: 24,
@@ -2575,7 +2562,7 @@ class _PhoneTopBar extends StatelessWidget {
                 child: IconButton(
                   onPressed: () => _openMenu(context),
                   icon: Icon(Icons.more_vert, color: ink),
-                  tooltip: 'Menü',
+                  tooltip: avenText('aven_menu'),
                 ),
               ),
             ],
@@ -2613,16 +2600,16 @@ class _CastTvSheetState extends State<_CastTvSheet> {
         _busy = false;
         _devices = found.devices;
         _message = found.error == 'permission'
-            ? 'Yakındaki cihaz izni gerekli'
+            ? avenText('aven_cast_permission')
             : found.devices.isEmpty
-                ? 'Aynı ağda açık bir Aven TV bulunamadı'
+                ? avenText('aven_cast_none')
                 : null;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _message = 'Aven TV aranamadı';
+        _message = avenText('aven_cast_failed');
       });
     }
   }
@@ -2631,8 +2618,8 @@ class _CastTvSheetState extends State<_CastTvSheet> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: _busy
-          ? const Padding(
-              padding: EdgeInsets.all(28),
+          ? Padding(
+              padding: const EdgeInsets.all(28),
               child: Row(
                 children: [
                   SizedBox(
@@ -2641,7 +2628,7 @@ class _CastTvSheetState extends State<_CastTvSheet> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   SizedBox(width: 16),
-                  Text('Aven TV aranıyor'),
+                  Text(avenText('aven_cast_searching')),
                 ],
               ),
             )
@@ -2750,7 +2737,7 @@ class _PhoneTabGrid extends StatelessWidget {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      tab.incognito ? 'Gizli · ${tab.title}' : tab.title,
+                                      tab.incognito ? avenText('aven_private_title', [tab.title]) : tab.title,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
@@ -2790,7 +2777,7 @@ class _PhoneTabGrid extends StatelessWidget {
                               const SizedBox(height: 8),
                               Text(
                                 url == null || url.isEmpty
-                                    ? 'Yeni sekme'
+                                    ? avenText('aven_new_tab')
                                     : (Uri.tryParse(url)?.host ?? url),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -2814,17 +2801,17 @@ class _PhoneTabGrid extends StatelessWidget {
                 children: [
                   TextButton(
                     onPressed: onCloseAll,
-                    child: const Text('Tümünü kapat'),
+                    child: Text(avenText('aven_close_all')),
                   ),
                   TextButton(
                     onPressed: onIncognito,
-                    child: const Text('Gizli'),
+                    child: Text(avenText('aven_private')),
                   ),
                   const Spacer(),
                   FilledButton.icon(
                     onPressed: onNewTab,
                     icon: const Icon(Icons.add),
-                    label: const Text('Yeni sekme'),
+                    label: Text(avenText('aven_new_tab')),
                   ),
                 ],
               ),
@@ -3153,7 +3140,7 @@ class _StartSearchFieldState extends State<_StartSearchField> {
                 onTap: _beginEditing,
                 onSubmitted: widget.onSubmit,
                 decoration: InputDecoration(
-                  hintText: 'Site veya arama',
+                  hintText: avenText('aven_search_site'),
                   hintStyle: const TextStyle(color: AvenColors.textMuted),
                   filled: true,
                   fillColor: focused
@@ -3394,7 +3381,7 @@ class _AddressField extends StatelessWidget {
       onTap: _beginEditing,
       onSubmitted: onSubmit,
       decoration: InputDecoration(
-        hintText: 'Site veya arama',
+        hintText: avenText('aven_search_site'),
         filled: true,
         fillColor: focused
             ? AvenColors.text.withValues(alpha: 0.11)
@@ -3510,31 +3497,31 @@ class _MenuBarState extends State<_MenuBar> {
   @override
   Widget build(BuildContext context) {
     final items = <(IconData?, String, bool, VoidCallback?, String?)>[
-      (Icons.arrow_back, 'Geri', widget.canBack, widget.onBack, null),
-      (Icons.arrow_forward, 'İleri', widget.canForward, widget.onForward, null),
-      (Icons.refresh, 'Yenile', true, widget.onReload, null),
-      (Icons.home, 'Başlangıç', true, widget.onHome, null),
-      (widget.saved ? Icons.star : Icons.star_border, 'Yer imi', true, widget.onBookmark, null),
-      (Icons.history, 'Kitaplık', true, widget.onLibrary, null),
+      (Icons.arrow_back, avenText('aven_back'), widget.canBack, widget.onBack, null),
+      (Icons.arrow_forward, avenText('aven_forward'), widget.canForward, widget.onForward, null),
+      (Icons.refresh, avenText('aven_reload'), true, widget.onReload, null),
+      (Icons.home, avenText('aven_home'), true, widget.onHome, null),
+      (widget.saved ? Icons.star : Icons.star_border, avenText('aven_bookmark'), true, widget.onBookmark, null),
+      (Icons.history, avenText('aven_library'), true, widget.onLibrary, null),
       (
         widget.adBlockOn ? Icons.shield : Icons.shield_outlined,
-        widget.adBlockOn ? 'Reklam engelleme açık' : 'Reklam engelleme kapalı',
+        widget.adBlockOn ? avenText('aven_adblock_on') : avenText('aven_adblock_off_short'),
         true,
         widget.onToggleAdBlock,
         null,
       ),
       (
         widget.readerOn ? Icons.chrome_reader_mode : Icons.chrome_reader_mode_outlined,
-        widget.readerOn ? 'Okuma açık' : 'Okuma modu',
+        widget.readerOn ? avenText('aven_reader_short') : avenText('aven_reader_on'),
         true,
         widget.onToggleReader,
         null,
       ),
-      (Icons.remove, 'Uzaklaştır', true, widget.onZoomOut, null),
-      (null, 'Yakınlaştırma', true, widget.onZoomReset, '%${widget.zoom}'),
-      (Icons.add, 'Yakınlaştır', true, widget.onZoomIn, null),
-      (Icons.settings, 'Ayarlar', true, widget.onSettings, null),
-      (Icons.power_settings_new, 'Çıkış', true, widget.onExit, null),
+      (Icons.remove, avenText('aven_zoom_out'), true, widget.onZoomOut, null),
+      (null, avenText('aven_zoom'), true, widget.onZoomReset, '%${widget.zoom}'),
+      (Icons.add, avenText('aven_zoom_in'), true, widget.onZoomIn, null),
+      (Icons.settings, avenText('aven_settings'), true, widget.onSettings, null),
+      (Icons.power_settings_new, avenText('aven_exit'), true, widget.onExit, null),
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -3713,11 +3700,9 @@ class _WebViewWarning extends StatelessWidget {
   Widget build(BuildContext context) {
     return ColoredBox(
       color: AvenColors.text.withValues(alpha: 0.08),
-      child: const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Text(
-          'Bu kutunun WebView sürümü eski. Android System WebView güncellenirse siteler daha düzgün açılır.',
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Text(avenText('aven_webview_old')),
       ),
     );
   }
@@ -3736,8 +3721,8 @@ class _OpeningPlayerOverlay extends StatelessWidget {
             elevation: 16,
             color: AvenColors.panel.withValues(alpha: 0.96),
             borderRadius: BorderRadius.circular(18),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -3751,7 +3736,7 @@ class _OpeningPlayerOverlay extends StatelessWidget {
                   ),
                   SizedBox(width: 16),
                   Text(
-                    'Aven oynatıcı açılıyor…',
+                    avenText('aven_player_opening'),
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,

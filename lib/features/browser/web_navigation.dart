@@ -179,10 +179,10 @@ mixin _BrowserNavigation on _BrowserPageBase {
         builder: (context) {
           return AvenConfirmDialog(
             icon: Icons.open_in_new_rounded,
-            title: 'Uygulama açılsın mı?',
-            message: 'Bu sayfa "$label" uygulamasını açmak istiyor.',
-            cancelLabel: 'İptal',
-            confirmLabel: 'Aç',
+            title: avenText('aven_external_title'),
+            message: avenText('aven_external_message', [label]),
+            cancelLabel: avenText('aven_cancel'),
+            confirmLabel: avenText('aven_open'),
             autofocusConfirm: true,
           );
         },

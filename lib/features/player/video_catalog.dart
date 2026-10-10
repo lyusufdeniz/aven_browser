@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../core/l10n/aven_strings.dart';
+
 class VideoSource {
   const VideoSource({
     required this.url,
@@ -458,7 +460,7 @@ const _watchScript = r'''
       icon.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:0 0 auto';
       icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#F3F5F7"><path d="M8 5v14l11-7z"/></svg>';
       var label = document.createElement('span');
-      label.textContent = 'Aven oynat\u0131c\u0131 ile oynat';
+      label.textContent = __AVEN_PLAY_LABEL__;
       btn.appendChild(icon);
       btn.appendChild(label);
       btn.onmouseenter = function() {
@@ -478,7 +480,7 @@ const _watchScript = r'''
         btn.style.opacity = '0.92';
         btn.style.borderColor = 'rgba(243,245,247,0.82)';
         btn.style.background = 'rgba(8,10,11,0.96)';
-        label.textContent = 'Açılıyor…';
+        label.textContent = __AVEN_OPENING__;
         icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F3F5F7" stroke-width="2.5"><circle cx="12" cy="12" r="9" opacity="0.35"/><path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>';
         openFocused(anchor, btn.__avenPayload);
         setTimeout(function() {
@@ -486,7 +488,7 @@ const _watchScript = r'''
           btn.style.opacity = '1';
           btn.style.borderColor = 'rgba(243,245,247,0.18)';
           btn.style.background = 'rgba(243,245,247,0.08)';
-          label.textContent = 'Aven oynat\u0131c\u0131 ile oynat';
+          label.textContent = __AVEN_PLAY_LABEL__;
           icon.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#F3F5F7"><path d="M8 5v14l11-7z"/></svg>';
         }, 10000);
       }, true);
@@ -879,7 +881,9 @@ const _watchScript = r'''
 })();
 ''';
 
-String get videoWatchScript => _watchScript;
+String get videoWatchScript => _watchScript
+    .replaceAll('__AVEN_PLAY_LABEL__', jsonEncode(avenText('aven_play_with_aven')))
+    .replaceAll('__AVEN_OPENING__', jsonEncode(avenText('aven_opening')));
 
 String qualityLabelForUrl(String url) {
   final lower = url.toLowerCase();
@@ -904,13 +908,13 @@ String qualityLabelForUrl(String url) {
   }
   if (lower.contains('.mpd') || lower.contains('dash')) return 'DASH';
   if (lower.contains('.mp4')) return 'MP4';
-  return 'Ak\u0131\u015f';
+  return avenText('aven_stream');
 }
 
 /// Human-readable duration for source rows (`1:42:05`, `12:03`, or `Canl\u0131`).
 String formatSourceDuration(double? seconds) {
   if (seconds == null || seconds == 0) return '';
-  if (seconds < 0 || !seconds.isFinite) return 'Canl\u0131';
+  if (seconds < 0 || !seconds.isFinite) return avenText('aven_live');
   final total = seconds.round();
   final h = total ~/ 3600;
   final m = (total % 3600) ~/ 60;

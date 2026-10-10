@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/l10n/aven_strings.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/platform/aven_flavor.dart';
 import '../../core/platform/aven_layout.dart';
@@ -20,14 +21,13 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  // Section titles stay Turkish-alphabetical; option lists use logical order.
-  static const _sections = [
-    'Reklam engelleme',
-    'Ana ekran',
-    'Arama',
-    'Performans',
-    'Tarayıcı',
-    'Hakkında',
+  List<String> get _sections => [
+    avenText('aven_adblock'),
+    avenText('aven_home_screen'),
+    avenText('aven_search'),
+    avenText('aven_performance'),
+    avenText('aven_browser'),
+    avenText('aven_about'),
   ];
   static const _icons = [
     Icons.shield_outlined,
@@ -51,7 +51,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _lite = false;
   bool _homeSuggestions = true;
   late final List<FocusNode> _leftFocus =
-      List.generate(_sections.length, (index) => FocusNode(debugLabel: 'settings-left-$index'));
+      List.generate(6, (index) => FocusNode(debugLabel: 'settings-left-$index'));
   late final List<FocusNode> _rightFocus =
       List.generate(10, (index) => FocusNode(debugLabel: 'settings-right-$index'));
 
@@ -259,9 +259,9 @@ class _SettingsPageState extends State<SettingsPage> {
                                 alignment: Alignment.centerLeft,
                                 child: Opacity(
                                   opacity: _onLeft ? 1 : 0,
-                                  child: const Text(
-                                    'Ayarlar',
-                                    style: TextStyle(fontSize: 18),
+                                  child: Text(
+                                    avenText('aven_settings'),
+                                    style: const TextStyle(fontSize: 18),
                                   ),
                                 ),
                               ),
@@ -310,75 +310,68 @@ class _SettingsPageState extends State<SettingsPage> {
               onPressed: () => Navigator.of(context).maybePop(),
               icon: const Icon(Icons.arrow_back),
             ),
-            const Expanded(
-              child: Text('Ayarlar', style: TextStyle(fontSize: 18)),
+            Expanded(
+              child: Text(avenText('aven_settings'), style: const TextStyle(fontSize: 18)),
             ),
           ],
         ),
-        const _PhoneSettingsHeading('Reklam engelleme'),
+        _PhoneSettingsHeading(avenText('aven_adblock')),
         for (final block in _blocks)
           _PhoneSettingsOption(
             title: block.label,
-            subtitle: switch (block) {
-              AdBlock.off =>
-                'Engelleme yok. Film ve dizi sitelerinde oynatıcıların bozulmaması için önerilir.',
-              AdBlock.local =>
-                'Uygulama içi host listesi ve gizli reklam stilleri. Ağ ayarı değişmez, ek izin istemez.',
-              AdBlock.adguard =>
-                'Yerel listeye ek olarak DNS engelleme. Ağ izni ister; daha agresif engeller.',
-            },
+            subtitle: block.detail,
             selected: _block == block,
             onTap: () => _selectBlock(block),
           ),
-        const _PhoneSettingsHeading('Arama'),
+        _PhoneSettingsHeading(avenText('aven_search')),
         for (final engine in _engines)
           _PhoneSettingsOption(
             title: engine.label,
             selected: _engine == engine,
             onTap: () => _selectEngine(engine),
           ),
-        const _PhoneSettingsHeading('Görünüm'),
+        _PhoneSettingsHeading(avenText('aven_appearance')),
         _PhoneSettingsOption(
-          title: 'Sistem',
-          subtitle: 'Telefonun açık veya koyu rengine uyar.',
+          title: avenText('aven_theme_system'),
+          subtitle: avenText('aven_theme_system_detail'),
           selected: avenThemeChoice.value == 'system',
           onTap: () => _selectTheme('system'),
         ),
         _PhoneSettingsOption(
-          title: 'Açık',
-          subtitle: 'Beyaz tema.',
+          title: avenText('aven_theme_light'),
+          subtitle: avenText('aven_theme_light_detail'),
           selected: avenThemeChoice.value == 'light',
           onTap: () => _selectTheme('light'),
         ),
         _PhoneSettingsOption(
-          title: 'Koyu',
-          subtitle: 'Siyah tema.',
+          title: avenText('aven_theme_dark'),
+          subtitle: avenText('aven_theme_dark_detail'),
           selected: avenThemeChoice.value == 'dark',
           onTap: () => _selectTheme('dark'),
         ),
-        const _PhoneSettingsHeading('Performans'),
+        _PhoneSettingsHeading(avenText('aven_performance')),
         _PhoneSettingsOption(
-          title: 'Açık',
-          subtitle: 'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
+          title: avenText('aven_on'),
+          subtitle: avenText('aven_perf_on_detail'),
           selected: _lite,
           onTap: () => _selectLite(true),
         ),
         _PhoneSettingsOption(
-          title: 'Kapalı',
-          subtitle: 'Siteler normal yüklenir.',
+          title: avenText('aven_off'),
+          subtitle: avenText('aven_perf_off_detail'),
           selected: !_lite,
           onTap: () => _selectLite(false),
         ),
-        const _PhoneSettingsHeading('Hakkında'),
+        _PhoneSettingsHeading(avenText('aven_about')),
         _PhoneSettingsOption(
-          title: 'Sürüm',
+          title: avenText('aven_version'),
           subtitle: AvenAppInfo.version,
           icon: Icons.tag,
           selected: false,
           onTap: () {},
         ),
         _PhoneSettingsOption(
-          title: 'Geliştirici',
+          title: avenText('aven_developer'),
           subtitle: AvenAppInfo.developer,
           icon: Icons.public,
           selected: false,
@@ -405,9 +398,9 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Hakkında',
-            style: TextStyle(fontSize: 16, color: AvenColors.textMuted),
+          Text(
+            avenText('aven_about'),
+            style: const TextStyle(fontSize: 16, color: AvenColors.textMuted),
           ),
           const SizedBox(height: 20),
           _FocusTile(
@@ -416,7 +409,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onKeyEvent: (event) => _onRightKey(0, event),
             onTap: () {},
             leading: const Icon(Icons.tag, size: 22),
-            title: 'Sürüm',
+            title: avenText('aven_version'),
             subtitle: AvenAppInfo.version,
           ),
           _FocusTile(
@@ -425,7 +418,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onKeyEvent: (event) => _onRightKey(1, event),
             onTap: () {},
             leading: const Icon(Icons.public, size: 22),
-            title: 'Geliştirici',
+            title: avenText('aven_developer'),
             subtitle: AvenAppInfo.developer,
           ),
         ],
@@ -437,26 +430,19 @@ class _SettingsPageState extends State<SettingsPage> {
         for (final block in _blocks)
           (
             block.label,
-            switch (block) {
-              AdBlock.off =>
-                'Engelleme yok. Film ve dizi sitelerinde oynatıcıların bozulmaması için önerilir.',
-              AdBlock.local =>
-                'Uygulama içi host listesi ve gizli reklam stilleri. Ağ ayarı değişmez, ek izin istemez.',
-              AdBlock.adguard =>
-                'Yerel listeye ek olarak DNS engelleme. Ağ izni ister; daha agresif engeller.',
-            },
+            block.detail,
             _block == block,
           ),
       ],
       1 => [
         (
-          'Göster',
-          'Ana ekranda film, spor ve haber öneri kartları görünür.',
+          avenText('aven_show'),
+          avenText('aven_show_detail'),
           _homeSuggestions,
         ),
         (
-          'Gizle',
-          'Ana ekranda yalnızca arama, kısayollar ve yer imleri kalır.',
+          avenText('aven_hide'),
+          avenText('aven_hide_detail'),
           !_homeSuggestions,
         ),
       ],
@@ -470,13 +456,13 @@ class _SettingsPageState extends State<SettingsPage> {
       ],
       3 => [
         (
-          'Açık',
-          'Görseller açık kalır; animasyonlar kesilir, videolar durur, içerik tembel yüklenir.',
+          avenText('aven_on'),
+          avenText('aven_perf_on_detail'),
           _lite,
         ),
         (
-          'Kapalı',
-          'Siteler normal yüklenir.',
+          avenText('aven_off'),
+          avenText('aven_perf_off_detail'),
           !_lite,
         ),
       ],
@@ -496,11 +482,11 @@ class _SettingsPageState extends State<SettingsPage> {
       children: [
         Text(
           switch (_section) {
-            0 => 'Reklam engelleme',
-            1 => 'Ana ekran önerileri',
-            2 => 'Varsayılan arama motoru',
-            3 => 'Hafif gezinme',
-            _ => 'User agent',
+            0 => avenText('aven_adblock'),
+            1 => avenText('aven_home_suggestions'),
+            2 => avenText('aven_search_engine'),
+            3 => avenText('aven_lite'),
+            _ => avenText('aven_user_agent'),
           },
           style: const TextStyle(fontSize: 18),
         ),

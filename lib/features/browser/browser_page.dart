@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../core/l10n/aven_strings.dart';
 import '../../core/platform/aven_flavor.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/theme/aven_dialog.dart';
@@ -33,7 +34,7 @@ part 'cursor_input.dart';
 
 class _PageTab {
   String? url;
-  String title = 'Yeni sekme';
+  String title = avenText('aven_new_tab');
   bool incognito = false;
   Uint8List? preview;
 }
@@ -129,6 +130,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   bool _openingVideo = false;
   bool _webSuspended = false;
   bool _pageTyping = false;
+  bool _autofillPrompted = false;
   bool _popupOpen = false;
   bool _externalOpen = false;
   bool _addressEditing = false;
@@ -252,7 +254,7 @@ class _BrowserPageState extends _BrowserPageBase
   void _onDownloadList(List<Map<String, String>> items) {
     final active = items.where((item) {
       final status = item['status'];
-      return status == 'İniyor' || status == 'Bekliyor' || status == 'Durdu';
+      return downloadIsActive(status);
     });
     if (active.isNotEmpty) {
       _toastHoldId = active.first['id'];
@@ -264,7 +266,7 @@ class _BrowserPageState extends _BrowserPageBase
   Map<String, String>? get _toastDownload {
     for (final item in _liveDownloads) {
       final status = item['status'];
-      if (status == 'İniyor' || status == 'Bekliyor' || status == 'Durdu') {
+      if (downloadIsActive(status)) {
         return item;
       }
     }
@@ -529,7 +531,7 @@ class _BrowserPageState extends _BrowserPageBase
       _fullscreenVideo = null;
       if (AvenFlavor.isMobile && _tabIndex < _tabs.length) {
         _tabs[_tabIndex].url = null;
-        _tabs[_tabIndex].title = 'Yeni sekme';
+        _tabs[_tabIndex].title = avenText('aven_new_tab');
       }
       _exitFullscreen = null;
       _address.text = '';
@@ -586,10 +588,10 @@ class _BrowserPageState extends _BrowserPageBase
             },
             child: AvenConfirmDialog(
               icon: Icons.power_settings_new_rounded,
-              title: 'Uygulamadan çık',
-              message: 'Aven Browser kapatılsın mı? Açık sayfa sıfırlanır.',
-              cancelLabel: 'İptal',
-              confirmLabel: 'Çık',
+              title: avenText('aven_exit_title'),
+              message: avenText('aven_exit_message'),
+              cancelLabel: avenText('aven_cancel'),
+              confirmLabel: avenText('aven_quit'),
               autofocusConfirm: false,
             ),
           );
@@ -808,11 +810,31 @@ class _BrowserPageState extends _BrowserPageBase
     if (typing) {
       _surfaceFocus.canRequestFocus = false;
       _surfaceFocus.unfocus();
+      if (AvenFlavor.isMobile) unawaited(_offerAutofill());
       return;
     }
     if (!_menuOpen) {
       _surfaceFocus.canRequestFocus = true;
     }
+  }
+
+  Future<void> _offerAutofill() async {
+    if (_controller is! GeckoPageEngine) return;
+    final status = await (_controller as GeckoPageEngine).requestAutofill();
+    if (!mounted || status != 'off' || _autofillPrompted) return;
+    _autofillPrompted = true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(avenText('aven_autofill_off')),
+        action: SnackBarAction(
+          label: avenText('aven_turn_on'),
+          onPressed: () {
+            final engine = _controller;
+            if (engine is GeckoPageEngine) unawaited(engine.openAutofillSettings());
+          },
+        ),
+      ),
+    );
   }
 
   String? _spawnedUrl;
@@ -852,10 +874,10 @@ class _BrowserPageState extends _BrowserPageBase
       builder: (context) {
         return AvenConfirmDialog(
           icon: Icons.open_in_new_rounded,
-          title: 'Pencere açılsın mı?',
+          title: avenText('aven_popup_title'),
           message: url,
-          cancelLabel: 'İptal',
-          confirmLabel: 'Aç',
+          cancelLabel: avenText('aven_cancel'),
+          confirmLabel: avenText('aven_open'),
           autofocusConfirm: true,
         );
       },
@@ -1358,7 +1380,7 @@ class _BrowserPageState extends _BrowserPageBase
     setState(() {
       _tabs.add(_PageTab()
         ..incognito = true
-        ..title = 'Gizli sekme');
+        ..title = avenText('aven_private_tab'));
       _tabIndex = _tabs.length - 1;
       _phoneTabsOpen = false;
     });
@@ -1372,7 +1394,7 @@ class _BrowserPageState extends _BrowserPageBase
       _tabs.add(
         _PageTab()
           ..incognito = incognito
-          ..title = incognito ? 'Gizli sekme' : 'Yeni sekme'
+          ..title = incognito ? avenText('aven_private_tab') : avenText('aven_new_tab')
           ..url = url,
       );
       _tabIndex = _tabs.length - 1;
@@ -1417,24 +1439,24 @@ class _BrowserPageState extends _BrowserPageBase
               if (hasLink) ...[
                 ListTile(
                   leading: const Icon(Icons.tab),
-                  title: const Text('Yeni sekmede aç'),
+                  title: Text(avenText('aven_open_new_tab')),
                   onTap: () => unawaited(go(() => _openInNewTab(link))),
                 ),
                 ListTile(
                   leading: const Icon(Icons.visibility_off_outlined),
-                  title: const Text('Gizli sekmede aç'),
+                  title: Text(avenText('aven_open_private')),
                   onTap: () => unawaited(go(() => _openInNewTab(link, incognito: true))),
                 ),
                 ListTile(
                   leading: const Icon(Icons.link),
-                  title: const Text('Bağlantıyı kopyala'),
+                  title: Text(avenText('aven_copy_link')),
                   onTap: () => unawaited(go(() async {
                     await Clipboard.setData(ClipboardData(text: link));
                   })),
                 ),
                 ListTile(
                   leading: const Icon(Icons.share_outlined),
-                  title: const Text('Bağlantıyı paylaş'),
+                  title: Text(avenText('aven_share_link')),
                   onTap: () => unawaited(go(() async {
                     if (_controller is GeckoPageEngine) {
                       await (_controller as GeckoPageEngine).share(link);
@@ -1445,17 +1467,17 @@ class _BrowserPageState extends _BrowserPageBase
               if (hasImage) ...[
                 ListTile(
                   leading: const Icon(Icons.image_outlined),
-                  title: const Text('Resmi yeni sekmede aç'),
+                  title: Text(avenText('aven_open_image')),
                   onTap: () => unawaited(go(() => _openInNewTab(src))),
                 ),
                 ListTile(
                   leading: const Icon(Icons.download_outlined),
-                  title: const Text('Resmi kaydet'),
+                  title: Text(avenText('aven_save_image')),
                   onTap: () => unawaited(go(() => GeckoPageEngine.saveUrl(src))),
                 ),
                 ListTile(
                   leading: const Icon(Icons.copy),
-                  title: const Text('Resim adresini kopyala'),
+                  title: Text(avenText('aven_copy_image')),
                   onTap: () => unawaited(go(() async {
                     await Clipboard.setData(ClipboardData(text: src));
                   })),
@@ -1491,15 +1513,15 @@ class _BrowserPageState extends _BrowserPageBase
         return AlertDialog(
           backgroundColor: AvenTone.elevated(context),
           title: Text(host, style: TextStyle(color: ink)),
-          content: Text('$label izni istiyor.', style: TextStyle(color: ink)),
+          content: Text(avenText('aven_perm_wants', [host, label]), style: TextStyle(color: ink)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Engelle'),
+              child: Text(avenText('aven_block')),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('İzin ver'),
+              child: Text(avenText('aven_allow')),
             ),
           ],
         );
@@ -1524,16 +1546,16 @@ class _BrowserPageState extends _BrowserPageBase
         ? info['host']!
         : Uri.tryParse(_pageUrl ?? '')?.host ?? '';
     final headline = switch (mode) {
-      'secure' => 'Bağlantı güvenli',
-      'warning' => 'Bağlantıda uyarı var',
-      'insecure' => 'Bağlantı güvenli değil',
-      _ => 'Güvenlik bilgisi yok',
+      'secure' => avenText('aven_secure'),
+      'warning' => avenText('aven_warning'),
+      'insecure' => avenText('aven_insecure'),
+      _ => avenText('aven_security_unknown'),
     };
     final detail = switch (mode) {
-      'secure' => 'Bu siteye şifreli (HTTPS) bağlandınız. Sertifika tarayıcıya güvenilir görünüyor.',
-      'warning' => 'Adres HTTPS ama sertifika istisnası ya da karışık içerik var. Sayfadaki bazı parçalar şifresiz olabilir.',
-      'insecure' => 'Bu site şifresiz HTTP kullanıyor. Girdiğiniz bilgiler başkaları tarafından görülebilir.',
-      _ => 'Bu adres için sertifika bilgisi yok.',
+      'secure' => avenText('aven_secure_detail'),
+      'warning' => avenText('aven_warning_detail'),
+      'insecure' => avenText('aven_insecure_detail'),
+      _ => avenText('aven_security_unknown_detail'),
     };
     final subject = _certName(info['subject'] ?? '');
     final issuer = _certName(info['issuer'] ?? '');
@@ -1578,14 +1600,14 @@ class _BrowserPageState extends _BrowserPageBase
               Text(detail),
               if (subject.isNotEmpty) ...[
                 const SizedBox(height: 16),
-                const Text('Sertifika', style: TextStyle(fontWeight: FontWeight.w600)),
+                Text(avenText('aven_certificate'), style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 6),
-                Text('Konu: $subject'),
-                if (issuer.isNotEmpty) Text('Veren: $issuer'),
+                Text(avenText('aven_cert_subject', [subject])),
+                if (issuer.isNotEmpty) Text(avenText('aven_cert_issuer', [issuer])),
                 if ((info['validFrom'] ?? '').isNotEmpty)
-                  Text('Başlangıç: ${info['validFrom']}'),
+                  Text(avenText('aven_cert_from', [info['validFrom']!])),
                 if ((info['validTo'] ?? '').isNotEmpty)
-                  Text('Bitiş: ${info['validTo']}'),
+                  Text(avenText('aven_cert_to', [info['validTo']!])),
               ],
             ],
           ),
@@ -1614,9 +1636,9 @@ class _BrowserPageState extends _BrowserPageBase
       builder: (context) {
         return SafeArea(
           child: host.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text('Site ayarları için önce bir sayfa açın'),
+              ? Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(avenText('aven_site_settings_empty')),
                 )
               : ListView(
                   shrinkWrap: true,
@@ -1631,7 +1653,7 @@ class _BrowserPageState extends _BrowserPageBase
                     for (final item in items)
                       _SitePermRow(
                         id: item['id'] ?? '',
-                        label: item['label'] ?? '',
+                        label: permissionLabel(item['id'] ?? ''),
                         value: item['value'] ?? 'ask',
                         fallback: item['fallback'] ?? 'ask',
                         onChanged: (value) => unawaited(engine.setSiteSetting(item['id'] ?? '', value)),
@@ -1683,7 +1705,7 @@ class _BrowserPageState extends _BrowserPageBase
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(ok ? 'Aven TV\'ye gönderildi' : 'TV\'ye ulaşılamadı'),
+        content: Text(ok ? avenText('aven_cast_sent') : avenText('aven_cast_unreachable')),
       ),
     );
   }
@@ -2177,7 +2199,7 @@ class _BrowserPageState extends _BrowserPageBase
                                         child: Align(
                                           alignment: Alignment.centerLeft,
                                           child: Text(
-                                            'Son açılanlar',
+                                            avenText('aven_recent_opened'),
                                             style: TextStyle(
                                               fontSize: 12,
                                               color: AvenTone.textMuted(context),
@@ -2265,7 +2287,6 @@ class _BrowserPageState extends _BrowserPageBase
                   setState(() => _findOpen = true);
                 },
                 onDownloads: () => unawaited(_openLibrary(section: 2)),
-                onShare: () => unawaited(_sharePage()),
                 onCast: () => unawaited(_shareWithTv()),
                 playingVideo: _castMediaUrl != null,
                 onSiteSettings: () => unawaited(_showSiteSettings()),
@@ -2291,8 +2312,8 @@ class _BrowserPageState extends _BrowserPageBase
                         child: TextField(
                           controller: _findText,
                           autofocus: true,
-                          decoration: const InputDecoration(
-                            hintText: 'Sayfada bul',
+                          decoration: InputDecoration(
+                            hintText: avenText('aven_find'),
                             isDense: true,
                             border: InputBorder.none,
                           ),
@@ -2314,12 +2335,12 @@ class _BrowserPageState extends _BrowserPageBase
                       IconButton(
                         onPressed: () => unawaited(_applyFind(_findText.text, forward: false)),
                         icon: const Icon(Icons.keyboard_arrow_up),
-                        tooltip: 'Önceki',
+                        tooltip: avenText('aven_find_previous'),
                       ),
                       IconButton(
                         onPressed: () => unawaited(_applyFind(_findText.text)),
                         icon: const Icon(Icons.keyboard_arrow_down),
-                        tooltip: 'Sonraki',
+                        tooltip: avenText('aven_find_next'),
                       ),
                       IconButton(
                         onPressed: () {
