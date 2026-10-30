@@ -9,7 +9,9 @@ import 'package:video_player/video_player.dart';
 import '../../core/l10n/aven_strings.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/theme/aven_dialog.dart';
+import '../../data/settings_store.dart';
 import '../../platform/web_input.dart';
+import 'subtitle_look.dart';
 import 'video_catalog.dart';
 
 class VideoPlayerPage extends StatefulWidget {
@@ -29,6 +31,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   late List<VideoSource> _sources;
   List<_Cue> _cues = const [];
   String? _subtitleLabel;
+  SubtitleStyle _subtitleStyle = const SubtitleStyle();
   String? _displayedCue;
   bool _displayedPlaying = false;
   DateTime _lastProgressUi = DateTime.fromMillisecondsSinceEpoch(0);
@@ -60,6 +63,9 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(BrowserStore().loadSubtitleStyle().then((style) {
+      if (mounted) setState(() => _subtitleStyle = style);
+    }));
     _input.addPipListener(_onPipChanged);
     _barFocus[_pipIndex].canRequestFocus = false;
     unawaited(_probePipSupport());
@@ -1104,16 +1110,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 alignment: Alignment.bottomCenter,
                 child: Padding(
                   padding: EdgeInsets.only(bottom: _controls ? 168 : 48),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: AvenColors.scrim,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      child: Text(cue, style: const TextStyle(fontSize: 22)),
-                    ),
-                  ),
+                  child: SubtitleLook(text: cue, style: _subtitleStyle),
                 ),
               ),
             if (_loading && !_inPip)

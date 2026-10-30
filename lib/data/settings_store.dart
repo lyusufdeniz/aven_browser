@@ -107,6 +107,32 @@ enum BrowserAgent {
   };
 }
 
+/// How the Aven player draws subtitles: text size, box behind the text and
+/// text color. Values are stored as the plain option names below.
+class SubtitleStyle {
+  const SubtitleStyle({
+    this.size = 'medium',
+    this.background = 'shade',
+    this.color = 'white',
+  });
+
+  static const sizes = ['small', 'medium', 'large', 'xlarge'];
+  static const backgrounds = ['none', 'shade', 'solid'];
+  static const colors = ['white', 'yellow'];
+
+  final String size;
+  final String background;
+  final String color;
+
+  SubtitleStyle copyWith({String? size, String? background, String? color}) {
+    return SubtitleStyle(
+      size: size ?? this.size,
+      background: background ?? this.background,
+      color: color ?? this.color,
+    );
+  }
+}
+
 class BrowserStore {
   static const _bookmarksKey = 'bookmarks';
   static const _historyKey = 'history';
@@ -117,6 +143,9 @@ class BrowserStore {
   static const _agentKey = 'user_agent';
   static const _liteKey = 'lite_browsing';
   static const _homeSuggestionsKey = 'home_suggestions';
+  static const _subtitleSizeKey = 'subtitle_size';
+  static const _subtitleBackgroundKey = 'subtitle_background';
+  static const _subtitleColorKey = 'subtitle_color';
   static const _themeKey = 'theme_choice';
 
   Future<SearchEngine> loadEngine() async {
@@ -259,6 +288,32 @@ class BrowserStore {
   Future<void> saveHomeSuggestions(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_homeSuggestionsKey, enabled);
+  }
+
+  Future<SubtitleStyle> loadSubtitleStyle() async {
+    final prefs = await SharedPreferences.getInstance();
+    String pick(String key, List<String> allowed, String fallback) {
+      final value = prefs.getString(key);
+      return allowed.contains(value) ? value! : fallback;
+    }
+
+    const base = SubtitleStyle();
+    return SubtitleStyle(
+      size: pick(_subtitleSizeKey, SubtitleStyle.sizes, base.size),
+      background: pick(
+        _subtitleBackgroundKey,
+        SubtitleStyle.backgrounds,
+        base.background,
+      ),
+      color: pick(_subtitleColorKey, SubtitleStyle.colors, base.color),
+    );
+  }
+
+  Future<void> saveSubtitleStyle(SubtitleStyle style) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_subtitleSizeKey, style.size);
+    await prefs.setString(_subtitleBackgroundKey, style.background);
+    await prefs.setString(_subtitleColorKey, style.color);
   }
 
   Future<void> saveAccount(String? email) async {

@@ -9,6 +9,7 @@ import '../../core/aven_app_info.dart';
 import '../../core/url/url_input.dart';
 import '../../data/settings_store.dart';
 import '../../platform/web_input.dart';
+import '../player/subtitle_look.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.store, required this.input});
@@ -27,6 +28,7 @@ class _SettingsPageState extends State<SettingsPage> {
     avenText('aven_search'),
     avenText('aven_performance'),
     avenText('aven_browser'),
+    avenText('aven_subtitles'),
     avenText('aven_about'),
   ];
   static const _icons = [
@@ -35,6 +37,7 @@ class _SettingsPageState extends State<SettingsPage> {
     Icons.search,
     Icons.speed,
     Icons.language,
+    Icons.closed_caption_outlined,
     Icons.info_outline,
   ];
 
@@ -50,8 +53,9 @@ class _SettingsPageState extends State<SettingsPage> {
   BrowserAgent _agent = BrowserAgent.defaultAgent;
   bool _lite = false;
   bool _homeSuggestions = true;
+  SubtitleStyle _subtitles = const SubtitleStyle();
   late final List<FocusNode> _leftFocus =
-      List.generate(6, (index) => FocusNode(debugLabel: 'settings-left-$index'));
+      List.generate(7, (index) => FocusNode(debugLabel: 'settings-left-$index'));
   late final List<FocusNode> _rightFocus =
       List.generate(10, (index) => FocusNode(debugLabel: 'settings-right-$index'));
 
@@ -82,8 +86,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final agent = await widget.store.loadAgent();
     final lite = await widget.store.loadLiteBrowsing(fallback: !AvenFlavor.isMobile);
     final homeSuggestions = await widget.store.loadHomeSuggestions();
+    final subtitles = await widget.store.loadSubtitleStyle();
     if (!mounted) return;
     setState(() {
+      _subtitles = subtitles;
       _engine = engine;
       _block = block;
       _agent = agent;
@@ -124,6 +130,12 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _selectSubtitles(SubtitleStyle style) async {
+    await widget.store.saveSubtitleStyle(style);
+    if (!mounted) return;
+    setState(() => _subtitles = style);
+  }
+
   Future<void> _selectHomeSuggestions(bool enabled) async {
     await widget.store.saveHomeSuggestions(enabled);
     if (!mounted) return;
@@ -154,8 +166,13 @@ class _SettingsPageState extends State<SettingsPage> {
     2 => _engines.length,
     3 => 2,
     4 => _agents.length,
+    5 => _subtitleOptionCount,
     _ => 2, // Hakkında
   };
+
+  static final _subtitleOptionCount = SubtitleStyle.sizes.length +
+      SubtitleStyle.backgrounds.length +
+      SubtitleStyle.colors.length;
 
   KeyEventResult _onLeftKey(int index, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -223,9 +240,96 @@ class _SettingsPageState extends State<SettingsPage> {
         _selectLite(index == 0);
       case 4:
         _selectAgent(_agents[index]);
+      case 5:
+        _selectSubtitleOption(index);
       default:
         break;
     }
+  }
+
+  /// Subtitle rows run size → background → color in one focus list.
+  void _selectSubtitleOption(int index) {
+    const sizes = SubtitleStyle.sizes;
+    const backgrounds = SubtitleStyle.backgrounds;
+    if (index < sizes.length) {
+      _selectSubtitles(_subtitles.copyWith(size: sizes[index]));
+    } else if (index < sizes.length + backgrounds.length) {
+      _selectSubtitles(
+        _subtitles.copyWith(background: backgrounds[index - sizes.length]),
+      );
+    } else {
+      _selectSubtitles(_subtitles.copyWith(
+        color: SubtitleStyle.colors[index - sizes.length - backgrounds.length],
+      ));
+    }
+  }
+
+  static String _subtitleOptionLabel(String value) => switch (value) {
+        'small' => avenText('aven_size_small'),
+        'medium' => avenText('aven_size_medium'),
+        'large' => avenText('aven_size_large'),
+        'xlarge' => avenText('aven_size_xlarge'),
+        'none' => avenText('aven_subtitle_bg_none'),
+        'shade' => avenText('aven_subtitle_bg_shade'),
+        'solid' => avenText('aven_subtitle_bg_solid'),
+        'white' => avenText('aven_color_white'),
+        _ => avenText('aven_color_yellow'),
+      };
+
+  Widget _subtitlePanel(bool compact) {
+    final groups = [
+      (avenText('aven_subtitle_size'), SubtitleStyle.sizes, _subtitles.size),
+      (
+        avenText('aven_subtitle_background'),
+        SubtitleStyle.backgrounds,
+        _subtitles.background,
+      ),
+      (avenText('aven_subtitle_color'), SubtitleStyle.colors, _subtitles.color),
+    ];
+    final rows = <Widget>[];
+    var index = 0;
+    for (final group in groups) {
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: 18));
+      rows.add(_SectionLabel(group.$1));
+      for (final value in group.$2) {
+        final row = index++;
+        rows.add(_SettingRow(
+          focusNode: _rightFocus[row],
+          onKeyEvent: (event) => _onRightKey(row, event),
+          onTap: () => _activateRight(row),
+          checked: value == group.$3,
+          title: _subtitleOptionLabel(value),
+        ));
+      }
+    }
+    return ListView(
+      padding: _panelPadding(compact),
+      clipBehavior: Clip.none,
+      children: [
+        _SectionLabel(avenText('aven_subtitles')),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 120),
+            alignment: Alignment.bottomCenter,
+            padding: const EdgeInsets.fromLTRB(12, 28, 12, 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF5B6B7A), Color(0xFFB59A72)],
+              ),
+            ),
+            child: SubtitleLook(
+              text: avenText('aven_subtitle_preview'),
+              style: _subtitles,
+            ),
+          ),
+        ),
+        ...rows,
+      ],
+    );
   }
 
   @override
@@ -382,7 +486,8 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _panel({bool compact = false}) {
-    if (_section == 5) {
+    if (_section == 5) return _subtitlePanel(compact);
+    if (_section == 6) {
       return ListView(
         padding: _panelPadding(compact),
         clipBehavior: Clip.none,
@@ -670,6 +775,16 @@ class _SettingRow extends StatelessWidget {
     return Focus(
       focusNode: focusNode,
       onKeyEvent: (node, event) => onKeyEvent(event),
+      onFocusChange: (focused) {
+        final ctx = focusNode.context;
+        if (!focused || ctx == null) return;
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+        );
+      },
       child: ListenableBuilder(
         listenable: focusNode,
         builder: (context, _) {
