@@ -120,8 +120,6 @@ internal class MediaWatchClient(
                     if (speed()) {
                         append(speedStyleScript)
                         append('\n')
-                        append(speedPrefetchScript)
-                        append('\n')
                         append(bannerCosmeticScript)
                         append('\n')
                         if (!adblockOn) {

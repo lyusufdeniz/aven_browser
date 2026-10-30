@@ -238,7 +238,7 @@ internal fun matchesLocalList(host: String): Boolean {
     // Exact + parent labels (hosts files list registrable / leaf domains).
     var cursor = host
     while (true) {
-        if (AdBlockLists.hosts.contains(cursor)) return true
+        if (AdBlockLists.contains(cursor)) return true
         val dot = cursor.indexOf('.')
         if (dot <= 0 || dot >= cursor.length - 1) break
         cursor = cursor.substring(dot + 1)

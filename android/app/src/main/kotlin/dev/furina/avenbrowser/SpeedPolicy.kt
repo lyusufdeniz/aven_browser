@@ -32,12 +32,7 @@ internal val speedHostSuffixes = listOf(
     "zdassets.com",
     "drift.com",
     "driftt.com",
-    "fonts.googleapis.com",
-    "fonts.gstatic.com",
     "use.typekit.net",
-    "use.fontawesome.com",
-    "kit.fontawesome.com",
-    "fontawesome.com",
     "connect.facebook.net",
     "staticxx.facebook.com",
     // Stream chat / emote CDNs (TV doesn't need live chat chrome).
@@ -80,50 +75,6 @@ internal val speedStyleScript = """
     'link[rel="preload"][as="font"]{display:none!important}'
   ].join('');
   (document.head || document.documentElement).appendChild(s);
-})();
-""".trimIndent()
-
-/** Same-origin document/CSS prefetch + DNS warm — never touches media CDNs. */
-internal val speedPrefetchScript = """
-(function(){
-  if (window.__avenPrefetch) return;
-  window.__avenPrefetch = true;
-  var head = document.head || document.documentElement;
-  function sameOrigin(u) {
-    try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; }
-  }
-  function add(rel, href, asType) {
-    if (!href || !sameOrigin(href)) return false;
-    try {
-      var l = document.createElement('link');
-      l.rel = rel;
-      l.href = href;
-      if (asType) l.as = asType;
-      l.setAttribute('data-aven', '1');
-      head.appendChild(l);
-      return true;
-    } catch (e) { return false; }
-  }
-  try {
-    add('dns-prefetch', location.origin, null);
-    add('preconnect', location.origin, null);
-  } catch (e) {}
-  var n = 0;
-  try {
-    document.querySelectorAll('link[rel="stylesheet"][href]').forEach(function(el){
-      if (n >= 4) return;
-      if (add('prefetch', el.getAttribute('href'), 'style')) n++;
-    });
-  } catch (e) {}
-  try {
-    document.querySelectorAll('a[href]').forEach(function(a){
-      if (n >= 8) return;
-      var href = a.getAttribute('href');
-      if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
-      if (/\.(mp4|webm|m3u8|mpd|ts)(\?|#|$)/i.test(href)) return;
-      if (add('prefetch', href, 'document')) n++;
-    });
-  } catch (e) {}
 })();
 """.trimIndent()
 
@@ -216,9 +167,32 @@ internal fun isSpeedBlocked(host: String, path: String, url: String): Boolean {
         if (name == suffix || name.endsWith(".$suffix")) return true
     }
     if (speedPathMarkers.any { path.contains(it) || url.contains(it) }) return true
+    if (isIconFont(name, url)) return false
+    if (name == "fonts.googleapis.com" || name == "fonts.gstatic.com") return true
     if (path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf") || path.endsWith(".otf")) {
-        // Third-party webfont files — system fonts are enough on TV.
+        // Third-party text webfonts — system fonts are enough on TV.
         return true
     }
     return false
 }
+
+/** Icon fonts draw buttons and symbols; without them sites show empty boxes. */
+private fun isIconFont(host: String, url: String): Boolean {
+    if (host.contains("fontawesome")) return true
+    val lower = url.lowercase()
+    return iconFontMarkers.any { lower.contains(it) }
+}
+
+private val iconFontMarkers = listOf(
+    "icon",
+    "material+symbols",
+    "materialsymbols",
+    "material-symbols",
+    "fontawesome",
+    "font-awesome",
+    "/fa-",
+    "glyph",
+    "remixicon",
+    "boxicons",
+    "feather",
+)
