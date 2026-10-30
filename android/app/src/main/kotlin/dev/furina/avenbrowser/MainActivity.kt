@@ -45,7 +45,7 @@ class MainActivity : FlutterActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 4101) EngineHooks.onRuntimePermissionResult(grantResults)
-        if (requestCode == 4102 || requestCode == 4103) {
+        if (requestCode == 4102) {
             AvenCast.onPermission(requestCode, grantResults)
         }
     }

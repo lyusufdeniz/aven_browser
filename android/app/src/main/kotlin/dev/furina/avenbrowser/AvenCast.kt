@@ -10,6 +10,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodChannel
@@ -24,9 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * sends the open page or a direct video URL.
  */
 internal object AvenCast {
-    private const val serviceType = "_avenbrowser._tcp."
+    private const val castServiceType = "_avenbrowser._tcp."
     private const val discoverCode = 4102
-    private const val hostCode = 4103
 
     private val main = Handler(Looper.getMainLooper())
     private var channel: MethodChannel? = null
@@ -36,18 +36,18 @@ internal object AvenCast {
     private var multicast: WifiManager.MulticastLock? = null
     private var pendingDiscover: MethodChannel.Result? = null
     private var discoverActivity: Activity? = null
-    private var pendingHost: Activity? = null
 
     fun attach(messenger: MethodChannel) {
         channel = messenger
     }
 
+    /**
+     * TV: listen and advertise right away. Advertising a service on the LAN
+     * needs no runtime permission, so the TV never asks for nearby devices —
+     * asking used to block this on a denial and re-prompt on every launch.
+     */
     fun host(activity: Activity) {
         if (server != null) return
-        if (!ensureNearby(activity, hostCode)) {
-            pendingHost = activity
-            return
-        }
         startServer(activity.applicationContext)
     }
 
@@ -76,11 +76,6 @@ internal object AvenCast {
                     return
                 }
                 scan(activity.applicationContext, pending)
-            }
-            hostCode -> {
-                val activity = pendingHost
-                pendingHost = null
-                if (granted && activity != null) startServer(activity.applicationContext)
             }
         }
     }
@@ -160,19 +155,25 @@ internal object AvenCast {
         nsd = manager
         val info = NsdServiceInfo().apply {
             serviceName = "Aven TV"
-            serviceType = serviceType
+            serviceType = castServiceType
             port = socket.localPort
         }
         val listener = object : NsdManager.RegistrationListener {
-            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {}
-            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
+                Log.i("AvenCast", "advertised ${serviceInfo.serviceName} on port ${socket.localPort}")
+            }
+
+            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                Log.w("AvenCast", "advertising failed: $errorCode")
+            }
             override fun onServiceUnregistered(serviceInfo: NsdServiceInfo) {}
             override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {}
         }
         registration = listener
         try {
             manager.registerService(info, NsdManager.PROTOCOL_DNS_SD, listener)
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            Log.w("AvenCast", "advertising failed", error)
         }
     }
 
@@ -237,7 +238,7 @@ internal object AvenCast {
             override fun onServiceLost(serviceInfo: NsdServiceInfo) {}
         }
         try {
-            manager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, listener)
+            manager.discoverServices(castServiceType, NsdManager.PROTOCOL_DNS_SD, listener)
         } catch (_: Throwable) {
             finish()
             return
