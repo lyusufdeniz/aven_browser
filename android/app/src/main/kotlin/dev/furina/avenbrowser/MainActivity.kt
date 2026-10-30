@@ -750,6 +750,13 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun applyAdBlockDns(mode: String, connectDns: Boolean, result: MethodChannel.Result) {
+        if (mode != "adguard") {
+            // Leaving DNS mode (or on TV, where it no longer exists) shuts the VPN down.
+            try {
+                AdBlockDnsVpnService.stop(this)
+            } catch (_: Exception) {
+            }
+        }
         if (mode == "off") {
             try {
                 AdBlockDnsVpnService.stop(this)

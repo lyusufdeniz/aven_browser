@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/l10n/aven_strings.dart';
+import '../core/platform/aven_flavor.dart';
 
 import '../core/url/url_input.dart';
 
@@ -44,10 +45,18 @@ enum AdBlock {
   local,
   adguard;
 
+  /// TV has no DNS (VPN) mode: the in-app host list and EasyList already
+  /// cover the browser, and a VPN prompt is pointless there.
+  static List<AdBlock> get available =>
+      AvenFlavor.isMobile ? AdBlock.values : const [AdBlock.off, AdBlock.local];
+
   static AdBlock fromName(String? name) {
     // Legacy "ublock" preference maps to AdGuard (option removed).
-    if (name == 'ublock') return AdBlock.adguard;
-    return AdBlock.values.firstWhere((item) => item.name == name, orElse: () => AdBlock.off);
+    final mode = name == 'ublock'
+        ? AdBlock.adguard
+        : AdBlock.values.firstWhere((item) => item.name == name, orElse: () => AdBlock.off);
+    // A DNS choice saved on TV before the option was removed becomes the local list.
+    return available.contains(mode) ? mode : AdBlock.local;
   }
 
   String get label => switch (this) {
@@ -176,7 +185,7 @@ class BrowserStore {
     final raw = prefs.getString(_adBlockKey);
     if (raw == null || raw.isEmpty) return AdBlock.off;
     final mode = AdBlock.fromName(raw);
-    if (raw == 'ublock') {
+    if (raw == 'ublock' || raw != mode.name) {
       await prefs.setString(_adBlockKey, mode.name);
       await prefs.setString(_adBlockLastKey, mode.name);
     }

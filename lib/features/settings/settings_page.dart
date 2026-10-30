@@ -43,7 +43,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // off → local → DNS; default → desktop → mobile → tv; engines keep enum order.
   static const _engines = SearchEngine.values;
-  static const _blocks = AdBlock.values;
+  static final _blocks = AdBlock.available;
   static const _agents = BrowserAgent.values;
 
   int _section = 0;
