@@ -91,6 +91,8 @@ mixin _BrowserNavigation on _BrowserPageBase {
           savedAt: DateTime.now().millisecondsSinceEpoch,
         ),
       );
+      // Recent pages fill the home screen row until there are bookmarks.
+      if (_bookmarks.isEmpty) unawaited(_syncHomeChannel());
     }
     if (!mounted) return;
     if (AvenFlavor.isMobile && _tabIndex < _tabs.length && isAvenWebUrl(url)) {

@@ -65,6 +65,15 @@ class MainActivity : FlutterActivity() {
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "flavor" -> result.success(BuildConfig.FLAVOR)
+                    "takeLaunchUrl" -> {
+                        result.success(pendingOpenUrl)
+                        pendingOpenUrl = null
+                    }
+                    "syncHomeChannel" -> {
+                        val links = call.argument<List<Map<String, String>>>("links").orEmpty()
+                        HomeChannel.sync(this, call.argument<String>("title") ?: "Aven", links)
+                        result.success(null)
+                    }
                     "appStrings" -> result.success(appStrings())
                     "discoverTvs" -> AvenCast.discover(this, result)
                     "sendToTv" -> AvenCast.send(
@@ -796,7 +805,23 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /** Page a TV home screen card asked for; Dart takes it once it is ready. */
+    private var pendingOpenUrl: String? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        pendingOpenUrl = intent?.getStringExtra(EXTRA_OPEN_URL)
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val url = intent.getStringExtra(EXTRA_OPEN_URL) ?: return
+        // Same path as a link sent from the phone.
+        channel.invokeMethod("cast", mapOf("url" to url, "play" to false))
+    }
+
     companion object {
+        const val EXTRA_OPEN_URL = "dev.furina.avenbrowser.OPEN_URL"
         private const val channelName = "dev.furina.avenbrowser/input"
         private const val REQ_VPN = 7711
         private const val REQ_SPEECH = 9911

@@ -168,6 +168,24 @@ class WebInput {
     return (devices: devices, error: '${map['error'] ?? ''}');
   }
 
+  /// Publishes the Android TV home screen row (TV build only).
+  Future<void> syncHomeChannel({
+    required String title,
+    required List<({String title, String url})> links,
+  }) {
+    return _channel.invokeMethod<void>('syncHomeChannel', {
+      'title': title,
+      'links': [
+        for (final link in links) {'title': link.title, 'url': link.url},
+      ],
+    });
+  }
+
+  /// URL from a home screen card that started the app, once.
+  Future<String?> takeLaunchUrl() {
+    return _channel.invokeMethod<String>('takeLaunchUrl');
+  }
+
   Future<bool> sendToTv({
     required String host,
     required int port,

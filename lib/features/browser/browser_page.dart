@@ -99,6 +99,24 @@ abstract class _BrowserPageBase extends State<BrowserPage>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final _input = WebInput();
   final _store = BrowserStore();
+
+  /// TV home screen row: bookmarks, or recent pages while there are none.
+  Future<void> _syncHomeChannel() async {
+    if (AvenFlavor.isMobile) return;
+    final bookmarks = await _store.loadBookmarks();
+    final recent = bookmarks.isEmpty;
+    final links = recent ? await _store.loadHistory() : bookmarks;
+    final label = recent ? avenText('aven_recent') : avenText('aven_bookmarks');
+    try {
+      await _input.syncHomeChannel(
+        title: 'Aven · $label',
+        links: [
+          for (final link in links.take(12)) (title: link.title, url: link.url),
+        ],
+      );
+    } catch (_) {}
+  }
+
   final _address = TextEditingController();
   final _addressFocus = FocusNode();
   final _startFocus = FocusNode();
@@ -350,6 +368,12 @@ class _BrowserPageState extends _BrowserPageBase
       _warnWebView = !AvenFlavor.isMobile && major != null && major < 80;
     });
     if (AvenFlavor.isMobile) await _restoreTabs();
+    unawaited(_syncHomeChannel());
+    final launchUrl = AvenFlavor.isMobile ? null : await _input.takeLaunchUrl();
+    if (launchUrl != null && mounted) {
+      await _openCast(launchUrl, false);
+      return;
+    }
     // Start screen never mounts WebView; keep native side paused anyway.
     if (_onStart) {
       unawaited(_suspendWebPage());
@@ -621,6 +645,7 @@ class _BrowserPageState extends _BrowserPageBase
           ];
     final stored = await _store.saveBookmarks(next);
     if (!mounted) return;
+    unawaited(_syncHomeChannel());
     setState(() {
       _bookmarks = stored;
       _saved = stored.any((item) => item.url == url);
@@ -687,6 +712,7 @@ class _BrowserPageState extends _BrowserPageBase
     );
     _bookmarks = await _store.loadBookmarks();
     _history = await _store.loadHistory();
+    unawaited(_syncHomeChannel());
     if (!mounted) return;
     setState(() => _saved = _bookmarks.any((item) => item.url == _pageUrl));
     if (picked != null) {
