@@ -706,6 +706,7 @@ class _BrowserPageState extends _BrowserPageBase
       if (picked != null) await _openInput(picked);
       return;
     }
+    final opener = FocusManager.instance.primaryFocus;
     final picked = await _showTvSheet<String>(
       label: avenText('aven_library'),
       child: LibraryPage(store: _store, initialSection: section),
@@ -719,20 +720,11 @@ class _BrowserPageState extends _BrowserPageBase
       await _openInput(picked);
       return;
     }
-    if (_onStart) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _onStart && !AvenFlavor.isMobile) {
-          _startFocus.requestFocus();
-        }
-      });
-    } else if (_menuOpen) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _menuOpen) _menuFocus.requestFocus();
-      });
-    }
+    _restoreFocusAfterPanel(opener);
   }
 
   Future<void> _openSettings() async {
+    final opener = FocusManager.instance.primaryFocus;
     if (AvenFlavor.isMobile) {
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
@@ -765,17 +757,25 @@ class _BrowserPageState extends _BrowserPageBase
     if (!_onStart && isAvenWebUrl(_pageUrl)) {
       await _controller.reload();
     }
-    if (_onStart) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _onStart && !AvenFlavor.isMobile) {
-          _startFocus.requestFocus();
-        }
-      });
-    } else if (_menuOpen) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _menuOpen) _menuFocus.requestFocus();
-      });
-    }
+    _restoreFocusAfterPanel(opener);
+  }
+
+  /// Puts focus back on the button that opened a TV panel (History,
+  /// Bookmarks, Settings…) instead of jumping to the address bar.
+  void _restoreFocusAfterPanel(FocusNode? opener) {
+    final tv = !AvenFlavor.isMobile;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (tv && opener != null && opener.context != null && opener.canRequestFocus) {
+        opener.requestFocus();
+        return;
+      }
+      if (_onStart) {
+        if (tv) _startFocus.requestFocus();
+      } else if (_menuOpen) {
+        _menuFocus.requestFocus();
+      }
+    });
   }
 
   Future<void> _toggleAdBlock() async {

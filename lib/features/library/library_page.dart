@@ -180,7 +180,22 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Future<void> _clearHistory() async {
-    final range = await showModalBottomSheet<String>(
+    final range = AvenLayout.isCompact(context)
+        ? await _pickRangeSheet()
+        : await showDialog<String>(
+            context: context,
+            barrierColor: AvenColors.barrier,
+            builder: (context) => const _RangePicker(),
+          );
+    if (range == null || !mounted) {
+      if (mounted) _focusRight(0);
+      return;
+    }
+    await _clearHistoryRange(range);
+  }
+
+  Future<String?> _pickRangeSheet() {
+    return showModalBottomSheet<String>(
       context: context,
       backgroundColor: AvenTone.elevated(context),
       showDragHandle: true,
@@ -208,7 +223,9 @@ class _LibraryPageState extends State<LibraryPage> {
         );
       },
     );
-    if (range == null || !mounted) return;
+  }
+
+  Future<void> _clearHistoryRange(String range) async {
     final newerThan = switch (range) {
       '15m' => const Duration(minutes: 15),
       '1h' => const Duration(hours: 1),
@@ -839,6 +856,103 @@ class _LibraryTile extends StatelessWidget {
             child: tile,
           );
         },
+      ),
+    );
+  }
+}
+
+/// TV: history range choices as a small card, rows styled like the panels.
+class _RangePicker extends StatefulWidget {
+  const _RangePicker();
+
+  @override
+  State<_RangePicker> createState() => _RangePickerState();
+}
+
+class _RangePickerState extends State<_RangePicker> {
+  static const _ranges = ['15m', '1h', '24h', '7d', '4w', 'all'];
+  late final List<FocusNode> _focus =
+      List.generate(_ranges.length, (index) => FocusNode(debugLabel: 'range-$index'));
+
+  @override
+  void dispose() {
+    for (final node in _focus) {
+      node.dispose();
+    }
+    super.dispose();
+  }
+
+  KeyEventResult _onKey(int index, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowDown && index < _ranges.length - 1) {
+      _focus[index + 1].requestFocus();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowUp && index > 0) {
+      _focus[index - 1].requestFocus();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.space) {
+      Navigator.pop(context, _ranges[index]);
+      return KeyEventResult.handled;
+    }
+    // Left/right stay inside the card.
+    if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowRight) {
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Material(
+          color: AvenColors.panel,
+          borderRadius: BorderRadius.circular(18),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: Text(
+                    avenText('aven_clear_history').toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.4,
+                      color: AvenColors.textMuted,
+                    ),
+                  ),
+                ),
+                for (var index = 0; index < _ranges.length; index++)
+                  _LibraryTile(
+                    focusNode: _focus[index],
+                    autofocus: index == 0,
+                    selected: false,
+                    row: true,
+                    onKeyEvent: (event) => _onKey(index, event),
+                    onTap: () => Navigator.pop(context, _ranges[index]),
+                    leading: Icon(
+                      index == _ranges.length - 1 ? Icons.delete_sweep_outlined : Icons.schedule,
+                      size: 22,
+                    ),
+                    title: avenText('aven_range_${_ranges[index]}'),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -264,6 +264,13 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// Position of [value] in the size → background → color option list.
+  static int _subtitleIndexOf(String value) => [
+        ...SubtitleStyle.sizes,
+        ...SubtitleStyle.backgrounds,
+        ...SubtitleStyle.colors,
+      ].indexOf(value);
+
   static String _subtitleOptionLabel(String value) => switch (value) {
         'small' => avenText('aven_size_small'),
         'medium' => avenText('aven_size_medium'),
@@ -466,6 +473,25 @@ class _SettingsPageState extends State<SettingsPage> {
           selected: !_lite,
           onTap: () => _selectLite(false),
         ),
+        for (final group in [
+          (avenText('aven_subtitle_size'), SubtitleStyle.sizes, _subtitles.size),
+          (
+            avenText('aven_subtitle_background'),
+            SubtitleStyle.backgrounds,
+            _subtitles.background,
+          ),
+          (avenText('aven_subtitle_color'), SubtitleStyle.colors, _subtitles.color),
+        ]) ...[
+          _PhoneSettingsHeading('${avenText('aven_subtitles')} · ${group.$1}'),
+          for (final value in group.$2)
+            _PhoneSettingsOption(
+              title: _subtitleOptionLabel(value),
+              selected: value == group.$3,
+              onTap: () => _selectSubtitleOption(
+                _subtitleIndexOf(value),
+              ),
+            ),
+        ],
         _PhoneSettingsHeading(avenText('aven_about')),
         _PhoneSettingsOption(
           title: avenText('aven_version'),
