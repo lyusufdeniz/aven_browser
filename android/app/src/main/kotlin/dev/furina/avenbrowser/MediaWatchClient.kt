@@ -23,6 +23,20 @@ internal class MediaWatchClient(
     @Volatile private var injectGen = 0
     @Volatile private var injectedGen = -1
 
+    /**
+     * The client is attached after the first page may already be loading; start
+     * from that page's host, or its requests all look first-party and slip past
+     * the block lists.
+     */
+    fun seedPageHost(url: String?) {
+        if (pageHost != null || url.isNullOrEmpty()) return
+        pageHost = try {
+            android.net.Uri.parse(url).host?.lowercase()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         seen.clear()
         injectGen += 1
@@ -86,6 +100,10 @@ internal class MediaWatchClient(
         }
         val current = mode()
         if (current == "off") return null
+        if (FilterLists.blocks(requestUrl, host, origin, !firstParty)) {
+            if (deferToJs) return null
+            return emptyBlockedResponse(requestUrl, path)
+        }
         if (firstParty) {
             // Only known same-origin ad scripts (e.g. turtlecute ads.js / pagead.js).
             if (!isBlockedAdScriptPath(path)) return null
@@ -129,6 +147,8 @@ internal class MediaWatchClient(
                     }
                     if (adblockOn) {
                         append(cosmeticScript)
+                        append('\n')
+                        append(styleScript("aven-filter-style", FilterLists.hidingCss(pageHost)))
                         append('\n')
                         append(networkHookScript())
                     }

@@ -58,6 +58,8 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         AdBlockLists.ensureLoaded(applicationContext)
+        // EasyList only feeds the TV WebView path; Gecko on the phone does not use it.
+        if (BuildConfig.FLAVOR == "tv") FilterLists.ensureLoaded(applicationContext)
         EngineHooks.install(flutterEngine, this)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         AvenCast.attach(channel)
@@ -374,7 +376,7 @@ class MainActivity : FlutterActivity() {
             { speedMode },
         ) { url ->
             channel.invokeMethod("media", url)
-        }
+        }.also { it.seedPageHost(webView.url) }
     }
 
     /**

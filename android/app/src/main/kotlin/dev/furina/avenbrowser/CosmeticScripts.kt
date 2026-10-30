@@ -53,6 +53,19 @@ internal val bannerCosmeticScript = """
 })();
 """.trimIndent()
 
+/** Puts [css] into a page `<style id=[id]>`, replacing what was there. */
+internal fun styleScript(id: String, css: String): String = """
+(function(){
+  var s = document.getElementById('$id');
+  if (!s) {
+    s = document.createElement('style');
+    s.id = '$id';
+    (document.head || document.documentElement).appendChild(s);
+  }
+  s.textContent = ${jsonQuote(css)};
+})();
+""".trimIndent()
+
 internal fun jsonQuote(value: String): String {
     return "\"" + value
         .replace("\\", "\\\\")
