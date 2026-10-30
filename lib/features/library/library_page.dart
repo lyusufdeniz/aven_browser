@@ -398,7 +398,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return Scaffold(
       backgroundColor: compact
           ? Theme.of(context).scaffoldBackgroundColor
-          : AvenColors.accentBlue,
+          : AvenColors.background,
       body: SafeArea(
         child: compact
             ? Column(
@@ -446,63 +446,63 @@ class _LibraryPageState extends State<LibraryPage> {
                   Expanded(child: _panel(compact: true)),
                 ],
               )
-            : Row(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    curve: Curves.easeOutCubic,
-                    width: _onLeft ? 272 : 96,
-                    child: Material(
-                      color: AvenColors.surface,
-                      clipBehavior: Clip.none,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
-                        clipBehavior: Clip.none,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                            child: SizedBox(
-                              height: 22,
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Opacity(
-                                  opacity: _onLeft ? 1 : 0,
-                                  child: Text(
-                                    avenText('aven_library'),
-                                    style: const TextStyle(fontSize: 18),
+            : LayoutBuilder(
+                builder: (context, box) {
+                  final navWidth = (box.maxWidth * 0.34).clamp(200.0, 320.0);
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: navWidth,
+                        child: Material(
+                          color: AvenColors.panel,
+                          clipBehavior: Clip.none,
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(12, 28, 12, 16),
+                            clipBehavior: Clip.none,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(8, 0, 8, 18),
+                                child: Text(
+                                  avenText('aven_library'),
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
-                            ),
+                              for (var index = 0; index < _sections.length; index++)
+                                _LibraryTile(
+                                  focusNode: _leftFocus[index],
+                                  autofocus: index == widget.initialSection,
+                                  selected: _section == index && !_onLeft,
+                                  onKeyEvent: (event) => _onLeftKey(index, event),
+                                  onFocus: () {
+                                    if (_section == index && _onLeft) return;
+                                    setState(() {
+                                      _section = index;
+                                      _onLeft = true;
+                                    });
+                                  },
+                                  onTap: () {
+                                    setState(() => _section = index);
+                                    _focusRight();
+                                  },
+                                  leading: Icon(_icons[index], size: 22),
+                                  title: _sections[index],
+                                ),
+                            ],
                           ),
-                          for (var index = 0; index < _sections.length; index++)
-                            _LibraryTile(
-                              focusNode: _leftFocus[index],
-                              autofocus: index == widget.initialSection,
-                              selected: _section == index,
-                              compact: !_onLeft,
-                              onKeyEvent: (event) => _onLeftKey(index, event),
-                              onFocus: () {
-                                if (_section == index && _onLeft) return;
-                                setState(() {
-                                  _section = index;
-                                  _onLeft = true;
-                                });
-                              },
-                              onTap: () {
-                                setState(() => _section = index);
-                                _focusRight();
-                              },
-                              leading: Icon(_icons[index], size: 24),
-                              title: _sections[index],
-                            ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const VerticalDivider(width: 1, color: AvenColors.row),
-                  Expanded(child: _panel()),
-                ],
+                      VerticalDivider(
+                        width: 1,
+                        color: AvenColors.text.withValues(alpha: 0.06),
+                      ),
+                      Expanded(child: _panel()),
+                    ],
+                  );
+                },
               ),
       ),
     );
@@ -511,18 +511,35 @@ class _LibraryPageState extends State<LibraryPage> {
   Widget _panel({bool compact = false}) {
     final links = _visibleLinks;
     return ListView(
-      padding: EdgeInsets.all(compact ? 16 : 28),
+      padding: compact
+          ? const EdgeInsets.all(16)
+          : const EdgeInsets.fromLTRB(16, 28, 20, 24),
       clipBehavior: Clip.none,
       children: [
-        Text(
-          _sections[_section],
-          style: const TextStyle(fontSize: 18),
-        ),
-        const SizedBox(height: 16),
+        if (compact) ...[
+          Text(
+            _sections[_section],
+            style: const TextStyle(fontSize: 18),
+          ),
+          const SizedBox(height: 16),
+        ] else
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+            child: Text(
+              _sections[_section].toUpperCase(),
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.4,
+                color: AvenColors.textMuted,
+              ),
+            ),
+          ),
         if (_section == 2 && _downloads.isEmpty)
           _LibraryTile(
             focusNode: _rightFocus[0],
             selected: false,
+            row: !compact,
             onKeyEvent: (event) => _onRightKey(0, event),
             onTap: () {},
             leading: const Icon(Icons.download_outlined, size: 24),
@@ -534,6 +551,7 @@ class _LibraryPageState extends State<LibraryPage> {
             _LibraryTile(
               focusNode: _rightFocus[index],
               selected: false,
+              row: !compact,
               onKeyEvent: (event) => _onRightKey(index, event),
               onTap: () => _activateRight(index),
               leading: const Icon(Icons.download_done, size: 24),
@@ -548,6 +566,7 @@ class _LibraryPageState extends State<LibraryPage> {
           _LibraryTile(
             focusNode: _rightFocus[0],
             selected: false,
+            row: !compact,
             onKeyEvent: (event) => _onRightKey(0, event),
             onFocus: () {
               if (_onLeft) setState(() => _onLeft = false);
@@ -564,6 +583,7 @@ class _LibraryPageState extends State<LibraryPage> {
           _LibraryTile(
             focusNode: _rightFocus[0],
             selected: false,
+            row: !compact,
             onKeyEvent: (event) => _onRightKey(0, event),
             onFocus: () {
               if (_onLeft) setState(() => _onLeft = false);
@@ -581,6 +601,7 @@ class _LibraryPageState extends State<LibraryPage> {
             _LibraryTile(
               focusNode: _rightFocus[_section == 1 ? index + 1 : index],
               selected: false,
+              row: !compact,
               onKeyEvent: (event) => _onRightKey(_section == 1 ? index + 1 : index, event),
               onFocus: () {
                 if (_onLeft) setState(() => _onLeft = false);
@@ -651,10 +672,13 @@ class _DeleteButton extends StatelessWidget {
         listenable: focusNode,
         builder: (context, _) {
           final focused = focusNode.hasFocus;
+          final pill = focused && !AvenLayout.isCompact(context);
           return AvenFocusZoom(
             focused: focused,
+            showHalo: !pill,
+            borderRadius: 8,
             child: Material(
-            color: Colors.transparent,
+            color: pill ? AvenColors.focusFill : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
             child: InkWell(
               onTap: onTap,
@@ -666,7 +690,9 @@ class _DeleteButton extends StatelessWidget {
                 child: Icon(
                   Icons.delete_outline,
                   size: 22,
-                  color: AvenTone.textMuted(context),
+                  color: pill
+                      ? AvenColors.onFocus
+                      : AvenTone.textMuted(context),
                 ),
               ),
             ),
@@ -690,14 +716,15 @@ class _LibraryTile extends StatelessWidget {
     this.progress,
     this.trailing,
     this.autofocus = false,
-    this.compact = false,
+    this.row = false,
     this.onFocus,
   });
 
   final FocusNode focusNode;
   final bool selected;
   final bool autofocus;
-  final bool compact;
+  /// TV list row: hairline divider below while not focused.
+  final bool row;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
   final VoidCallback onTap;
   final VoidCallback? onFocus;
@@ -720,38 +747,39 @@ class _LibraryTile extends StatelessWidget {
         listenable: focusNode,
         builder: (context, _) {
           final focused = focusNode.hasFocus;
-          return AvenFocusZoom(
+          final pill = focused && !AvenLayout.isCompact(context);
+          final ink = pill ? AvenColors.onFocus : AvenTone.text(context);
+          final tile = AvenFocusZoom(
             focused: focused,
             scale: 1.0,
             borderRadius: 10,
+            showHalo: !pill,
             child: Material(
-            color: selected
-                ? AvenTone.text(context).withValues(alpha: 0.08)
-                : Colors.transparent,
+            color: pill
+                ? AvenColors.focusFill
+                : selected
+                    ? AvenTone.text(context).withValues(alpha: 0.08)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             clipBehavior: Clip.none,
             child: IconTheme(
-              data: IconThemeData(
-                color: AvenTone.text(context),
-              ),
+              data: IconThemeData(color: ink),
               child: DefaultTextStyle.merge(
-                style: TextStyle(
-                  color: AvenTone.text(context),
-                ),
+                style: TextStyle(color: ink),
                 child: InkWell(
                   onTap: onTap,
                   borderRadius: BorderRadius.circular(10),
                   hoverColor: Colors.transparent,
                   overlayColor: const WidgetStatePropertyAll(Colors.transparent),
                   child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: compact ? 10 : 12,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
                       vertical: 12,
                     ),
                     child: Row(
                       children: [
                         SizedBox(width: 28, height: 28, child: Center(child: leading)),
-                        if (title != null && !compact) ...[
+                        if (title != null) ...[
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -772,7 +800,7 @@ class _LibraryTile extends StatelessWidget {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         fontSize: 13,
-                                        color: AvenTone.textMuted(context),
+                                        color: ink.withValues(alpha: 0.6),
                                       ),
                                     ),
                                   ),
@@ -787,7 +815,7 @@ class _LibraryTile extends StatelessWidget {
                             ),
                           ),
                         ],
-                        if (trailing != null && !compact) ...[
+                        if (trailing != null) ...[
                           const SizedBox(width: 8),
                           trailing!,
                         ],
@@ -798,6 +826,17 @@ class _LibraryTile extends StatelessWidget {
               ),
             ),
           ),
+          );
+          if (!row || pill) return tile;
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: AvenColors.text.withValues(alpha: 0.07),
+                ),
+              ),
+            ),
+            child: tile,
           );
         },
       ),

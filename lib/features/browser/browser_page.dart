@@ -627,22 +627,43 @@ class _BrowserPageState extends _BrowserPageBase
     });
   }
 
-  Widget _tvPanel(BuildContext context, Widget child) {
-    final size = MediaQuery.sizeOf(context);
-    final width = size.width - 72;
-    final height = size.height - 56;
-    return Dialog(
-      backgroundColor: AvenColors.panel,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 36, vertical: 28),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(22),
-        child: SizedBox(
-          width: width > 1040 ? 1040 : width,
-          height: height > 640 ? 640 : height,
-          child: child,
-        ),
-      ),
+  /// TV panels slide in from the right at full height; the page stays
+  /// visible beside them.
+  Future<T?> _showTvSheet<T>({required String label, required Widget child}) {
+    return showGeneralDialog<T>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: label,
+      barrierColor: Colors.black26,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        final size = MediaQuery.sizeOf(context);
+        return Align(
+          alignment: Alignment.centerRight,
+          child: Material(
+            color: AvenColors.background,
+            elevation: 24,
+            child: SizedBox(
+              width: size.width * 0.67,
+              height: size.height,
+              child: child,
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        return SlideTransition(
+          position: Tween(
+            begin: const Offset(0.35, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: FadeTransition(opacity: curved, child: child),
+        );
+      },
     );
   }
 
@@ -660,13 +681,9 @@ class _BrowserPageState extends _BrowserPageBase
       if (picked != null) await _openInput(picked);
       return;
     }
-    final picked = await showDialog<String>(
-      context: context,
-      barrierColor: AvenColors.barrier,
-      builder: (context) => _tvPanel(
-        context,
-        LibraryPage(store: _store, initialSection: section),
-      ),
+    final picked = await _showTvSheet<String>(
+      label: avenText('aven_library'),
+      child: LibraryPage(store: _store, initialSection: section),
     );
     _bookmarks = await _store.loadBookmarks();
     _history = await _store.loadHistory();
@@ -697,13 +714,9 @@ class _BrowserPageState extends _BrowserPageBase
         ),
       );
     } else {
-    await showDialog<void>(
-      context: context,
-      barrierColor: AvenColors.barrier,
-      builder: (context) => _tvPanel(
-        context,
-        SettingsPage(store: _store, input: _input),
-      ),
+    await _showTvSheet<void>(
+      label: avenText('aven_settings'),
+      child: SettingsPage(store: _store, input: _input),
     );
     }
     final engine = await _store.loadEngine();

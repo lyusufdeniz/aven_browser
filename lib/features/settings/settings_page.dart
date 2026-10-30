@@ -234,67 +234,67 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       backgroundColor: compact
           ? Theme.of(context).scaffoldBackgroundColor
-          : AvenColors.accentBlue,
+          : AvenColors.background,
       body: SafeArea(
         child: compact
             ? _phoneSettings(context)
-            : Row(
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    curve: Curves.easeOutCubic,
-                    width: _onLeft ? 272 : 96,
-                    child: Material(
-                      color: AvenColors.surface,
-                      clipBehavior: Clip.none,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
-                        clipBehavior: Clip.none,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                            child: SizedBox(
-                              height: 22,
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Opacity(
-                                  opacity: _onLeft ? 1 : 0,
-                                  child: Text(
-                                    avenText('aven_settings'),
-                                    style: const TextStyle(fontSize: 18),
+            : LayoutBuilder(
+                builder: (context, box) {
+                  final navWidth = (box.maxWidth * 0.34).clamp(200.0, 320.0);
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: navWidth,
+                        child: Material(
+                          color: AvenColors.panel,
+                          clipBehavior: Clip.none,
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(12, 28, 12, 16),
+                            clipBehavior: Clip.none,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(8, 0, 8, 18),
+                                child: Text(
+                                  avenText('aven_settings'),
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
-                            ),
+                              for (var index = 0; index < _sections.length; index++)
+                                _FocusTile(
+                                  focusNode: _leftFocus[index],
+                                  autofocus: index == 0,
+                                  selected: _section == index && !_onLeft,
+                                  onKeyEvent: (event) => _onLeftKey(index, event),
+                                  onFocus: () {
+                                    if (_section == index && _onLeft) return;
+                                    setState(() {
+                                      _section = index;
+                                      _onLeft = true;
+                                    });
+                                  },
+                                  onTap: () {
+                                    setState(() => _section = index);
+                                    _focusRight();
+                                  },
+                                  leading: Icon(_icons[index], size: 22),
+                                  title: _sections[index],
+                                ),
+                            ],
                           ),
-                          for (var index = 0; index < _sections.length; index++)
-                            _FocusTile(
-                              focusNode: _leftFocus[index],
-                              autofocus: index == 0,
-                              selected: _section == index,
-                              compact: !_onLeft,
-                              onKeyEvent: (event) => _onLeftKey(index, event),
-                              onFocus: () {
-                                if (_section == index && _onLeft) return;
-                                setState(() {
-                                  _section = index;
-                                  _onLeft = true;
-                                });
-                              },
-                              onTap: () {
-                                setState(() => _section = index);
-                                _focusRight();
-                              },
-                              leading: Icon(_icons[index], size: 24),
-                              title: _sections[index],
-                            ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const VerticalDivider(width: 1, color: AvenColors.accentBlue),
-                  Expanded(child: _panel()),
-                ],
+                      VerticalDivider(
+                        width: 1,
+                        color: AvenColors.text.withValues(alpha: 0.06),
+                      ),
+                      Expanded(child: _panel()),
+                    ],
+                  );
+                },
               ),
       ),
     );
@@ -384,42 +384,23 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _panel({bool compact = false}) {
     if (_section == 5) {
       return ListView(
-        padding: EdgeInsets.all(compact ? 16 : 28),
+        padding: _panelPadding(compact),
         clipBehavior: Clip.none,
         children: [
-          Text(
-            AvenAppInfo.name,
-            style: TextStyle(
-              fontFamily: 'Cal Sans',
-              fontSize: compact ? 28 : 34,
-              fontWeight: FontWeight.w600,
-              letterSpacing: -0.6,
-              color: AvenColors.text,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            avenText('aven_about'),
-            style: const TextStyle(fontSize: 16, color: AvenColors.textMuted),
-          ),
-          const SizedBox(height: 20),
-          _FocusTile(
+          _SectionLabel(avenText('aven_about')),
+          _SettingRow(
             focusNode: _rightFocus[0],
-            selected: false,
             onKeyEvent: (event) => _onRightKey(0, event),
             onTap: () {},
-            leading: const Icon(Icons.tag, size: 22),
             title: avenText('aven_version'),
-            subtitle: AvenAppInfo.version,
+            value: AvenAppInfo.version,
           ),
-          _FocusTile(
+          _SettingRow(
             focusNode: _rightFocus[1],
-            selected: false,
             onKeyEvent: (event) => _onRightKey(1, event),
             onTap: () {},
-            leading: const Icon(Icons.public, size: 22),
             title: avenText('aven_developer'),
-            subtitle: AvenAppInfo.developer,
+            value: AvenAppInfo.developer,
           ),
         ],
       );
@@ -477,10 +458,10 @@ class _SettingsPageState extends State<SettingsPage> {
     };
 
     return ListView(
-      padding: EdgeInsets.all(compact ? 16 : 28),
+      padding: _panelPadding(compact),
       clipBehavior: Clip.none,
       children: [
-        Text(
+        _SectionLabel(
           switch (_section) {
             0 => avenText('aven_adblock'),
             1 => avenText('aven_home_suggestions'),
@@ -488,18 +469,13 @@ class _SettingsPageState extends State<SettingsPage> {
             3 => avenText('aven_lite'),
             _ => avenText('aven_user_agent'),
           },
-          style: const TextStyle(fontSize: 18),
         ),
-        const SizedBox(height: 16),
         for (var index = 0; index < items.length; index++)
-          _FocusTile(
+          _SettingRow(
             focusNode: _rightFocus[index],
-            selected: items[index].$3,
             onKeyEvent: (event) => _onRightKey(index, event),
             onTap: () => _activateRight(index),
-            leading: Icon(
-              items[index].$3 ? Icons.radio_button_checked : Icons.radio_button_off,
-            ),
+            checked: items[index].$3,
             title: items[index].$1,
             subtitle: items[index].$2,
           ),
@@ -507,6 +483,9 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  EdgeInsets _panelPadding(bool compact) => compact
+      ? const EdgeInsets.all(16)
+      : const EdgeInsets.fromLTRB(16, 28, 20, 24);
 }
 
 class _PhoneSettingsHeading extends StatelessWidget {
@@ -561,23 +540,19 @@ class _FocusTile extends StatelessWidget {
     required this.onKeyEvent,
     required this.onTap,
     required this.leading,
-    this.title,
-    this.subtitle,
+    required this.title,
     this.autofocus = false,
-    this.compact = false,
     this.onFocus,
   });
 
   final FocusNode focusNode;
   final bool selected;
   final bool autofocus;
-  final bool compact;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
   final VoidCallback onTap;
   final VoidCallback? onFocus;
   final Widget leading;
-  final String? title;
-  final String? subtitle;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -592,64 +567,46 @@ class _FocusTile extends StatelessWidget {
         listenable: focusNode,
         builder: (context, _) {
           final focused = focusNode.hasFocus;
+          final ink = focused ? AvenColors.onFocus : AvenColors.text;
           return AvenFocusZoom(
             focused: focused,
             scale: 1.0,
             borderRadius: 10,
+            showHalo: false,
             child: Material(
-            color: selected
-                ? AvenColors.text.withValues(alpha: 0.08)
-                : Colors.transparent,
+            color: focused
+                ? AvenColors.focusFill
+                : selected
+                    ? AvenColors.text.withValues(alpha: 0.08)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
             clipBehavior: Clip.none,
             child: IconTheme(
-              data: IconThemeData(
-                color: AvenColors.text,
-              ),
+              data: IconThemeData(color: ink),
               child: DefaultTextStyle.merge(
-                style: const TextStyle(
-                  color: AvenColors.text,
-                ),
+                style: TextStyle(color: ink),
                 child: InkWell(
               onTap: onTap,
               borderRadius: BorderRadius.circular(10),
               hoverColor: Colors.transparent,
               overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 10 : 12,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
                   vertical: 12,
                 ),
                 child: Row(
                   children: [
                     SizedBox(width: 24, child: leading),
-                    if (title != null && !compact) ...[
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title!,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                            if (subtitle != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  subtitle!,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AvenColors.textMuted,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 16),
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
@@ -657,6 +614,137 @@ class _FocusTile extends StatelessWidget {
               ),
             ),
           ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Small caps heading above a group of setting rows.
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: Text(
+        label.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.4,
+          color: AvenColors.textMuted,
+        ),
+      ),
+    );
+  }
+}
+
+/// TV setting row: title on the left, a radio or value on the side, hairline
+/// divider below; turns into a light pill while focused.
+class _SettingRow extends StatelessWidget {
+  const _SettingRow({
+    required this.focusNode,
+    required this.onKeyEvent,
+    required this.onTap,
+    required this.title,
+    this.subtitle,
+    this.value,
+    this.checked,
+  });
+
+  final FocusNode focusNode;
+  final KeyEventResult Function(KeyEvent event) onKeyEvent;
+  final VoidCallback onTap;
+  final String title;
+  final String? subtitle;
+  final String? value;
+  final bool? checked;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: focusNode,
+      onKeyEvent: (node, event) => onKeyEvent(event),
+      child: ListenableBuilder(
+        listenable: focusNode,
+        builder: (context, _) {
+          final focused = focusNode.hasFocus;
+          final ink = focused ? AvenColors.onFocus : AvenColors.text;
+          return GestureDetector(
+            onTap: onTap,
+            // Plain Container: a radius and a one-sided border cannot lerp.
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              decoration: BoxDecoration(
+                color: focused ? AvenColors.focusFill : Colors.transparent,
+                borderRadius: focused ? BorderRadius.circular(10) : null,
+                border: focused
+                    ? null
+                    : Border(
+                        bottom: BorderSide(
+                          color: AvenColors.text.withValues(alpha: 0.07),
+                        ),
+                      ),
+              ),
+              child: Row(
+                children: [
+                  if (checked != null) ...[
+                    Icon(
+                      checked!
+                          ? Icons.radio_button_checked
+                          : Icons.radio_button_off,
+                      size: 22,
+                      color: ink,
+                    ),
+                    const SizedBox(width: 14),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: ink,
+                          ),
+                        ),
+                        if (subtitle != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              subtitle!,
+                              style: TextStyle(
+                                fontSize: 13,
+                                height: 1.3,
+                                color: ink.withValues(alpha: 0.6),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (value != null) ...[
+                    const SizedBox(width: 12),
+                    Text(
+                      value!,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: ink.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           );
         },
       ),

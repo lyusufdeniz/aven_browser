@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../platform/aven_flavor.dart';
+
 /// Phone appearance. `system` follows the device, `light` is white, `dark` stays black.
 final avenThemeChoice = ValueNotifier<String>('system');
 
@@ -12,16 +14,25 @@ ThemeMode avenThemeMode(String choice) {
   };
 }
 
-/// Aven Browser — black / gray / light TV palette (no accent blue).
+/// Aven Browser TV palette — slate black surfaces, light focus pills and
+/// white for progress, toggles and primary actions (no blue accent).
 abstract final class AvenColors {
-  static const background = Color(0xFF080A0B);
-  static const panel = Color(0xFF080A0B);
-  static const text = Color(0xFFF3F5F7);
-  /// Slightly lifted surface for fills — same family as [background], not blue.
-  static const elevated = Color(0xFF141618);
+  static const background = Color(0xFF131418);
+  static const panel = Color(0xFF1A1B20);
+  /// Darker strip for side rails and nav columns.
+  static const rail = Color(0xFF0E0F12);
+  static const text = Color(0xFFF1F3F7);
+  /// Lifted surface for cells, keys and secondary buttons.
+  static const elevated = Color(0xFF2A2D35);
 
-  static const accent = panel;
-  static const accentBlue = panel;
+  /// Focused row / key / tab: light pill with dark content.
+  static const focusFill = Color(0xFFE6E9F0);
+  static const onFocus = Color(0xFF15171C);
+
+  /// Progress bars, toggles, cursors and primary buttons.
+  static const accent = text;
+  static const live = Color(0xFFE5484D);
+
   static const focus = elevated;
   static const hover = elevated;
   static const surface = panel;
@@ -29,48 +40,80 @@ abstract final class AvenColors {
   static const ink = background;
   static const mist = text;
   static const teal = text;
-  static const textMuted = Color(0x99F3F5F7);
-  static const error = text;
-  static const danger = text;
-  static const scrim = Color(0x99080A0B);
-  static const barrier = Color(0xB3080A0B);
+  static const textMuted = Color(0x99F1F3F7);
+  static const error = live;
+  static const danger = live;
+  static const scrim = Color(0x99131418);
+  static const barrier = Color(0xB30B0C0F);
+
+  /// Phone dark mode keeps the original pure black look.
+  static const phoneBackground = Color(0xFF080A0B);
+  static const phoneElevated = Color(0xFF141618);
+  static const phoneText = Color(0xFFF3F5F7);
+  static const phoneTextMuted = Color(0x99F3F5F7);
 
   static ThemeData theme() {
+    final tv = !AvenFlavor.isMobile;
+    final bg = tv ? background : phoneBackground;
+    final fg = tv ? text : phoneText;
+    final lifted = tv ? elevated : phoneElevated;
+    final highlight = tv ? accent : phoneText;
     return ThemeData(
       brightness: Brightness.dark,
-      scaffoldBackgroundColor: background,
-      canvasColor: background,
-      colorScheme: const ColorScheme.dark(
-        primary: text,
-        secondary: panel,
-        surface: panel,
-        onPrimary: background,
-        onSecondary: text,
-        onSurface: text,
-        error: text,
+      scaffoldBackgroundColor: bg,
+      canvasColor: bg,
+      colorScheme: ColorScheme.dark(
+        primary: highlight,
+        secondary: tv ? panel : phoneBackground,
+        surface: tv ? panel : phoneBackground,
+        onPrimary: tv ? onFocus : phoneBackground,
+        onSecondary: fg,
+        onSurface: fg,
+        error: tv ? live : phoneText,
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
-        color: text,
-        circularTrackColor: Color(0x33F3F5F7),
-        linearTrackColor: Color(0x33F3F5F7),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: highlight,
+        circularTrackColor: fg.withValues(alpha: 0.2),
+        linearTrackColor: fg.withValues(alpha: 0.2),
       ),
-      dialogTheme: const DialogThemeData(
-        backgroundColor: panel,
+      switchTheme: tv
+          ? SwitchThemeData(
+              thumbColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.selected)
+                    ? onFocus
+                    : textMuted,
+              ),
+              trackColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.selected)
+                    ? accent
+                    : elevated,
+              ),
+              trackOutlineColor:
+                  const WidgetStatePropertyAll(Colors.transparent),
+            )
+          : null,
+      textSelectionTheme: TextSelectionThemeData(
+        cursorColor: highlight,
+        selectionColor: highlight.withValues(alpha: 0.35),
+        selectionHandleColor: highlight,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: tv ? panel : phoneBackground,
         titleTextStyle: TextStyle(
-          color: text,
+          color: fg,
           fontFamily: 'Cal Sans',
           fontSize: 28,
           fontWeight: FontWeight.w600,
         ),
         contentTextStyle: TextStyle(
-          color: textMuted,
+          color: fg.withValues(alpha: 0.6),
           fontSize: 17,
           height: 1.4,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-          foregroundColor: text,
+          foregroundColor: fg,
           textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
           minimumSize: const Size(120, 52),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -78,32 +121,32 @@ abstract final class AvenColors {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          foregroundColor: text,
-          backgroundColor: elevated,
+          foregroundColor: tv ? onFocus : fg,
+          backgroundColor: tv ? accent : lifted,
           textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
           minimumSize: const Size(120, 52),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         ),
       ),
-      dividerColor: const Color(0x22F3F5F7),
-      textTheme: const TextTheme(
-        bodyLarge: TextStyle(color: text),
-        bodyMedium: TextStyle(color: text),
-        bodySmall: TextStyle(color: textMuted),
-        titleLarge: TextStyle(color: text),
-        titleMedium: TextStyle(color: text),
-        titleSmall: TextStyle(color: textMuted),
+      dividerColor: fg.withValues(alpha: 0.13),
+      textTheme: TextTheme(
+        bodyLarge: TextStyle(color: fg),
+        bodyMedium: TextStyle(color: fg),
+        bodySmall: TextStyle(color: fg.withValues(alpha: 0.6)),
+        titleLarge: TextStyle(color: fg),
+        titleMedium: TextStyle(color: fg),
+        titleSmall: TextStyle(color: fg.withValues(alpha: 0.6)),
       ),
-      iconTheme: const IconThemeData(color: text),
-      focusColor: text.withValues(alpha: 0.18),
-      hoverColor: text.withValues(alpha: 0.10),
-      splashColor: text.withValues(alpha: 0.14),
-      highlightColor: text.withValues(alpha: 0.08),
-      listTileTheme: const ListTileThemeData(
-        iconColor: text,
-        textColor: text,
-        selectedColor: text,
-        selectedTileColor: elevated,
+      iconTheme: IconThemeData(color: fg),
+      focusColor: fg.withValues(alpha: 0.18),
+      hoverColor: fg.withValues(alpha: 0.10),
+      splashColor: fg.withValues(alpha: 0.14),
+      highlightColor: fg.withValues(alpha: 0.08),
+      listTileTheme: ListTileThemeData(
+        iconColor: fg,
+        textColor: fg,
+        selectedColor: fg,
+        selectedTileColor: lifted,
       ),
       fontFamily: 'sans-serif',
     );
@@ -182,17 +225,29 @@ abstract final class AvenTone {
   static bool dark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
 
-  static Color background(BuildContext context) =>
-      dark(context) ? AvenColors.background : AvenColors.lightBackground;
+  static Color background(BuildContext context) => !dark(context)
+      ? AvenColors.lightBackground
+      : AvenFlavor.isMobile
+          ? AvenColors.phoneBackground
+          : AvenColors.background;
 
-  static Color elevated(BuildContext context) =>
-      dark(context) ? AvenColors.elevated : AvenColors.lightElevated;
+  static Color elevated(BuildContext context) => !dark(context)
+      ? AvenColors.lightElevated
+      : AvenFlavor.isMobile
+          ? AvenColors.phoneElevated
+          : AvenColors.elevated;
 
-  static Color text(BuildContext context) =>
-      dark(context) ? AvenColors.text : AvenColors.lightText;
+  static Color text(BuildContext context) => !dark(context)
+      ? AvenColors.lightText
+      : AvenFlavor.isMobile
+          ? AvenColors.phoneText
+          : AvenColors.text;
 
-  static Color textMuted(BuildContext context) =>
-      dark(context) ? AvenColors.textMuted : AvenColors.lightTextMuted;
+  static Color textMuted(BuildContext context) => !dark(context)
+      ? AvenColors.lightTextMuted
+      : AvenFlavor.isMobile
+          ? AvenColors.phoneTextMuted
+          : AvenColors.textMuted;
 
   static SystemUiOverlayStyle overlay(BuildContext context) {
     return dark(context) ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark;

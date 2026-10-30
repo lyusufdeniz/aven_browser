@@ -272,7 +272,7 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                 colors: [
                   AvenColors.background,
                   AvenColors.ink,
-                  Color(0xFF101628),
+                  AvenColors.rail,
                 ],
               ),
             ),
@@ -395,21 +395,22 @@ class _ErrorAction extends StatelessWidget {
             focused: focused,
             scale: 1.04,
             borderRadius: 12,
+            showHalo: false,
             child: ExcludeFocus(
             child: TextButton.icon(
               onPressed: onPressed,
               icon: Icon(icon),
               label: Text(label),
               style: TextButton.styleFrom(
-                foregroundColor: AvenColors.text,
-                backgroundColor: AvenColors.text.withValues(alpha: 0.08),
+                foregroundColor:
+                    focused ? AvenColors.onFocus : AvenColors.text,
+                backgroundColor:
+                    focused ? AvenColors.focusFill : AvenColors.elevated,
                 overlayColor: Colors.transparent,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                side: BorderSide(
-                  color: AvenColors.text.withValues(alpha: 0.18),
-                ),
+                side: BorderSide.none,
                 minimumSize: const Size(160, 52),
                 textStyle: const TextStyle(fontSize: 16),
               ),
@@ -1832,6 +1833,7 @@ class _StartAction extends StatelessWidget {
         builder: (context, _) {
           final focused = focusNode.hasFocus;
           const radius = 12.0;
+          final ink = focused ? AvenColors.onFocus : AvenColors.text;
           return Material(
             color: Colors.transparent,
             child: InkWell(
@@ -1845,29 +1847,23 @@ class _StartAction extends StatelessWidget {
                 height: 52,
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 decoration: BoxDecoration(
-                  color: AvenColors.text.withValues(alpha: 0.08),
+                  color: focused ? AvenColors.focusFill : AvenColors.elevated,
                   borderRadius: BorderRadius.circular(radius),
-                  border: Border.all(
-                    color: focused
-                        ? AvenColors.text.withValues(alpha: 0.82)
-                        : AvenColors.text.withValues(alpha: 0.18),
-                    width: 2,
-                  ),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(icon, size: 20, color: AvenColors.text),
+                    Icon(icon, size: 20, color: ink),
                     const SizedBox(width: 8),
                     Flexible(
                       child: Text(
                         label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          color: AvenColors.text,
+                          color: ink,
                         ),
                       ),
                     ),
@@ -2899,7 +2895,7 @@ class _FloatingMenu extends StatelessWidget {
                 : const EdgeInsets.fromLTRB(28, 0, 28, 22),
             child: Material(
               elevation: 16,
-              color: AvenColors.accentBlue.withValues(alpha: 0.96),
+              color: AvenColors.panel.withValues(alpha: 0.96),
               borderRadius: BorderRadius.circular(18),
               clipBehavior: Clip.none,
               child: Padding(
@@ -3123,7 +3119,6 @@ class _StartSearchFieldState extends State<_StartSearchField> {
         child: ListenableBuilder(
           listenable: Listenable.merge([widget.focusNode, widget.controller]),
           builder: (context, _) {
-            final focused = widget.focusNode.hasFocus;
             // No zoom wrapper — field already has its own focused border.
             return TextField(
                 controller: widget.controller,
@@ -3136,44 +3131,33 @@ class _StartSearchFieldState extends State<_StartSearchField> {
                 keyboardType: TextInputType.url,
                 textInputAction: TextInputAction.go,
                 style: const TextStyle(fontSize: 20, color: AvenColors.text),
-                cursorColor: AvenColors.text,
+                cursorColor: AvenColors.accent,
                 onTap: _beginEditing,
                 onSubmitted: widget.onSubmit,
                 decoration: InputDecoration(
                   hintText: avenText('aven_search_site'),
                   hintStyle: const TextStyle(color: AvenColors.textMuted),
                   filled: true,
-                  fillColor: focused
-                      ? AvenColors.text.withValues(alpha: 0.11)
-                      : AvenColors.text.withValues(alpha: 0.08),
+                  fillColor: AvenColors.elevated,
                   isDense: true,
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: const BorderRadius.all(Radius.circular(10)),
-                    borderSide: BorderSide(
-                      color: AvenColors.text.withValues(alpha: 0.18),
-                      width: 1.5,
-                    ),
+                    borderSide: BorderSide.none,
                   ),
                   disabledBorder: OutlineInputBorder(
                     borderRadius: const BorderRadius.all(Radius.circular(10)),
-                    borderSide: BorderSide(
-                      color: AvenColors.text.withValues(alpha: 0.18),
-                      width: 1.5,
-                    ),
+                    borderSide: BorderSide.none,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: const BorderRadius.all(Radius.circular(10)),
-                    borderSide: BorderSide(
-                      color: AvenColors.text.withValues(alpha: 0.18),
-                      width: 1.5,
-                    ),
+                    borderSide: BorderSide.none,
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: const BorderRadius.all(Radius.circular(10)),
-                    borderSide: BorderSide(
-                      color: AvenColors.text.withValues(alpha: 0.45),
+                    borderSide: const BorderSide(
+                      color: AvenColors.accent,
                       width: 2,
                     ),
                   ),
@@ -3223,6 +3207,7 @@ class _VoiceSearchButton extends StatelessWidget {
             focused: focused,
             scale: 1.05,
             borderRadius: 10,
+            showHalo: false,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
@@ -3234,26 +3219,23 @@ class _VoiceSearchButton extends StatelessWidget {
                   height: 56,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: AvenColors.text.withValues(alpha: 0.08),
+                    color: focused
+                        ? AvenColors.focusFill
+                        : AvenColors.elevated,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: AvenColors.text.withValues(alpha: 0.18),
-                      width: 1.5,
-                    ),
                   ),
                   child: busy
                       ? const SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            color: AvenColors.text,
-                          ),
+                          child: CircularProgressIndicator(strokeWidth: 2.4),
                         )
-                      : const Icon(
+                      : Icon(
                           Icons.mic,
                           size: 26,
-                          color: AvenColors.textMuted,
+                          color: focused
+                              ? AvenColors.onFocus
+                              : AvenColors.textMuted,
                         ),
                 ),
               ),
@@ -3368,7 +3350,6 @@ class _AddressField extends StatelessWidget {
     return ListenableBuilder(
       listenable: focusNode,
       builder: (context, _) {
-        final focused = focusNode.hasFocus;
         return TextField(
       controller: controller,
       focusNode: focusNode,
@@ -3383,9 +3364,7 @@ class _AddressField extends StatelessWidget {
       decoration: InputDecoration(
         hintText: avenText('aven_search_site'),
         filled: true,
-        fillColor: focused
-            ? AvenColors.text.withValues(alpha: 0.11)
-            : AvenColors.text.withValues(alpha: 0.08),
+        fillColor: AvenColors.elevated,
         isDense: true,
         contentPadding: EdgeInsets.symmetric(
           horizontal: compact ? 12 : 16,
@@ -3393,22 +3372,16 @@ class _AddressField extends StatelessWidget {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: const BorderRadius.all(Radius.circular(10)),
-          borderSide: BorderSide(
-            color: AvenColors.text.withValues(alpha: 0.18),
-            width: 1.5,
-          ),
+          borderSide: BorderSide.none,
         ),
         border: OutlineInputBorder(
           borderRadius: const BorderRadius.all(Radius.circular(10)),
-          borderSide: BorderSide(
-            color: AvenColors.text.withValues(alpha: 0.18),
-            width: 1.5,
-          ),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: const BorderRadius.all(Radius.circular(10)),
-          borderSide: BorderSide(
-            color: AvenColors.text.withValues(alpha: 0.45),
+          borderSide: const BorderSide(
+            color: AvenColors.accent,
             width: 2,
           ),
         ),
@@ -3605,8 +3578,10 @@ class _BarButton extends StatelessWidget {
                       minimumSize: const Size(44, 44),
                       fixedSize: const Size(44, 44),
                       padding: EdgeInsets.zero,
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: AvenColors.text,
+                      backgroundColor:
+                          focused ? AvenColors.focusFill : Colors.transparent,
+                      foregroundColor:
+                          focused ? AvenColors.onFocus : AvenColors.text,
                       overlayColor: Colors.transparent,
                       side: BorderSide.none,
                       shape: RoundedRectangleBorder(
@@ -3629,11 +3604,14 @@ class _BarButton extends StatelessWidget {
                     style: IconButton.styleFrom(
                       minimumSize: const Size(44, 44),
                       fixedSize: const Size(44, 44),
-                      backgroundColor: Colors.transparent,
+                      backgroundColor:
+                          focused ? AvenColors.focusFill : Colors.transparent,
                       overlayColor: Colors.transparent,
-                      foregroundColor: !enabled
-                          ? AvenColors.textMuted
-                          : AvenColors.text,
+                      foregroundColor: focused
+                          ? AvenColors.onFocus
+                          : !enabled
+                              ? AvenColors.textMuted
+                              : AvenColors.text,
                       side: BorderSide.none,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -3654,6 +3632,7 @@ class _BarButton extends StatelessWidget {
                 focused: focused,
                 scale: 1.0,
                 borderRadius: 10,
+                showHalo: false,
                 child: button,
               ),
               if (focused)
@@ -3661,11 +3640,8 @@ class _BarButton extends StatelessWidget {
                   bottom: 50,
                   child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: AvenColors.background.withValues(alpha: 0.97),
+                      color: AvenColors.elevated,
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: AvenColors.text.withValues(alpha: 0.3),
-                      ),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(

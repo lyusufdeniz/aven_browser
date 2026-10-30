@@ -1146,7 +1146,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                       padding: const EdgeInsets.fromLTRB(28, 0, 28, 22),
                       child: Material(
                         elevation: 16,
-                        color: AvenColors.accentBlue.withValues(alpha: 0.96),
+                        color: AvenColors.panel.withValues(alpha: 0.96),
                         borderRadius: BorderRadius.circular(18),
                         clipBehavior: Clip.none,
                         child: Padding(
@@ -1445,8 +1445,11 @@ class _MenuChip extends StatelessWidget {
           focused: focused,
           scale: 1.05,
           borderRadius: 14,
+          showHalo: false,
           child: Material(
-            color: AvenColors.background.withValues(alpha: 0.35),
+            color: focused
+                ? AvenColors.focusFill
+                : AvenColors.elevated.withValues(alpha: 0.6),
             borderRadius: BorderRadius.circular(14),
             child: InkWell(
               onTap: onPressed,
@@ -1458,14 +1461,14 @@ class _MenuChip extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, size: 22, color: AvenColors.mist),
+                    Icon(icon, size: 22, color: focused ? AvenColors.onFocus : AvenColors.mist),
                     const SizedBox(width: 8),
                     Text(
                       label,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: AvenColors.mist,
+                        color: focused ? AvenColors.onFocus : AvenColors.mist,
                       ),
                     ),
                   ],

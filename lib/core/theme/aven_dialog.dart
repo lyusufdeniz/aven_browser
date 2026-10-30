@@ -125,8 +125,7 @@ class _AvenConfirmDialogState extends State<AvenConfirmDialog> {
                 color: AvenColors.panel,
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(
-                  color: AvenColors.text.withValues(alpha: 0.14),
-                  width: 1.5,
+                  color: AvenColors.text.withValues(alpha: 0.06),
                 ),
               ),
               child: Padding(
@@ -248,14 +247,16 @@ class AvenDialogButton extends StatelessWidget {
         listenable: focusNode,
         builder: (context, _) {
           final focused = focusNode.hasFocus;
-          final Color fill = primary
-              ? AvenColors.text.withValues(alpha: 0.10)
-              : AvenColors.text.withValues(alpha: 0.05);
-          final border = AvenColors.text.withValues(alpha: primary ? 0.22 : 0.14);
+          final Color fill = focused
+              ? AvenColors.focusFill
+              : primary
+                  ? AvenColors.text.withValues(alpha: 0.16)
+                  : AvenColors.elevated;
           return AvenFocusZoom(
             focused: focused,
             scale: 1.04,
             borderRadius: 12,
+            showHalo: false,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
@@ -269,7 +270,6 @@ class AvenDialogButton extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: fill,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: border, width: 1.5),
                   ),
                   alignment: Alignment.center,
                   child: Text(
@@ -278,7 +278,7 @@ class AvenDialogButton extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: AvenColors.text.withValues(alpha: 0.92),
+                      color: focused ? AvenColors.onFocus : AvenColors.text,
                     ),
                   ),
                 ),
