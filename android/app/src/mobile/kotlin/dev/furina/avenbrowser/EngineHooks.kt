@@ -462,6 +462,11 @@ internal object GeckoBrowser {
                 if (session === showing()) this@GeckoBrowser.title = title
             }
 
+            // A page video asked for fullscreen (or left it); Flutter hides its chrome.
+            override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
+                if (session === showing()) emit("fullscreen", fullScreen)
+            }
+
             override fun onExternalResponse(session: GeckoSession, response: WebResponse) {
                 download(response)
             }
@@ -856,6 +861,10 @@ internal object GeckoBrowser {
             "openDownload" -> {
                 val id = (arguments as? Map<*, *>)?.get("id")?.toString()?.toLongOrNull()
                 if (id != null) openDownload(id)
+                result.success(null)
+            }
+            "exitFullscreen" -> {
+                session?.exitFullScreen()
                 result.success(null)
             }
             "cancelDownload" -> {

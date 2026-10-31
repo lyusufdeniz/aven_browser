@@ -21,6 +21,7 @@ class GeckoPageEngine implements PageEngine {
     this.onPermissionPrompt,
     this.onContextMenu,
     this.onDownloads,
+    this.onFullscreen,
   }) {
     _channel.setMethodCallHandler(_onNative);
   }
@@ -38,10 +39,15 @@ class GeckoPageEngine implements PageEngine {
   final Future<bool> Function(String host, String label)? onPermissionPrompt;
   final void Function(Map<String, String> info)? onContextMenu;
   final void Function(List<Map<String, String>> items)? onDownloads;
+
+  /// A page video entered or left fullscreen.
+  final void Function(bool fullscreen)? onFullscreen;
   final Map<String, void Function(JavaScriptMessage message)> _channels = {};
 
   Future<dynamic> _onNative(MethodCall call) async {
     switch (call.method) {
+      case 'fullscreen':
+        onFullscreen?.call(call.arguments == true);
       case 'pageStarted':
         onPageStarted(call.arguments as String? ?? '');
       case 'pageFinished':
@@ -278,6 +284,10 @@ class GeckoPageEngine implements PageEngine {
 
   static Future<void> openSaved(String id) {
     return _channel.invokeMethod<void>('openDownload', {'id': id});
+  }
+
+  Future<void> exitFullscreen() {
+    return _channel.invokeMethod<void>('exitFullscreen');
   }
 
   static Future<void> cancelDownload(String id) {

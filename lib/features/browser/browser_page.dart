@@ -131,6 +131,10 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   Timer? _loadTimeout;
   Timer? _cursorHide;
   Widget? _fullscreenVideo;
+
+  /// Phone: a page video is fullscreen inside GeckoView, so the browser
+  /// chrome and system bars step aside.
+  bool _pageFullscreen = false;
   VoidCallback? _exitFullscreen;
 
   late final Ticker _ticker;
@@ -256,6 +260,7 @@ class _BrowserPageState extends _BrowserPageBase
         onPermissionPrompt: _confirmPermission,
         onContextMenu: _showContextMenu,
         onDownloads: _onDownloadList,
+        onFullscreen: _onPageFullscreen,
       );
     } else {
       _controller = WebViewPageEngine(
@@ -269,6 +274,18 @@ class _BrowserPageState extends _BrowserPageBase
     }
     _address.addListener(_onAddressEdited);
     _boot();
+  }
+
+  void _onPageFullscreen(bool fullscreen) {
+    if (!mounted || fullscreen == _pageFullscreen) return;
+    setState(() {
+      _pageFullscreen = fullscreen;
+      if (fullscreen) _findOpen = false;
+    });
+    // No orientation lock: the screen keeps following how the phone is held.
+    unawaited(SystemChrome.setEnabledSystemUIMode(
+      fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    ));
   }
 
   void _onDownloadList(List<Map<String, String>> items) {
@@ -1822,6 +1839,15 @@ class _BrowserPageState extends _BrowserPageBase
     if (_exitDialogOpen) return;
     _lastBack = now;
     if (AvenFlavor.isMobile) {
+      if (_pageFullscreen) {
+        final engine = _controller;
+        if (engine is GeckoPageEngine) {
+          unawaited(engine.exitFullscreen());
+        } else {
+          _onPageFullscreen(false);
+        }
+        return;
+      }
       if (_findOpen) {
         unawaited(_controller.clearFind());
         setState(() => _findOpen = false);
@@ -2178,7 +2204,7 @@ class _BrowserPageState extends _BrowserPageBase
               ),
           ],
         );
-                  if (!AvenFlavor.isMobile) return page;
+                  if (!AvenFlavor.isMobile || _pageFullscreen) return page;
                   return SafeArea(
                     bottom: false,
                     child: ListenableBuilder(
@@ -2292,7 +2318,7 @@ class _BrowserPageState extends _BrowserPageBase
                 },
               ),
             ),
-            if (AvenFlavor.isMobile && _toastDownload != null)
+            if (AvenFlavor.isMobile && !_pageFullscreen && _toastDownload != null)
               _DownloadToast(
                 item: _toastDownload!,
                 onOpen: () {
@@ -2308,7 +2334,7 @@ class _BrowserPageState extends _BrowserPageBase
                 },
                 onDismiss: () => setState(() => _toastHoldId = null),
               ),
-            if (AvenFlavor.isMobile)
+            if (AvenFlavor.isMobile && !_pageFullscreen)
               _PhoneTopBar(
                 tabCount: _tabs.length,
                 canBack: _canBack,
