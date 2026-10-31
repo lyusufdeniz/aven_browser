@@ -2,14 +2,12 @@ package dev.furina.avenbrowser
 
 import android.app.Activity
 import android.app.Application
-import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
-import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -718,43 +716,18 @@ internal object GeckoBrowser {
     }
 
     private fun downloadUrl(raw: String) {
-        if (!raw.startsWith("http://") && !raw.startsWith("https://")) return
         val application = app ?: return
-        val name = raw.substringAfterLast('/').substringBefore('?').ifBlank { "aven-indirme" }
-        try {
-            val request = DownloadManager.Request(Uri.parse(raw))
-                .setTitle(name)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
-            val manager = application.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-            manager.enqueue(request)
-            watchDownloads()
-        } catch (error: Throwable) {
-            Log.e(tag, "download failed", error)
-        }
+        if (AvenDownloads.start(application, raw) != null) watchDownloads()
     }
 
     private fun openDownload(id: Long) {
-        val application = app ?: return
         val activity = hostActivity ?: return
-        val manager = application.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val uri = manager.getUriForDownloadedFile(id) ?: return
-        val mime = manager.getMimeTypeForDownloadedFile(id) ?: "*/*"
-        val view = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, mime)
-            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        try {
-            activity.startActivity(view)
-        } catch (error: Throwable) {
-            Log.e(tag, "open download failed", error)
-        }
+        AvenDownloads.open(activity, id)
     }
 
     private fun cancelDownload(id: Long) {
         val application = app ?: return
-        val manager = application.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        manager.remove(id)
+        AvenDownloads.remove(application, id)
         emit("downloads", listDownloads())
     }
 
@@ -765,47 +738,7 @@ internal object GeckoBrowser {
 
     private fun listDownloads(): List<Map<String, String>> {
         val application = app ?: return emptyList()
-        val manager = application.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        val cursor = manager.query(DownloadManager.Query()) ?: return emptyList()
-        val items = ArrayList<Map<String, String>>()
-        try {
-            val titleCol = cursor.getColumnIndex(DownloadManager.COLUMN_TITLE)
-            val statusCol = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS)
-            val idCol = cursor.getColumnIndex(DownloadManager.COLUMN_ID)
-            val soFarCol = cursor.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
-            val totalCol = cursor.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
-            var count = 0
-            while (cursor.moveToNext() && count < 40) {
-                val status = if (statusCol >= 0) cursor.getInt(statusCol) else 0
-                val soFar = if (soFarCol >= 0) cursor.getLong(soFarCol) else 0L
-                val total = if (totalCol >= 0) cursor.getLong(totalCol) else -1L
-                val progress = when {
-                    status == DownloadManager.STATUS_SUCCESSFUL -> 100
-                    total > 0 -> ((soFar * 100) / total).toInt().coerceIn(0, 100)
-                    else -> -1
-                }
-                val label = when (status) {
-                    DownloadManager.STATUS_SUCCESSFUL -> "success"
-                    DownloadManager.STATUS_RUNNING -> "running"
-                    DownloadManager.STATUS_PENDING -> "pending"
-                    DownloadManager.STATUS_PAUSED -> "paused"
-                    DownloadManager.STATUS_FAILED -> "failed"
-                    else -> ""
-                }
-                items.add(
-                    mapOf(
-                        "title" to (if (titleCol >= 0) cursor.getString(titleCol) ?: "" else ""),
-                        "status" to label,
-                        "id" to (if (idCol >= 0) cursor.getLong(idCol).toString() else ""),
-                        "progress" to progress.toString(),
-                    ),
-                )
-                count += 1
-            }
-        } finally {
-            cursor.close()
-        }
-        return items
+        return AvenDownloads.list(application)
     }
 
     private fun watchDownloads() {

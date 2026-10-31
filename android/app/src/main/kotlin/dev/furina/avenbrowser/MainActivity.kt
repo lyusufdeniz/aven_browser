@@ -67,6 +67,15 @@ class MainActivity : FlutterActivity() {
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "flavor" -> result.success(BuildConfig.FLAVOR)
+                    "listDownloads" -> result.success(AvenDownloads.list(this))
+                    "openDownload" -> {
+                        call.argument<String>("id")?.toLongOrNull()?.let { AvenDownloads.open(this, it) }
+                        result.success(null)
+                    }
+                    "removeDownload" -> {
+                        call.argument<String>("id")?.toLongOrNull()?.let { AvenDownloads.remove(this, it) }
+                        result.success(null)
+                    }
                     "takeLaunchUrl" -> {
                         result.success(pendingOpenUrl)
                         pendingOpenUrl = null
@@ -367,6 +376,10 @@ class MainActivity : FlutterActivity() {
             webView.removeJavascriptInterface("AvenAdblock")
             webView.addJavascriptInterface(AdBlockJsBridge { adBlockMode }, "AvenAdblock")
         } catch (_: Exception) {
+        }
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            AvenDownloads.startWithNotice(this, url, userAgent, contentDisposition, mimeType)
+            channel.invokeMethod("downloadStarted", url)
         }
         val current = webView.webViewClient
         if (current is MediaWatchClient) return

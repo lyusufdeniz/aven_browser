@@ -92,6 +92,28 @@ class WebInput {
     return _channel.invokeMethod<void>('setPageTyping', {'typing': typing});
   }
 
+  /// TV downloads (system DownloadManager); the phone uses Gecko's channel.
+  static Future<List<Map<String, String>>> listDownloads() async {
+    final raw = await _channel.invokeMethod<List<dynamic>>('listDownloads');
+    if (raw == null) return const [];
+    return [
+      for (final item in raw)
+        if (item is Map)
+          {
+            for (final entry in item.entries)
+              entry.key.toString(): '${entry.value ?? ''}',
+          },
+    ];
+  }
+
+  static Future<void> openDownload(String id) {
+    return _channel.invokeMethod<void>('openDownload', {'id': id});
+  }
+
+  static Future<void> removeDownload(String id) {
+    return _channel.invokeMethod<void>('removeDownload', {'id': id});
+  }
+
   /// Attaches a listener for calls that start on the Android side.
   void setHandler(Future<dynamic> Function(MethodCall call)? handler) {
     _appHandler = handler;

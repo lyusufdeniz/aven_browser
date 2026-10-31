@@ -226,6 +226,8 @@ class _BrowserPageState extends _BrowserPageBase
     _input.setHandler((call) async {
       if (call.method == 'media' && call.arguments is String) {
         _onWatchedMedia(call.arguments as String);
+      } else if (call.method == 'downloadStarted') {
+        unawaited(_leaveDownloadPage('${call.arguments ?? ''}'));
       } else if (call.method == 'cast' && call.arguments is Map) {
         final raw = Map<Object?, Object?>.from(call.arguments as Map);
         final url = '${raw['url'] ?? ''}';
@@ -529,6 +531,9 @@ class _BrowserPageState extends _BrowserPageBase
       await _input.resumeWebView();
     } catch (_) {}
     await Future<void>.delayed(const Duration(milliseconds: 32));
+    // A download link never fires onPageStarted, so hook the TV WebView
+    // (download listener, ad block client) before the first load.
+    if (!AvenFlavor.isMobile) await _input.watchMedia();
     try {
       await _controller.loadRequest(Uri.parse(target));
     } catch (_) {}
@@ -1703,6 +1708,18 @@ class _BrowserPageState extends _BrowserPageBase
         );
       },
     );
+  }
+
+  /// A download opened straight from the start screen leaves an empty page;
+  /// go back to where the viewer was instead.
+  Future<void> _leaveDownloadPage(String url) async {
+    if (!mounted || _onStart) return;
+    if (_pageUrl != null && _pageUrl != url && isAvenWebUrl(_pageUrl)) return;
+    if (await _controller.canGoBack()) {
+      await _controller.goBack();
+    } else if (mounted) {
+      _showStart();
+    }
   }
 
   Future<void> _openCast(String url, bool play) async {

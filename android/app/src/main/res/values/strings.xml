@@ -55,6 +55,11 @@
     <string name="aven_download_success">Complete</string>
     <string name="aven_download_failed">Failed</string>
     <string name="aven_download_progress">%1$s · %2$d%%</string>
+    <string name="aven_download_started">Downloading %1$s</string>
+    <string name="aven_download_start_failed">Could not start the download.</string>
+    <string name="aven_install_allow">Allow Aven to install apps, then open the file again.</string>
+    <string name="aven_open_failed">No app on this device can open this file.</string>
+    <string name="aven_install">Install</string>
     <string name="aven_close">Close</string>
     <string name="aven_open_file">Open file</string>
     <string name="aven_cancel">Cancel</string>

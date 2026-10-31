@@ -8,6 +8,7 @@ import '../../core/platform/aven_flavor.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/platform/aven_layout.dart';
 import '../../data/settings_store.dart';
+import '../../platform/web_input.dart';
 import '../browser/gecko_engine.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -21,12 +22,9 @@ class LibraryPage extends StatefulWidget {
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  List<String> get _sections => AvenFlavor.isMobile
-      ? [avenText('aven_bookmarks'), avenText('aven_history'), avenText('aven_downloads')]
-      : [avenText('aven_bookmarks'), avenText('aven_history')];
-  static List<IconData> get _icons => AvenFlavor.isMobile
-      ? const [Icons.star_outline, Icons.history, Icons.download_outlined]
-      : const [Icons.star_outline, Icons.history];
+  List<String> get _sections =>
+      [avenText('aven_bookmarks'), avenText('aven_history'), avenText('aven_downloads')];
+  static const _icons = [Icons.star_outline, Icons.history, Icons.download_outlined];
   static const _linkLimit = 40;
 
   int _section = 0;
@@ -35,10 +33,8 @@ class _LibraryPageState extends State<LibraryPage> {
   List<WebLink> _history = const [];
   List<Map<String, String>> _downloads = const [];
   Timer? _downloadPoll;
-  late final List<FocusNode> _leftFocus = List.generate(
-    AvenFlavor.isMobile ? 3 : 2,
-    (index) => FocusNode(debugLabel: 'library-left-$index'),
-  );
+  late final List<FocusNode> _leftFocus =
+      List.generate(3, (index) => FocusNode(debugLabel: 'library-left-$index'));
   late final List<FocusNode> _rightFocus =
       List.generate(_linkLimit + 2, (index) => FocusNode(debugLabel: 'library-right-$index'));
   late final List<FocusNode> _deleteFocus =
@@ -84,16 +80,47 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
+  // Phone downloads go through Gecko's channel, TV ones through the main channel.
+  static Future<List<Map<String, String>>> _fetchDownloads() =>
+      AvenFlavor.isMobile ? GeckoPageEngine.fetchDownloads() : WebInput.listDownloads();
+
+  static Future<void> _openDownload(String id) =>
+      AvenFlavor.isMobile ? GeckoPageEngine.openSaved(id) : WebInput.openDownload(id);
+
+  static Future<void> _deleteDownload(String id) =>
+      AvenFlavor.isMobile ? GeckoPageEngine.cancelDownload(id) : WebInput.removeDownload(id);
+
+  Future<void> _removeDownloadAt(int index) async {
+    if (index < 0 || index >= _downloads.length) return;
+    final id = _downloads[index]['id'] ?? '';
+    if (id.isEmpty) return;
+    await _deleteDownload(id);
+    await _refreshDownloads();
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_downloads.isEmpty) {
+        _focusLeft(_section);
+      } else {
+        _requestRight(index.clamp(0, _downloads.length - 1));
+      }
+    });
+  }
+
   Future<void> _refreshDownloads() async {
-    if (!AvenFlavor.isMobile) return;
-    final downloads = await GeckoPageEngine.fetchDownloads();
+    final downloads = await _fetchDownloads();
     if (!mounted) return;
     setState(() => _downloads = downloads);
     _syncDownloadPoll();
   }
 
   String _downloadLabel(Map<String, String> item) {
-    return downloadStatusLabel(item['status'], item['progress']);
+    final label = downloadStatusLabel(item['status'], item['progress']);
+    // Finished APKs install on OK.
+    if (item['apk'] == 'true' && item['status'] == 'success') {
+      return '$label · ${avenText('aven_install')}';
+    }
+    return label;
   }
 
   Widget _downloadActions(Map<String, String> item) {
@@ -105,7 +132,7 @@ class _LibraryPageState extends State<LibraryPage> {
         if (done)
           IconButton(
             tooltip: avenText('aven_open'),
-            onPressed: id.isEmpty ? null : () => unawaited(GeckoPageEngine.openSaved(id)),
+            onPressed: id.isEmpty ? null : () => unawaited(_openDownload(id)),
             icon: const Icon(Icons.open_in_new, size: 20),
           ),
         IconButton(
@@ -113,7 +140,7 @@ class _LibraryPageState extends State<LibraryPage> {
           onPressed: id.isEmpty
               ? null
               : () async {
-                  await GeckoPageEngine.cancelDownload(id);
+                  await _deleteDownload(id);
                   await _refreshDownloads();
                 },
           icon: Icon(done ? Icons.delete_outline : Icons.close, size: 20),
@@ -146,9 +173,7 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _load() async {
     final bookmarks = await widget.store.loadBookmarks();
     final history = await widget.store.loadHistory();
-    final downloads = AvenFlavor.isMobile
-        ? await GeckoPageEngine.fetchDownloads()
-        : const <Map<String, String>>[];
+    final downloads = await _fetchDownloads();
     if (!mounted) return;
     setState(() {
       _bookmarks = bookmarks;
@@ -262,9 +287,23 @@ class _LibraryPageState extends State<LibraryPage> {
     _ensureVisible(node);
   }
 
+  /// Rows with a delete button: bookmarks and (on TV) downloads.
+  int get _deletableCount {
+    if (_section == 0) return _bookmarks.isEmpty ? 0 : _visibleLinks.length;
+    if (_section == 2 && !AvenFlavor.isMobile) return _downloads.length;
+    return 0;
+  }
+
+  void _removeAt(int index) {
+    if (_section == 2) {
+      _removeDownloadAt(index);
+    } else {
+      _removeBookmarkAt(index);
+    }
+  }
+
   void _requestDelete(int linkIndex) {
-    final links = _visibleLinks;
-    if (linkIndex < 0 || linkIndex >= links.length) return;
+    if (linkIndex < 0 || linkIndex >= _deletableCount) return;
     final node = _deleteFocus[linkIndex];
     node.requestFocus();
     _ensureVisible(node);
@@ -321,10 +360,9 @@ class _LibraryPageState extends State<LibraryPage> {
       _focusLeft(_section);
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.arrowRight && _section == 0 && _bookmarks.isNotEmpty) {
-      final linkIndex = index;
-      if (linkIndex >= 0 && linkIndex < _visibleLinks.length) {
-        _requestDelete(linkIndex);
+    if (key == LogicalKeyboardKey.arrowRight && _deletableCount > 0) {
+      if (index >= 0 && index < _deletableCount) {
+        _requestDelete(index);
         return KeyEventResult.handled;
       }
     }
@@ -359,7 +397,7 @@ class _LibraryPageState extends State<LibraryPage> {
   KeyEventResult _onDeleteKey(int linkIndex, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final key = event.logicalKey;
-    final count = _visibleLinks.length;
+    final count = _deletableCount;
     if (key == LogicalKeyboardKey.arrowLeft) {
       _requestRight(linkIndex);
       return KeyEventResult.handled;
@@ -379,7 +417,7 @@ class _LibraryPageState extends State<LibraryPage> {
         key == LogicalKeyboardKey.space ||
         key == LogicalKeyboardKey.backspace ||
         key == LogicalKeyboardKey.delete) {
-      _removeBookmarkAt(linkIndex);
+      _removeAt(linkIndex);
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -391,7 +429,7 @@ class _LibraryPageState extends State<LibraryPage> {
       final item = _downloads[index];
       final id = item['id'] ?? '';
       if (item['status'] == 'success' && id.isNotEmpty) {
-        unawaited(GeckoPageEngine.openSaved(id));
+        unawaited(_openDownload(id));
       }
       return;
     }
@@ -571,13 +609,26 @@ class _LibraryPageState extends State<LibraryPage> {
               row: !compact,
               onKeyEvent: (event) => _onRightKey(index, event),
               onTap: () => _activateRight(index),
-              leading: const Icon(Icons.download_done, size: 24),
+              onFocus: () {
+                if (_onLeft) setState(() => _onLeft = false);
+                _ensureVisible(_rightFocus[index]);
+              },
+              leading: Icon(
+                _downloads[index]['apk'] == 'true' ? Icons.android : Icons.download_done,
+                size: 24,
+              ),
               title: _downloads[index]['title']?.isNotEmpty == true
                   ? _downloads[index]['title']
                   : avenText('aven_download'),
               subtitle: _downloadLabel(_downloads[index]),
               progress: _downloadProgress(_downloads[index]),
-              trailing: _downloadActions(_downloads[index]),
+              trailing: compact
+                  ? _downloadActions(_downloads[index])
+                  : _DeleteButton(
+                      focusNode: _deleteFocus[index],
+                      onKeyEvent: (event) => _onDeleteKey(index, event),
+                      onTap: () => _removeDownloadAt(index),
+                    ),
             ),
         if (_section == 1)
           _LibraryTile(
