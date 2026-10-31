@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// Sends remote-control clicks into the Android WebView.
@@ -92,7 +93,59 @@ class WebInput {
     return _channel.invokeMethod<void>('setPageTyping', {'typing': typing});
   }
 
-  /// TV downloads (system DownloadManager); the phone uses Gecko's channel.
+  /// Find in page; returns the active match (1-based) and the match count.
+  static Future<Map<String, int>> pageFind(String query, {bool forward = true}) async {
+    final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>('pageFind', {
+      'query': query,
+      'forward': forward,
+    });
+    return {
+      'current': int.tryParse('${raw?['current']}') ?? 0,
+      'total': int.tryParse('${raw?['total']}') ?? 0,
+    };
+  }
+
+  static Future<void> pageClearFind() => _channel.invokeMethod<void>('pageClearFind');
+
+  /// Small JPEG of the page for the tab grid.
+  static Future<Uint8List?> pagePreview() async {
+    final raw = await _channel.invokeMethod<Uint8List>('pagePreview');
+    if (raw == null || raw.isEmpty) return null;
+    return raw;
+  }
+
+  /// Connection mode and certificate of the page on screen.
+  static Future<Map<String, String>> pageSecurity() async {
+    final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>('pageSecurity');
+    if (raw == null) return const {};
+    return {
+      for (final entry in raw.entries) entry.key.toString(): '${entry.value ?? ''}',
+    };
+  }
+
+  static Future<void> share(String text) {
+    return _channel.invokeMethod<void>('share', {'text': text});
+  }
+
+  static Future<void> saveUrl(String url) {
+    return _channel.invokeMethod<void>('saveUrl', {'url': url});
+  }
+
+  /// "on", "off" or "unsupported".
+  static Future<String> autofillStatus() async {
+    return await _channel.invokeMethod<String>('autofillStatus') ?? 'unsupported';
+  }
+
+  static Future<void> openAutofillSettings() {
+    return _channel.invokeMethod<void>('openAutofillSettings');
+  }
+
+  /// Asks Android for what a page request needs ("camera", "microphone", "location").
+  static Future<bool> ensurePermissions(List<String> kinds) async {
+    return await _channel.invokeMethod<bool>('ensurePermissions', {'kinds': kinds}) ?? false;
+  }
+
+  /// Downloads (system DownloadManager) for both builds.
   static Future<List<Map<String, String>>> listDownloads() async {
     final raw = await _channel.invokeMethod<List<dynamic>>('listDownloads');
     if (raw == null) return const [];

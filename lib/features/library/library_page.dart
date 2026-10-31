@@ -9,7 +9,6 @@ import '../../core/theme/aven_theme.dart';
 import '../../core/platform/aven_layout.dart';
 import '../../data/settings_store.dart';
 import '../../platform/web_input.dart';
-import '../browser/gecko_engine.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key, required this.store, this.initialSection = 0});
@@ -80,15 +79,11 @@ class _LibraryPageState extends State<LibraryPage> {
     }
   }
 
-  // Phone downloads go through Gecko's channel, TV ones through the main channel.
-  static Future<List<Map<String, String>>> _fetchDownloads() =>
-      AvenFlavor.isMobile ? GeckoPageEngine.fetchDownloads() : WebInput.listDownloads();
+  static Future<List<Map<String, String>>> _fetchDownloads() => WebInput.listDownloads();
 
-  static Future<void> _openDownload(String id) =>
-      AvenFlavor.isMobile ? GeckoPageEngine.openSaved(id) : WebInput.openDownload(id);
+  static Future<void> _openDownload(String id) => WebInput.openDownload(id);
 
-  static Future<void> _deleteDownload(String id) =>
-      AvenFlavor.isMobile ? GeckoPageEngine.cancelDownload(id) : WebInput.removeDownload(id);
+  static Future<void> _deleteDownload(String id) => WebInput.removeDownload(id);
 
   Future<void> _removeDownloadAt(int index) async {
     if (index < 0 || index >= _downloads.length) return;

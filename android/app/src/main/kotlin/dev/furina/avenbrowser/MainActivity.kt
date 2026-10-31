@@ -45,6 +45,7 @@ class MainActivity : FlutterActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 4101) EngineHooks.onRuntimePermissionResult(grantResults)
+        if (requestCode == WebPageTools.permissionCode) WebPageTools.onPermissionResult(grantResults)
         if (requestCode == 4102) {
             AvenCast.onPermission(requestCode, grantResults)
         }
@@ -58,8 +59,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         AdBlockLists.ensureLoaded(applicationContext)
-        // EasyList only feeds the TV WebView path; Gecko on the phone does not use it.
-        if (BuildConfig.FLAVOR == "tv") FilterLists.ensureLoaded(applicationContext)
+        FilterLists.ensureLoaded(applicationContext)
         EngineHooks.install(flutterEngine, this)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         AvenCast.attach(channel)
@@ -68,6 +68,48 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "flavor" -> result.success(BuildConfig.FLAVOR)
                     "listDownloads" -> result.success(AvenDownloads.list(this))
+                    "pageFind" -> {
+                        val webView = findWebView(window.decorView)
+                        if (webView == null) {
+                            result.success(mapOf("current" to 0, "total" to 0))
+                        } else {
+                            WebPageTools.find(
+                                webView,
+                                call.argument<String>("query") ?: "",
+                                call.argument<Boolean>("forward") != false,
+                                result,
+                            )
+                        }
+                    }
+                    "pageClearFind" -> {
+                        findWebView(window.decorView)?.let { WebPageTools.clearFind(it) }
+                        result.success(null)
+                    }
+                    "pagePreview" -> result.success(
+                        findWebView(window.decorView)?.let { WebPageTools.preview(it) },
+                    )
+                    "pageSecurity" -> result.success(
+                        findWebView(window.decorView)?.let { WebPageTools.security(it) } ?: emptyMap<String, String>(),
+                    )
+                    "share" -> {
+                        WebPageTools.share(this, call.argument<String>("text") ?: "")
+                        result.success(null)
+                    }
+                    "saveUrl" -> {
+                        val url = call.argument<String>("url") ?: ""
+                        AvenDownloads.startWithNotice(this, url, null, null, null)
+                        result.success(null)
+                    }
+                    "autofillStatus" -> result.success(WebPageTools.autofillStatus(this))
+                    "openAutofillSettings" -> {
+                        WebPageTools.openAutofillSettings(this)
+                        result.success(null)
+                    }
+                    "ensurePermissions" -> WebPageTools.ensurePermissions(
+                        this,
+                        call.argument<List<String>>("kinds").orEmpty(),
+                        result,
+                    )
                     "openDownload" -> {
                         call.argument<String>("id")?.toLongOrNull()?.let { AvenDownloads.open(this, it) }
                         result.success(null)
@@ -377,6 +419,7 @@ class MainActivity : FlutterActivity() {
             webView.addJavascriptInterface(AdBlockJsBridge { adBlockMode }, "AvenAdblock")
         } catch (_: Exception) {
         }
+        WebPageTools.attach(webView, channel)
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             AvenDownloads.startWithNotice(this, url, userAgent, contentDisposition, mimeType)
             channel.invokeMethod("downloadStarted", url)
@@ -398,7 +441,8 @@ class MainActivity : FlutterActivity() {
      */
     private fun tuneWebViewForTv(webView: WebView) {
         WebViewEngine.installEarly(applicationContext)
-        try {
+        // Phone: keep scrollbars and overscroll; pre-rastering costs memory there.
+        if (BuildConfig.FLAVOR == "tv") try {
             webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
             try {
                 WebView::class.java

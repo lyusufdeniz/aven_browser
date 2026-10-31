@@ -140,15 +140,25 @@ internal object AvenCast {
         server = socket
         Thread {
             while (!socket.isClosed) {
-                try {
-                    val client = socket.accept()
-                    client.soTimeout = 4000
-                    val line = client.getInputStream().bufferedReader().readLine()
-                    client.close()
-                    if (!line.isNullOrBlank()) deliver(line)
+                val client = try {
+                    socket.accept()
                 } catch (_: Throwable) {
                     break
                 }
+                // A client that times out or drops only loses its own link;
+                // the TV keeps listening for the next one.
+                val line = try {
+                    client.soTimeout = 4000
+                    client.getInputStream().bufferedReader().readLine()
+                } catch (_: Throwable) {
+                    null
+                } finally {
+                    try {
+                        client.close()
+                    } catch (_: Throwable) {
+                    }
+                }
+                if (!line.isNullOrBlank()) deliver(line)
             }
         }.start()
         val manager = context.getSystemService(NsdManager::class.java) ?: return

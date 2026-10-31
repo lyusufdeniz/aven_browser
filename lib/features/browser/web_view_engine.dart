@@ -5,9 +5,10 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../core/theme/aven_theme.dart';
+import '../../platform/web_input.dart';
 import 'page_engine.dart';
 
-/// TV engine: Android System WebView.
+/// Page engine for both builds: Android System WebView.
 class WebViewPageEngine implements PageEngine {
   WebViewPageEngine({
     required void Function(String url) onPageStarted,
@@ -16,6 +17,7 @@ class WebViewPageEngine implements PageEngine {
     required NavigationDecision Function(NavigationRequest request) onNavigationRequest,
     required void Function(WebResourceError error) onError,
     required void Function(HttpResponseError error) onHttpError,
+    this.onPermission,
   }) {
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -34,6 +36,9 @@ class WebViewPageEngine implements PageEngine {
 
   late final WebViewController controller;
 
+  /// Decides a page request for "camera", "microphone" or "location" on [host].
+  final Future<bool> Function(String host, List<String> kinds)? onPermission;
+
   @override
   Future<void> configure({
     required bool lite,
@@ -48,6 +53,32 @@ class WebViewPageEngine implements PageEngine {
     await platform.setCustomWidgetCallbacks(
       onShowCustomWidget: onShowFullscreen,
       onHideCustomWidget: onHideFullscreen,
+    );
+    final decide = onPermission;
+    if (decide == null) return;
+    await platform.setOnPlatformPermissionRequest((request) async {
+      final kinds = <String>[
+        if (request.types.contains(WebViewPermissionResourceType.camera)) 'camera',
+        if (request.types.contains(WebViewPermissionResourceType.microphone)) 'microphone',
+      ];
+      // DRM (protected media) needs no prompt; video sites rely on it.
+      if (kinds.isEmpty) {
+        await request.grant();
+        return;
+      }
+      final host = Uri.tryParse(await controller.currentUrl() ?? '')?.host ?? '';
+      if (await decide(host, kinds)) {
+        await request.grant();
+      } else {
+        await request.deny();
+      }
+    });
+    await platform.setGeolocationPermissionsPromptCallbacks(
+      onShowPrompt: (request) async {
+        final host = Uri.tryParse(request.origin)?.host ?? request.origin;
+        final allow = await decide(host, const ['location']);
+        return GeolocationPermissionsResponse(allow: allow, retain: false);
+      },
     );
   }
 
@@ -114,11 +145,11 @@ class WebViewPageEngine implements PageEngine {
   Future<void> setPrivate(bool enabled) async {}
 
   @override
-  Future<Map<String, int>> findInPage(String query, {bool forward = true}) async =>
-      const {};
+  Future<Map<String, int>> findInPage(String query, {bool forward = true}) =>
+      WebInput.pageFind(query, forward: forward);
 
   @override
-  Future<void> clearFind() async {}
+  Future<void> clearFind() => WebInput.pageClearFind();
 
   @override
   Future<List<Map<String, String>>> listDownloads() async => const [];

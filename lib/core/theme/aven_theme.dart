@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../platform/aven_flavor.dart';
+
 
 /// Phone appearance. `system` follows the device, `light` is white, `dark` uses the TV palette.
 final avenThemeChoice = ValueNotifier<String>('system');
@@ -47,6 +49,8 @@ abstract final class AvenColors {
 
   /// Dark theme for both builds: TV and the phone's dark mode share one palette.
   static ThemeData theme() {
+    // Remote-sized buttons on TV; normal Material sizes on the phone.
+    final tv = !AvenFlavor.isMobile;
     return ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: background,
@@ -114,18 +118,18 @@ abstract final class AvenColors {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: text,
-          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          minimumSize: const Size(120, 52),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          textStyle: TextStyle(fontSize: tv ? 18 : 15, fontWeight: FontWeight.w600),
+          minimumSize: tv ? const Size(120, 52) : null,
+          padding: tv ? const EdgeInsets.symmetric(horizontal: 20, vertical: 14) : null,
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           foregroundColor: onFocus,
           backgroundColor: accent,
-          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-          minimumSize: const Size(120, 52),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          textStyle: TextStyle(fontSize: tv ? 18 : 15, fontWeight: FontWeight.w700),
+          minimumSize: tv ? const Size(120, 52) : null,
+          padding: tv ? const EdgeInsets.symmetric(horizontal: 20, vertical: 14) : null,
         ),
       ),
       dividerColor: text.withValues(alpha: 0.13),

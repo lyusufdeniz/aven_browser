@@ -92,9 +92,6 @@ flutter {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
-    // Phone APK only. TV stays on the system WebView.
-    // 152 stays on compileSdk 36. Newer betas pull AndroidX that wants API 37.
-    add("mobileImplementation", "org.mozilla.geckoview:geckoview-beta:152.0.20260610111934")
     // TV only: the "Aven" row on the Android TV home screen.
     add("tvImplementation", "androidx.tvprovider:tvprovider:1.0.0")
 }

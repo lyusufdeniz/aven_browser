@@ -65,6 +65,8 @@
     <string name="aven_cancel">Cancel</string>
     <string name="aven_open">Open</string>
     <string name="aven_delete">Delete</string>
+    <string name="aven_tab_count_one">1 tab</string>
+    <string name="aven_tab_count">%1$d tabs</string>
     <string name="aven_new_tab">New tab</string>
     <string name="aven_new_private">New Incognito tab</string>
     <string name="aven_reload">Reload</string>

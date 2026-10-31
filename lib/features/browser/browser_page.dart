@@ -21,7 +21,6 @@ import '../library/library_page.dart';
 import '../player/video_catalog.dart';
 import '../player/video_player_page.dart';
 import '../settings/settings_page.dart';
-import 'gecko_engine.dart';
 import 'media_site.dart';
 import 'page_engine.dart';
 import 'reader_mode.dart';
@@ -135,6 +134,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   /// Phone: a page video is fullscreen inside GeckoView, so the browser
   /// chrome and system bars step aside.
   bool _pageFullscreen = false;
+  Timer? _downloadPoll;
   VoidCallback? _exitFullscreen;
 
   late final Ticker _ticker;
@@ -170,6 +170,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   Timer? _previewTimer;
   bool _voiceBusy = false;
   final _findText = TextEditingController();
+  final _findFocus = FocusNode();
   List<SearchSuggestion> _omniboxSuggestions = const [];
   List<Map<String, String>> _liveDownloads = const [];
   String? _toastHoldId;
@@ -210,6 +211,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   Future<void> _installBannerCss();
   Future<void> _installLiteCss();
   Future<void> _installAdblockCss();
+  Future<void> _refreshSecurity();
   Future<void> _installMediaSiteHints();
   Future<void> _openInput(String raw);
   void _syncChrome();
@@ -232,6 +234,12 @@ class _BrowserPageState extends _BrowserPageBase
         _onWatchedMedia(call.arguments as String);
       } else if (call.method == 'downloadStarted') {
         unawaited(_leaveDownloadPage('${call.arguments ?? ''}'));
+        if (AvenFlavor.isMobile) _watchDownloads();
+      } else if (call.method == 'contextMenu' && call.arguments is Map) {
+        final raw = Map<Object?, Object?>.from(call.arguments as Map);
+        unawaited(_showContextMenu({
+          for (final entry in raw.entries) '${entry.key}': '${entry.value ?? ''}',
+        }));
       } else if (call.method == 'cast' && call.arguments is Map) {
         final raw = Map<Object?, Object?>.from(call.arguments as Map);
         final url = '${raw['url'] ?? ''}';
@@ -248,30 +256,15 @@ class _BrowserPageState extends _BrowserPageBase
         _wakeSurface();
       }
     }
-    if (AvenFlavor.isMobile) {
-      _controller = GeckoPageEngine(
-        onPageStarted: _onPageStarted,
-        onPageFinished: (url) => unawaited(_onPageFinished(url)),
-        onProgress: onProgress,
-        onError: _onError,
-        onExternal: (url) => unawaited(_confirmOpenExternal(url)),
-        onNewTab: (url) => unawaited(_openSpawnedLink(url)),
-        onSecurity: _onSecurity,
-        onPermissionPrompt: _confirmPermission,
-        onContextMenu: _showContextMenu,
-        onDownloads: _onDownloadList,
-        onFullscreen: _onPageFullscreen,
-      );
-    } else {
-      _controller = WebViewPageEngine(
-        onPageStarted: _onPageStarted,
-        onPageFinished: (url) => unawaited(_onPageFinished(url)),
-        onProgress: onProgress,
-        onNavigationRequest: _onNavigationRequest,
-        onError: _onError,
-        onHttpError: _onHttpError,
-      );
-    }
+    _controller = WebViewPageEngine(
+      onPageStarted: _onPageStarted,
+      onPageFinished: (url) => unawaited(_onPageFinished(url)),
+      onProgress: onProgress,
+      onNavigationRequest: _onNavigationRequest,
+      onError: _onError,
+      onHttpError: _onHttpError,
+      onPermission: AvenFlavor.isMobile ? _decidePermission : null,
+    );
     _address.addListener(_onAddressEdited);
     _boot();
   }
@@ -286,6 +279,50 @@ class _BrowserPageState extends _BrowserPageBase
     unawaited(SystemChrome.setEnabledSystemUIMode(
       fullscreen ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
     ));
+  }
+
+  /// Phone: page permission requests, remembered per site like a browser does.
+  Future<bool> _decidePermission(String host, List<String> kinds) async {
+    final incognito = _tabIndex < _tabs.length && _tabs[_tabIndex].incognito;
+    for (final kind in kinds) {
+      var choice = host.isEmpty ? 'ask' : await _store.loadSitePermission(host, kind);
+      if (choice == 'ask') {
+        final allow = await _confirmPermission(
+          host.isEmpty ? avenText('aven_this_site') : host,
+          permissionLabel(kind),
+        );
+        choice = allow ? 'allow' : 'block';
+        if (!incognito && host.isNotEmpty) {
+          await _store.saveSitePermission(host, kind, choice);
+        }
+      }
+      if (choice != 'allow') return false;
+    }
+    // The page may use it only if Android lets Aven use it too.
+    return WebInput.ensurePermissions(kinds);
+  }
+
+  /// Phone: follow downloads started from the page for the progress toast.
+  void _watchDownloads() {
+    _downloadPoll?.cancel();
+    Future<void> tick() async {
+      final items = await WebInput.listDownloads();
+      if (!mounted) return;
+      _onDownloadList(items);
+      if (!items.any((item) => downloadIsActive(item['status']))) {
+        _downloadPoll?.cancel();
+        _downloadPoll = null;
+      }
+    }
+
+    unawaited(tick());
+    _downloadPoll = Timer.periodic(const Duration(milliseconds: 700), (_) => unawaited(tick()));
+  }
+
+  @override
+  Future<void> _refreshSecurity() async {
+    if (!AvenFlavor.isMobile || _onStart) return;
+    _onSecurity(await WebInput.pageSecurity());
   }
 
   void _onDownloadList(List<Map<String, String>> items) {
@@ -446,6 +483,7 @@ class _BrowserPageState extends _BrowserPageBase
           _exitFullscreen = onHide;
           _onStart = false;
         });
+        if (AvenFlavor.isMobile) _onPageFullscreen(true);
         _syncChrome();
         _cursorVisible.value = true;
         _bumpCursor();
@@ -458,6 +496,7 @@ class _BrowserPageState extends _BrowserPageBase
           _fullscreenVideo = null;
           _exitFullscreen = null;
         });
+        if (AvenFlavor.isMobile) _onPageFullscreen(false);
         _syncChrome();
         _cursorVisible.value = true;
         _cursorHide?.cancel();
@@ -880,8 +919,7 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _offerAutofill() async {
-    if (_controller is! GeckoPageEngine) return;
-    final status = await (_controller as GeckoPageEngine).requestAutofill();
+    final status = await WebInput.autofillStatus();
     if (!mounted || status != 'off' || _autofillPrompted) return;
     _autofillPrompted = true;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -889,10 +927,7 @@ class _BrowserPageState extends _BrowserPageBase
         content: Text(avenText('aven_autofill_off')),
         action: SnackBarAction(
           label: avenText('aven_turn_on'),
-          onPressed: () {
-            final engine = _controller;
-            if (engine is GeckoPageEngine) unawaited(engine.openAutofillSettings());
-          },
+          onPressed: () => unawaited(WebInput.openAutofillSettings()),
         ),
       ),
     );
@@ -1388,9 +1423,9 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _captureCurrentTab() async {
-    if (!AvenFlavor.isMobile || _onStart || _controller is! GeckoPageEngine) return;
+    if (!AvenFlavor.isMobile || _onStart) return;
     if (_tabIndex < 0 || _tabIndex >= _tabs.length) return;
-    final bytes = await (_controller as GeckoPageEngine).capturePreview();
+    final bytes = await WebInput.pagePreview();
     if (bytes == null || !mounted || _tabIndex >= _tabs.length) return;
     _tabs[_tabIndex].preview = bytes;
   }
@@ -1518,11 +1553,7 @@ class _BrowserPageState extends _BrowserPageBase
                 ListTile(
                   leading: const Icon(Icons.share_outlined),
                   title: Text(avenText('aven_share_link')),
-                  onTap: () => unawaited(go(() async {
-                    if (_controller is GeckoPageEngine) {
-                      await (_controller as GeckoPageEngine).share(link);
-                    }
-                  })),
+                  onTap: () => unawaited(go(() => WebInput.share(link))),
                 ),
               ],
               if (hasImage) ...[
@@ -1534,7 +1565,7 @@ class _BrowserPageState extends _BrowserPageBase
                 ListTile(
                   leading: const Icon(Icons.download_outlined),
                   title: Text(avenText('aven_save_image')),
-                  onTap: () => unawaited(go(() => GeckoPageEngine.saveUrl(src))),
+                  onTap: () => unawaited(go(() => WebInput.saveUrl(src))),
                 ),
                 ListTile(
                   leading: const Icon(Icons.copy),
@@ -1599,8 +1630,8 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _showSecurity() async {
-    if (_controller is! GeckoPageEngine || _onStart) return;
-    final info = await (_controller as GeckoPageEngine).securityInfo();
+    if (_onStart) return;
+    final info = await WebInput.pageSecurity();
     if (!mounted) return;
     final mode = info['mode'] ?? _connection;
     final host = info['host']?.isNotEmpty == true
@@ -1684,11 +1715,13 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _showSiteSettings() async {
-    if (_controller is! GeckoPageEngine) return;
-    final engine = _controller as GeckoPageEngine;
-    final items = await engine.siteSettings();
+    final host = _onStart ? '' : (Uri.tryParse(_pageUrl ?? '')?.host ?? '');
+    final items = <Map<String, String>>[
+      if (host.isNotEmpty)
+        for (final id in const ['location', 'camera', 'microphone'])
+          {'id': id, 'value': await _store.loadSitePermission(host, id), 'fallback': 'ask'},
+    ];
     if (!mounted) return;
-    final host = items.isEmpty ? '' : (items.first['host'] ?? '');
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: AvenTone.elevated(context),
@@ -1717,7 +1750,8 @@ class _BrowserPageState extends _BrowserPageBase
                         label: permissionLabel(item['id'] ?? ''),
                         value: item['value'] ?? 'ask',
                         fallback: item['fallback'] ?? 'ask',
-                        onChanged: (value) => unawaited(engine.setSiteSetting(item['id'] ?? '', value)),
+                        onChanged: (value) =>
+                            unawaited(_store.saveSitePermission(host, item['id'] ?? '', value)),
                       ),
                     const SizedBox(height: 8),
                   ],
@@ -1784,12 +1818,11 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _sharePage() async {
-    if (_controller is! GeckoPageEngine) return;
     final url = _pageUrl;
     if (url == null || url.isEmpty) return;
     final title = _pageTitle?.trim() ?? '';
     final text = title.isEmpty ? url : '$title\n$url';
-    await (_controller as GeckoPageEngine).share(text);
+    await WebInput.share(text);
   }
 
   void _selectTab(int index) {
@@ -1839,13 +1872,14 @@ class _BrowserPageState extends _BrowserPageBase
     if (_exitDialogOpen) return;
     _lastBack = now;
     if (AvenFlavor.isMobile) {
-      if (_pageFullscreen) {
-        final engine = _controller;
-        if (engine is GeckoPageEngine) {
-          unawaited(engine.exitFullscreen());
-        } else {
-          _onPageFullscreen(false);
-        }
+      if (_fullscreenVideo != null) {
+        final exit = _exitFullscreen;
+        setState(() {
+          _fullscreenVideo = null;
+          _exitFullscreen = null;
+        });
+        exit?.call();
+        _onPageFullscreen(false);
         return;
       }
       if (_findOpen) {
@@ -1914,6 +1948,8 @@ class _BrowserPageState extends _BrowserPageBase
 
   @override
   void dispose() {
+    _downloadPoll?.cancel();
+    _findFocus.dispose();
     HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     _input.setHandler(null);
     for (final timer in _arrowRelease.values) {
@@ -2171,7 +2207,8 @@ class _BrowserPageState extends _BrowserPageBase
                   child: _fullscreenVideo!,
                 ),
               ),
-            if (_fullscreenVideo != null)
+            // The remote cursor over fullscreen video is a TV thing.
+            if (_fullscreenVideo != null && !AvenFlavor.isMobile)
               ValueListenableBuilder<bool>(
                 valueListenable: _cursorVisible,
                 builder: (context, visible, _) {
@@ -2210,12 +2247,13 @@ class _BrowserPageState extends _BrowserPageBase
                     child: ListenableBuilder(
                     listenable: Listenable.merge([_startFocus, _addressFocus, _address]),
                     builder: (context, _) {
-                  final atTop = true;
+                  // Start screen: the search bar sits in the middle; on a page it moves up.
+                  final atTop = !_onStart;
                   return LayoutBuilder(
                     builder: (context, constraints) {
                       final fieldTop = atTop
                           ? 4.0
-                          : (constraints.maxHeight - 52) / 2 - 28;
+                          : _phoneSearchTop(constraints.maxHeight);
                       return Stack(
                         children: [
                           Padding(
@@ -2324,17 +2362,18 @@ class _BrowserPageState extends _BrowserPageBase
                 onOpen: () {
                   final id = _toastDownload?['id'] ?? '';
                   if (id.isEmpty) return;
-                  unawaited(GeckoPageEngine.openSaved(id));
+                  unawaited(WebInput.openDownload(id));
                   setState(() => _toastHoldId = null);
                 },
                 onCancel: () {
                   final id = _toastDownload?['id'] ?? '';
                   if (id.isEmpty) return;
-                  unawaited(GeckoPageEngine.cancelDownload(id));
+                  unawaited(WebInput.removeDownload(id));
                 },
                 onDismiss: () => setState(() => _toastHoldId = null),
               ),
-            if (AvenFlavor.isMobile && !_pageFullscreen)
+            // The find bar takes the toolbar's place while it is open.
+            if (AvenFlavor.isMobile && !_pageFullscreen && !_findOpen)
               _PhoneTopBar(
                 tabCount: _tabs.length,
                 canBack: _canBack,
@@ -2366,7 +2405,12 @@ class _BrowserPageState extends _BrowserPageBase
                 onIncognito: () => unawaited(_newIncognitoTab()),
                 onFind: () {
                   if (_onStart) return;
+                  _addressFocus.unfocus();
                   setState(() => _findOpen = true);
+                  // The menu sheet hands focus back as it closes; take it after that.
+                  Future<void>.delayed(const Duration(milliseconds: 300), () {
+                    if (mounted && _findOpen) _findFocus.requestFocus();
+                  });
                 },
                 onDownloads: () => unawaited(_openLibrary(section: 2)),
                 onCast: () => unawaited(_shareWithTv()),
@@ -2393,6 +2437,7 @@ class _BrowserPageState extends _BrowserPageBase
                       Expanded(
                         child: TextField(
                           controller: _findText,
+                          focusNode: _findFocus,
                           autofocus: true,
                           decoration: InputDecoration(
                             hintText: avenText('aven_find'),

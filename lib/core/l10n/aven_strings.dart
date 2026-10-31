@@ -21,12 +21,14 @@ class AvenStrings {
 
 String avenText(String key, [List<Object>? args]) {
   var text = AvenStrings.values[key] ?? key;
-  if (args == null) return text;
-  for (var i = 0; i < args.length; i++) {
-    final n = i + 1;
-    text = text.replaceAll('%$n\$s', '${args[i]}').replaceAll('%$n\$d', '${args[i]}');
+  if (args != null) {
+    for (var i = 0; i < args.length; i++) {
+      final n = i + 1;
+      text = text.replaceAll('%$n\$s', '${args[i]}').replaceAll('%$n\$d', '${args[i]}');
+    }
   }
-  return text;
+  // Android resources write a literal percent sign as "%%".
+  return text.replaceAll('%%', '%');
 }
 
 String downloadStatusText(String? code) {

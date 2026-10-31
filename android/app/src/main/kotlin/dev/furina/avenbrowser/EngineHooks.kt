@@ -4,7 +4,7 @@ import android.app.Activity
 import android.app.Application
 import io.flutter.embedding.engine.FlutterEngine
 
-/** TV build: system WebView. Gecko classes are not on this classpath. */
+/** Both builds run on the system WebView; these hooks stay as no-op seams. */
 internal object EngineHooks {
     fun installEarly(app: Application) {
         WebViewEngine.installEarly(app)

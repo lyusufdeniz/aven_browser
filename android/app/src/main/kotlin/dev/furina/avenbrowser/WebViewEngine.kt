@@ -103,6 +103,9 @@ internal object WebViewEngine {
     }
 
     fun tuneSettings(settings: WebSettings) {
+        // Phone pages pinch-zoom, may ask for location and keep Safe Browsing;
+        // the TV drives zoom from the menu and skips those costs.
+        val phone = BuildConfig.FLAVOR != "tv"
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.domStorageEnabled = true
         @Suppress("DEPRECATION")
@@ -115,14 +118,14 @@ internal object WebViewEngine {
         settings.mediaPlaybackRequiresUserGesture = false
         settings.loadsImagesAutomatically = true
         settings.blockNetworkImage = false
-        settings.builtInZoomControls = false
+        settings.builtInZoomControls = phone
         settings.displayZoomControls = false
-        settings.setSupportZoom(false)
+        settings.setSupportZoom(phone)
         settings.loadWithOverviewMode = true
         settings.useWideViewPort = true
         settings.allowFileAccess = false
         settings.allowContentAccess = false
-        settings.setGeolocationEnabled(false)
+        settings.setGeolocationEnabled(phone)
         @Suppress("DEPRECATION")
         try {
             settings.saveFormData = false
@@ -132,7 +135,7 @@ internal object WebViewEngine {
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            settings.safeBrowsingEnabled = false
+            settings.safeBrowsingEnabled = phone
         }
         // Deprecated but still honored on many TV WebView builds — bumps compositor.
         try {

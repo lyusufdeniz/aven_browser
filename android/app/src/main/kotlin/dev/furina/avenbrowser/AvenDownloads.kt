@@ -14,8 +14,8 @@ import android.webkit.URLUtil
 import android.widget.Toast
 
 /**
- * Downloads through Android's DownloadManager, shared by the phone (Gecko)
- * and TV (WebView) builds. Files land in the public Downloads folder; APKs
+ * Downloads through Android's DownloadManager for the WebView page (phone
+ * and TV). Files land in the public Downloads folder; APKs
  * open in the system installer.
  */
 internal object AvenDownloads {

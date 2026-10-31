@@ -74,6 +74,7 @@ mixin _BrowserNavigation on _BrowserPageBase {
     if (_lite) await _installLiteCss();
     if (_adBlock != AdBlock.off) await _installAdblockCss();
     await _installMediaSiteHints();
+    unawaited(_refreshSecurity());
     await _input.watchMedia();
     final title = await _controller.getTitle();
     final back = await _controller.canGoBack();

@@ -332,7 +332,7 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          FocusTraversalOrder(
+                          Flexible(child: FocusTraversalOrder(
                             order: const NumericFocusOrder(0),
                             child: _ErrorAction(
                               focusNode: _retryFocus,
@@ -341,9 +341,9 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                               onPressed: widget.onRetry,
                               onKeyEvent: (event) => _onKey(0, event),
                             ),
-                          ),
+                          )),
                           const SizedBox(width: 14),
-                          FocusTraversalOrder(
+                          Flexible(child: FocusTraversalOrder(
                             order: const NumericFocusOrder(1),
                             child: _ErrorAction(
                               focusNode: _homeFocus,
@@ -352,7 +352,7 @@ class _PageErrorOverlayState extends State<_PageErrorOverlay> {
                               onPressed: widget.onHome,
                               onKeyEvent: (event) => _onKey(1, event),
                             ),
-                          ),
+                          )),
                         ],
                       ),
                     ],
@@ -411,7 +411,8 @@ class _ErrorAction extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 side: BorderSide.none,
-                minimumSize: const Size(160, 52),
+                // Two of these share a phone-width row.
+                minimumSize: Size(AvenFlavor.isMobile ? 0 : 160, 52),
                 textStyle: const TextStyle(fontSize: 16),
               ),
             ),
@@ -1001,6 +1002,111 @@ class _StartPageState extends State<_StartPage> {
     };
   }
 
+  /// Phone start: fixed, no scrolling. The search bar floats at the middle
+  /// (see the omnibox in BrowserPage); recents fill only the room left.
+  Widget _phoneStart(BuildContext context, double height) {
+    const recentRow = 64.0;
+    final top = (_phoneSearchTop(height) - 8 - 48 - 28).clamp(8.0, double.infinity);
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: SizedBox(
+        // Keyboard or split screen: keep the column valid instead of overflowing.
+        height: height < 420 ? 420 : height,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(height: top + 8),
+            const Text(
+              'aven',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Cal Sans',
+                fontSize: 48,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -1.2,
+                height: 1,
+              ),
+            ),
+            // Room for the floating search bar.
+            const SizedBox(height: 28 + 56 + 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _PhoneShortcut(
+                  icon: Icons.history,
+                  label: avenText('aven_history'),
+                  onPressed: widget.onOpenHistory,
+                ),
+                _PhoneShortcut(
+                  icon: Icons.star_outline,
+                  label: avenText('aven_bookmarks'),
+                  onPressed: widget.onOpenBookmarks,
+                ),
+                _PhoneShortcut(
+                  icon: Icons.download_outlined,
+                  label: avenText('aven_downloads'),
+                  onPressed: widget.onOpenDownloads,
+                ),
+                _PhoneShortcut(
+                  icon: Icons.settings,
+                  label: avenText('aven_settings'),
+                  onPressed: widget.onSettings,
+                ),
+              ],
+            ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  final fits = ((box.maxHeight - 28 - 22 - 8) / recentRow).floor();
+                  final items = widget.history.take(fits.clamp(0, 4)).toList();
+                  if (items.isEmpty) return const SizedBox.shrink();
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const SizedBox(height: 28),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                        child: Text(
+                          avenText('aven_recent'),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AvenTone.textMuted(context),
+                          ),
+                        ),
+                      ),
+                      for (final item in items)
+                        SizedBox(
+                          height: recentRow,
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                            leading: _SiteIcon(url: item.url),
+                            title: Text(
+                              item.title.trim().isEmpty ? item.url : item.title.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              Uri.tryParse(item.url)?.host ?? item.url,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: () => widget.onSubmit(item.url),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bookmarks = widget.bookmarks.take(_bookmarkLimit).toList();
@@ -1013,6 +1119,7 @@ class _StartPageState extends State<_StartPage> {
             : AvenColors.background,
         child: LayoutBuilder(
           builder: (context, constraints) {
+            if (widget.phone) return _phoneStart(context, constraints.maxHeight);
             return SingleChildScrollView(
               controller: _pageScroll,
               physics: const ClampingScrollPhysics(),
@@ -1030,9 +1137,7 @@ class _StartPageState extends State<_StartPage> {
                   maxWidth: 980,
                 ),
                 child: Column(
-                  mainAxisAlignment: widget.phone
-                      ? MainAxisAlignment.center
-                      : MainAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const SizedBox(height: 8),
@@ -1047,37 +1152,6 @@ class _StartPageState extends State<_StartPage> {
                         height: 1,
                       ),
                     ),
-                    if (widget.phone && widget.history.isNotEmpty) ...[
-                      const SizedBox(height: 18),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-                        child: Text(
-                          avenText('aven_recent'),
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AvenTone.textMuted(context),
-                          ),
-                        ),
-                      ),
-                      for (final item in widget.history.take(3))
-                        ListTile(
-                          dense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                          leading: const Icon(Icons.public, size: 20),
-                          title: Text(
-                            item.title.trim().isEmpty ? item.url : item.title.trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: Text(
-                            Uri.tryParse(item.url)?.host ?? item.url,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onTap: () => widget.onSubmit(item.url),
-                        ),
-                    ],
                     if (!widget.phone) ...[
                     const SizedBox(height: 18),
                     FocusTraversalOrder(
@@ -1151,37 +1225,7 @@ class _StartPageState extends State<_StartPage> {
                       ),
                     ),
                     ],
-                    if (widget.phone)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 28),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _PhoneShortcut(
-                              icon: Icons.history,
-                              label: avenText('aven_history'),
-                              onPressed: widget.onOpenHistory,
-                            ),
-                            _PhoneShortcut(
-                              icon: Icons.star_outline,
-                              label: avenText('aven_bookmarks'),
-                              onPressed: widget.onOpenBookmarks,
-                            ),
-                            _PhoneShortcut(
-                              icon: Icons.download_outlined,
-                              label: avenText('aven_downloads'),
-                              onPressed: widget.onOpenDownloads,
-                            ),
-                            _PhoneShortcut(
-                              icon: Icons.settings,
-                              label: avenText('aven_settings'),
-                              onPressed: widget.onSettings,
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      const SizedBox(height: 16),
+                    if (!widget.phone) const SizedBox(height: 16),
                     if (!widget.phone)
                       Center(
                         child: Row(
@@ -1878,6 +1922,39 @@ class _StartAction extends StatelessWidget {
   }
 }
 
+/// Top of the phone search bar on the start screen: the middle of the page.
+/// BrowserPage places the omnibox here; the start page leaves room for it.
+/// Site favicon (Google's favicon service), a globe when there is none.
+class _SiteIcon extends StatelessWidget {
+  const _SiteIcon({required this.url, this.size = 20});
+
+  final String? url;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Icon(Icons.public, size: size, color: AvenTone.textMuted(context));
+    final host = Uri.tryParse(url ?? '')?.host ?? '';
+    if (host.isEmpty) return fallback;
+    final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size / 5),
+      child: Image.network(
+        'https://www.google.com/s2/favicons?domain=$host&sz=64',
+        width: size,
+        height: size,
+        fit: BoxFit.contain,
+        cacheWidth: px,
+        cacheHeight: px,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stack) => fallback,
+      ),
+    );
+  }
+}
+
+double _phoneSearchTop(double height) => ((height - 52) / 2 - 28).clamp(4.0, double.infinity);
+
 class _PhoneShortcut extends StatelessWidget {
   const _PhoneShortcut({
     required this.icon,
@@ -2350,149 +2427,138 @@ class _PhoneTopBar extends StatelessWidget {
   void _openMenu(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AvenTone.elevated(context),
+      backgroundColor: AvenTone.background(context),
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) {
+        void run(VoidCallback action) {
+          Navigator.pop(context);
+          action();
+        }
+
+        var shownZoom = zoom;
         return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.add),
-                title: Text(avenText('aven_new_tab')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onNewTab();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.visibility_off_outlined),
-                title: Text(avenText('aven_new_private')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onIncognito();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.refresh),
-                title: Text(avenText('aven_reload')),
-                enabled: canReload,
-                onTap: canReload
-                    ? () {
-                        Navigator.pop(context);
-                        onReload();
-                      }
-                    : null,
-              ),
-              ListTile(
-                leading: Icon(saved ? Icons.star : Icons.star_border),
-                title: Text(saved ? avenText('aven_bookmark_remove') : avenText('aven_bookmark_add')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onBookmark();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.history),
-                title: Text(avenText('aven_library')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onLibrary();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.download_outlined),
-                title: Text(avenText('aven_downloads')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onDownloads();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.connected_tv),
-                title: Text(playingVideo ? avenText('aven_cast_play') : avenText('aven_cast_share')),
-                enabled: canShare,
-                onTap: canShare
-                    ? () {
-                        Navigator.pop(context);
-                        onCast();
-                      }
-                    : null,
-              ),
-              ListTile(
-                leading: const Icon(Icons.search),
-                title: Text(avenText('aven_find')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onFind();
-                },
-              ),
-              ListTile(
-                leading: Icon(desktopSite ? Icons.phone_android : Icons.desktop_windows_outlined),
-                title: Text(desktopSite ? avenText('aven_site_mobile') : avenText('aven_site_desktop')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onToggleDesktop();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.tune),
-                title: Text(avenText('aven_site_settings')),
-                enabled: canShare,
-                onTap: canShare
-                    ? () {
-                        Navigator.pop(context);
-                        onSiteSettings();
-                      }
-                    : null,
-              ),
-              ListTile(
-                leading: const Icon(Icons.chrome_reader_mode_outlined),
-                title: Text(readerOn ? avenText('aven_reader_off') : avenText('aven_reader_on')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onToggleReader();
-                },
-              ),
-              ListTile(
-                leading: Icon(adBlockOn ? Icons.shield : Icons.shield_outlined),
-                title: Text(adBlockOn ? avenText('aven_adblock_turn_off') : avenText('aven_adblock_turn_on')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onToggleAdBlock();
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-                child: Row(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                GridView.count(
+                  crossAxisCount: 4,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 6,
+                  childAspectRatio: 0.82,
                   children: [
-                    const Icon(Icons.zoom_in),
-                    const SizedBox(width: 16),
-                    Expanded(child: Text(avenText('aven_zoom_percent', [zoom]))),
-                    IconButton(
-                      onPressed: onZoomOut,
-                      icon: const Icon(Icons.remove),
+                    _MenuTile(
+                      icon: Icons.add,
+                      label: avenText('aven_new_tab'),
+                      onTap: () => run(onNewTab),
                     ),
-                    IconButton(
-                      onPressed: onZoomReset,
-                      icon: const Icon(Icons.replay),
+                    _MenuTile(
+                      icon: Icons.visibility_off_outlined,
+                      label: avenText('aven_private'),
+                      onTap: () => run(onIncognito),
                     ),
-                    IconButton(
-                      onPressed: onZoomIn,
-                      icon: const Icon(Icons.add),
+                    _MenuTile(
+                      icon: saved ? Icons.star : Icons.star_border,
+                      label: avenText('aven_bookmark'),
+                      active: saved,
+                      onTap: canShare ? () => run(onBookmark) : null,
+                    ),
+                    _MenuTile(
+                      icon: Icons.refresh,
+                      label: avenText('aven_reload'),
+                      onTap: canReload ? () => run(onReload) : null,
+                    ),
+                    _MenuTile(
+                      icon: Icons.history,
+                      label: avenText('aven_library'),
+                      onTap: () => run(onLibrary),
+                    ),
+                    _MenuTile(
+                      icon: Icons.download_outlined,
+                      label: avenText('aven_downloads'),
+                      onTap: () => run(onDownloads),
+                    ),
+                    _MenuTile(
+                      icon: Icons.search,
+                      label: avenText('aven_find'),
+                      onTap: canReload ? () => run(onFind) : null,
+                    ),
+                    _MenuTile(
+                      icon: Icons.connected_tv,
+                      label: playingVideo ? avenText('aven_cast_play') : avenText('aven_cast_share'),
+                      onTap: canShare ? () => run(onCast) : null,
                     ),
                   ],
                 ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.settings),
-                title: Text(avenText('aven_settings')),
-                onTap: () {
-                  Navigator.pop(context);
-                  onSettings();
-                },
-              ),
-            ],
+                const SizedBox(height: 14),
+                _MenuCard(
+                  children: [
+                    _MenuSwitch(
+                      icon: Icons.desktop_windows_outlined,
+                      label: avenText('aven_site_desktop'),
+                      value: desktopSite,
+                      onChanged: () => run(onToggleDesktop),
+                    ),
+                    _MenuSwitch(
+                      icon: Icons.chrome_reader_mode_outlined,
+                      label: avenText('aven_reader_on'),
+                      value: readerOn,
+                      onChanged: canReload ? () => run(onToggleReader) : null,
+                    ),
+                    _MenuSwitch(
+                      icon: adBlockOn ? Icons.shield : Icons.shield_outlined,
+                      label: avenText('aven_adblock'),
+                      value: adBlockOn,
+                      onChanged: () => run(onToggleAdBlock),
+                    ),
+                    // Zoom changes live, so the sheet stays open and shows the value.
+                    StatefulBuilder(
+                      builder: (context, setLocal) {
+                        return _MenuZoom(
+                          zoom: shownZoom,
+                          onOut: () {
+                            onZoomOut();
+                            setLocal(() => shownZoom = (shownZoom - 10).clamp(50, 300));
+                          },
+                          onIn: () {
+                            onZoomIn();
+                            setLocal(() => shownZoom = (shownZoom + 10).clamp(50, 300));
+                          },
+                          onReset: () {
+                            onZoomReset();
+                            setLocal(() => shownZoom = 100);
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _MenuButton(
+                        icon: Icons.tune,
+                        label: avenText('aven_site_settings'),
+                        onTap: canShare ? () => run(onSiteSettings) : null,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _MenuButton(
+                        icon: Icons.settings_outlined,
+                        label: avenText('aven_settings'),
+                        onTap: () => run(onSettings),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -2687,7 +2753,9 @@ class _PhoneTabGrid extends StatelessWidget {
                   ),
                   Expanded(
                     child: Text(
-                      tabs.length == 1 ? '1 sekme' : '${tabs.length} sekme',
+                      tabs.length == 1
+                          ? avenText('aven_tab_count_one')
+                          : avenText('aven_tab_count', [tabs.length]),
                       style: const TextStyle(fontSize: 18),
                     ),
                   ),
@@ -2731,10 +2799,15 @@ class _PhoneTabGrid extends StatelessWidget {
                             children: [
                               Row(
                                 children: [
+                                  if (tab.incognito)
+                                    const Icon(Icons.visibility_off_outlined, size: 18, color: Colors.white70)
+                                  else
+                                    _SiteIcon(url: url, size: 18),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       tab.incognito ? avenText('aven_private_title', [tab.title]) : tab.title,
-                                      maxLines: 2,
+                                      maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         fontSize: 14,
@@ -2753,7 +2826,8 @@ class _PhoneTabGrid extends StatelessWidget {
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(12),
                                   child: tab.preview == null
-                                      ? ColoredBox(
+                                      ? Container(
+                                          width: double.infinity,
                                           color: tab.incognito
                                               ? const Color(0xFF1C1C22)
                                               : AvenTone.background(context),
@@ -3729,3 +3803,208 @@ class _OpeningPlayerOverlay extends StatelessWidget {
   }
 }
 
+/// Phone menu: round quick action with a label under it.
+class _MenuTile extends StatelessWidget {
+  const _MenuTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    final ink = AvenTone.text(context);
+    final circle = active ? ink : AvenTone.elevated(context);
+    final glyph = active ? AvenTone.background(context) : ink;
+    return Opacity(
+      opacity: enabled ? 1 : 0.38,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(color: circle, shape: BoxShape.circle),
+              child: SizedBox(
+                width: 52,
+                height: 52,
+                child: Icon(icon, size: 24, color: glyph),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, height: 1.2, color: ink),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Phone menu: rounded group of page options.
+class _MenuCard extends StatelessWidget {
+  const _MenuCard({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final divider = AvenTone.text(context).withValues(alpha: 0.07);
+    return Material(
+      color: AvenTone.elevated(context),
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) Divider(height: 1, thickness: 1, indent: 56, color: divider),
+            children[i],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Phone menu: option with a switch on the right.
+class _MenuSwitch extends StatelessWidget {
+  const _MenuSwitch({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool value;
+  final VoidCallback? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onChanged != null;
+    return Opacity(
+      opacity: enabled ? 1 : 0.38,
+      child: InkWell(
+        onTap: onChanged,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+          child: Row(
+            children: [
+              Icon(icon, size: 22, color: AvenTone.text(context)),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Text(label, style: const TextStyle(fontSize: 15)),
+              ),
+              Switch(
+                value: value,
+                // The theme's off track is the card colour; keep it visible here.
+                inactiveTrackColor: AvenTone.background(context),
+                onChanged: enabled ? (_) => onChanged!() : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Phone menu: zoom stepper; the value updates while the sheet is open.
+class _MenuZoom extends StatelessWidget {
+  const _MenuZoom({
+    required this.zoom,
+    required this.onOut,
+    required this.onIn,
+    required this.onReset,
+  });
+
+  final int zoom;
+  final VoidCallback onOut;
+  final VoidCallback onIn;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = AvenTone.text(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+      child: Row(
+        children: [
+          Icon(Icons.text_fields, size: 22, color: ink),
+          const SizedBox(width: 18),
+          Expanded(child: Text(avenText('aven_zoom'), style: const TextStyle(fontSize: 15))),
+          IconButton(onPressed: zoom > 50 ? onOut : null, icon: const Icon(Icons.remove)),
+          InkWell(
+            onTap: onReset,
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+              child: Text(
+                '$zoom%',
+                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          IconButton(onPressed: zoom < 300 ? onIn : null, icon: const Icon(Icons.add)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Phone menu: wide rounded button at the bottom.
+class _MenuButton extends StatelessWidget {
+  const _MenuButton({required this.icon, required this.label, required this.onTap});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = AvenTone.text(context);
+    return Opacity(
+      opacity: onTap != null ? 1 : 0.38,
+      child: Material(
+        color: AvenTone.elevated(context),
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 20, color: ink),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

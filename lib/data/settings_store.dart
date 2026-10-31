@@ -152,6 +152,7 @@ class BrowserStore {
   static const _agentKey = 'user_agent';
   static const _liteKey = 'lite_browsing';
   static const _homeSuggestionsKey = 'home_suggestions';
+  static const _sitePermPrefix = 'site_perm|';
   static const _subtitleSizeKey = 'subtitle_size';
   static const _subtitleBackgroundKey = 'subtitle_background';
   static const _subtitleColorKey = 'subtitle_color';
@@ -257,7 +258,7 @@ class BrowserStore {
         final preview = decoded['preview'];
         tabs.add((
           url: url is String && url.isNotEmpty ? url : null,
-          title: title is String && title.trim().isNotEmpty ? title : 'Yeni sekme',
+          title: title is String && title.trim().isNotEmpty ? title : avenText('aven_new_tab'),
           preview: preview is String && preview.isNotEmpty ? preview : null,
         ));
       } catch (_) {}
@@ -297,6 +298,23 @@ class BrowserStore {
   Future<void> saveHomeSuggestions(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_homeSuggestionsKey, enabled);
+  }
+
+  /// "allow", "block" or "ask" for a page permission ("location", "camera", "microphone").
+  Future<String> loadSitePermission(String host, String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('$_sitePermPrefix$host|$id');
+    return value == 'allow' || value == 'block' ? value! : 'ask';
+  }
+
+  Future<void> saveSitePermission(String host, String id, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_sitePermPrefix$host|$id';
+    if (value == 'ask') {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, value);
+    }
   }
 
   Future<SubtitleStyle> loadSubtitleStyle() async {

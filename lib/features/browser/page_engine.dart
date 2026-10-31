@@ -3,7 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/widgets.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-/// Shared page-script surface for the TV WebView and the phone Gecko engine.
+/// Shared page-script surface for the WebView page.
 abstract class JsRunner {
   Future<void> runJavaScript(String javaScript);
   Future<Object> runJavaScriptReturningResult(String javaScript);
