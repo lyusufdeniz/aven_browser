@@ -108,7 +108,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _selectBlock(AdBlock block) async {
     await widget.store.saveAdBlock(block);
     // DNS/VPN only for the DNS engelleme mode — yerel liste VPN istemez.
-    await widget.input.setAdBlock(block.name, connectDns: block.usesDns);
+    await widget.input.setAdBlock(block.name);
     if (!mounted) return;
     setState(() => _block = block);
   }
@@ -205,6 +205,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                     ErrorReports.clear();
                                     setLocal(() => reports = ErrorReports.load());
                                     setState(() {});
+                                    _toast(avenText('aven_reports_cleared'));
                                   },
                             child: Text(avenText('aven_clear_reports')),
                           ),
@@ -629,8 +630,10 @@ class _SettingsPageState extends State<SettingsPage> {
               icon: isDefault ? Icons.check_circle_outline : Icons.public,
               selected: false,
               onTap: () => unawaited(() async {
-                await WebInput.requestDefaultBrowser();
-                if (mounted) setState(() {});
+                final ok = await WebInput.requestDefaultBrowser();
+                if (!mounted) return;
+                setState(() {});
+                if (ok) _toast(avenText('aven_default_is'));
               }()),
             );
           },

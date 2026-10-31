@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/l10n/aven_strings.dart';
-import '../core/platform/aven_flavor.dart';
 
 import '../core/url/url_input.dart';
 
@@ -40,42 +39,32 @@ class WebLink {
   }
 }
 
+/// Ad blocking runs inside the browser (host list + EasyList); the old DNS
+/// (VPN) mode is gone on both builds.
 enum AdBlock {
   off,
-  local,
-  adguard;
+  local;
 
-  /// TV has no DNS (VPN) mode: the in-app host list and EasyList already
-  /// cover the browser, and a VPN prompt is pointless there.
-  static List<AdBlock> get available =>
-      AvenFlavor.isMobile ? AdBlock.values : const [AdBlock.off, AdBlock.local];
+  static List<AdBlock> get available => AdBlock.values;
 
   static AdBlock fromName(String? name) {
-    // Legacy "ublock" preference maps to AdGuard (option removed).
-    final mode = name == 'ublock'
-        ? AdBlock.adguard
-        : AdBlock.values.firstWhere((item) => item.name == name, orElse: () => AdBlock.off);
-    // A DNS choice saved on TV before the option was removed becomes the local list.
-    return available.contains(mode) ? mode : AdBlock.local;
+    if (name == null || name == AdBlock.off.name) return AdBlock.off;
+    // "local", and the removed "adguard" (DNS) and "ublock" choices.
+    return AdBlock.local;
   }
 
   String get label => switch (this) {
     AdBlock.off => avenText('aven_off'),
     AdBlock.local => avenText('aven_adblock_local'),
-    AdBlock.adguard => avenText('aven_adblock_dns'),
   };
 
   String get detail => switch (this) {
     AdBlock.off => avenText('aven_adblock_off_detail'),
     AdBlock.local => avenText('aven_adblock_local_detail'),
-    AdBlock.adguard => avenText('aven_adblock_dns_detail'),
   };
 
   /// True when host intercept / cosmetics should run.
   bool get isEnabled => this != AdBlock.off;
-
-  /// True when DNS VPN should be requested.
-  bool get usesDns => this == AdBlock.adguard;
 }
 
 enum BrowserAgent {

@@ -319,6 +319,7 @@ class _BrowserPageState extends _BrowserPageBase
         if (AvenFlavor.isMobile) {
           unawaited(_openInNewTab(url));
         } else {
+          _notify(avenText('aven_cast_received'), icon: Icons.smartphone);
           unawaited(_openCast(url, raw['play'] == true));
         }
       }
@@ -812,6 +813,7 @@ class _BrowserPageState extends _BrowserPageBase
               Navigator.of(context).pop(false);
             },
             child: AvenConfirmDialog(
+              destructive: true,
               icon: Icons.power_settings_new_rounded,
               title: avenText('aven_exit_title'),
               message: avenText('aven_exit_message'),
@@ -844,6 +846,7 @@ class _BrowserPageState extends _BrowserPageBase
             ),
             ..._bookmarks,
           ];
+    final previous = _bookmarks;
     final stored = await _store.saveBookmarks(next);
     if (!mounted) return;
     unawaited(_syncHomeChannel());
@@ -851,6 +854,29 @@ class _BrowserPageState extends _BrowserPageBase
       _bookmarks = stored;
       _saved = stored.any((item) => item.url == url);
     });
+    if (exists) {
+      _notify(
+        avenText('aven_bookmark_removed'),
+        icon: Icons.star_border,
+        action: avenText('aven_undo'),
+        onAction: () => unawaited(() async {
+          final back = await _store.saveBookmarks(previous);
+          if (!mounted) return;
+          unawaited(_syncHomeChannel());
+          setState(() {
+            _bookmarks = back;
+            _saved = back.any((item) => item.url == _pageUrl);
+          });
+        }()),
+      );
+    } else {
+      _notify(
+        avenText('aven_bookmark_added'),
+        icon: Icons.star,
+        action: avenText('aven_view'),
+        onAction: () => unawaited(_openLibrary(section: 0)),
+      );
+    }
   }
 
   /// TV panels slide in from the right at full height; the page stays
@@ -946,13 +972,38 @@ class _BrowserPageState extends _BrowserPageBase
     return value;
   }
 
-  void _toast(String text) {
+  /// Confirms an action. The phone gets a shortcut button (View, Undo) above
+  /// the floating toolbar; the TV shows it at the top, clear of its menu,
+  /// without a button the remote could not reach.
+  void _notify(String text, {IconData? icon, String? action, VoidCallback? onAction}) {
+    if (!mounted) return;
+    final phone = AvenFlavor.isMobile;
+    final ink = Theme.of(context).colorScheme.onInverseSurface;
+    final size = MediaQuery.sizeOf(context);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(text),
+        content: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: phone ? 20 : 26, color: ink),
+              SizedBox(width: phone ? 12 : 16),
+            ],
+            Expanded(
+              child: Text(text, style: TextStyle(fontSize: phone ? 14 : 18)),
+            ),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 84),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(phone ? 14 : 18)),
+        margin: phone
+            ? const EdgeInsets.fromLTRB(12, 0, 12, 84)
+            : EdgeInsets.fromLTRB(size.width * 0.28, 0, size.width * 0.28, size.height - 120),
+        duration: const Duration(seconds: 3),
+        persist: false,
+        action: phone && action != null && onAction != null
+            ? SnackBarAction(label: action, onPressed: onAction)
+            : null,
       ));
   }
 
@@ -987,7 +1038,12 @@ class _BrowserPageState extends _BrowserPageBase
       ...current.where((item) => item.url != url),
     ]);
     if (!mounted) return;
-    _toast(avenText(file == null ? 'aven_reading_saved' : 'aven_reading_saved_offline'));
+    _notify(
+      avenText(file == null ? 'aven_reading_saved' : 'aven_reading_saved_offline'),
+      icon: Icons.bookmark_added_outlined,
+      action: avenText('aven_view'),
+      onAction: () => unawaited(_openLibrary(section: 3)),
+    );
   }
 
   /// Opens a reading list copy in the page view, without the network.
@@ -1101,7 +1157,9 @@ class _BrowserPageState extends _BrowserPageBase
     );
     if (set == true) {
       try {
-        await WebInput.requestDefaultBrowser();
+        if (await WebInput.requestDefaultBrowser()) {
+          _notify(avenText('aven_default_is'), icon: Icons.check_circle_outline);
+        }
       } catch (_) {}
     }
   }
@@ -1266,10 +1324,14 @@ class _BrowserPageState extends _BrowserPageBase
   Future<void> _toggleAdBlock() async {
     final next = _adBlock == AdBlock.off ? _adBlockProvider : AdBlock.off;
     await _store.saveAdBlock(next);
-    await _input.setAdBlock(next.name, connectDns: next.usesDns);
+    await _input.setAdBlock(next.name);
     if (next.isEnabled) await _installAdblockCss();
     if (!mounted) return;
     setState(() => _adBlock = next);
+    _notify(
+      avenText(next.isEnabled ? 'aven_adblock_now_on' : 'aven_adblock_now_off'),
+      icon: next.isEnabled ? Icons.shield : Icons.shield_outlined,
+    );
   }
 
   Future<void> _toggleReader() async {
@@ -1279,6 +1341,14 @@ class _BrowserPageState extends _BrowserPageBase
       final text = raw.toString().replaceAll('"', '').trim().toLowerCase();
       if (!mounted) return;
       setState(() => _readerOn = text == 'on');
+      _notify(
+        avenText(switch (text) {
+          'on' => 'aven_reader_now_on',
+          'off' => 'aven_reader_now_off',
+          _ => 'aven_reader_none',
+        }),
+        icon: Icons.chrome_reader_mode_outlined,
+      );
     } catch (_) {}
   }
 
@@ -1766,6 +1836,10 @@ class _BrowserPageState extends _BrowserPageBase
     await _applyAgent(next);
     if (!mounted) return;
     setState(() => _desktopSite = next == BrowserAgent.desktop);
+    _notify(
+      avenText(_desktopSite ? 'aven_desktop_now_on' : 'aven_desktop_now_off'),
+      icon: _desktopSite ? Icons.desktop_windows_outlined : Icons.smartphone,
+    );
     if (!_onStart) {
       setState(() {
         _pageError = null;
@@ -1965,6 +2039,7 @@ class _BrowserPageState extends _BrowserPageBase
     });
     await _controller.setPrivate(true);
     _showStart();
+    _notify(avenText('aven_private_started'), icon: Icons.visibility_off_outlined);
   }
 
   Future<void> _openInNewTab(String url, {bool incognito = false}) async {
@@ -1983,6 +2058,27 @@ class _BrowserPageState extends _BrowserPageBase
     await _openInput(url);
   }
 
+  /// Long-press "open in new tab": the tab waits in the background, like
+  /// other browsers, and the bar offers to switch to it.
+  void _openInBackground(String url) {
+    if (!isAvenWebUrl(url)) return;
+    final host = Uri.tryParse(url)?.host ?? url;
+    final tab = _PageTab()
+      ..url = url
+      ..title = host;
+    setState(() => _tabs.add(tab));
+    unawaited(_persistTabs());
+    _notify(
+      avenText('aven_opened_new_tab'),
+      icon: Icons.tab_outlined,
+      action: avenText('aven_switch'),
+      onAction: () {
+        final index = _tabs.indexOf(tab);
+        if (index >= 0) _selectTab(index);
+      },
+    );
+  }
+
   Future<void> _showContextMenu(Map<String, String> info) async {
     if (!mounted || !AvenFlavor.isMobile) return;
     final link = info['link'] ?? '';
@@ -1991,74 +2087,146 @@ class _BrowserPageState extends _BrowserPageBase
     final hasLink = isAvenWebUrl(link);
     final hasImage = isAvenWebUrl(src);
     if (!hasLink && !hasImage) return;
+    final target = hasLink ? link : src;
+    final host = Uri.tryParse(target)?.host ?? target;
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AvenTone.elevated(context),
+      backgroundColor: AvenTone.background(context),
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) {
         Future<void> go(Future<void> Function() action) async {
           Navigator.pop(context);
           await action();
         }
 
+        Widget row(IconData icon, String label, Future<void> Function() action) {
+          return InkWell(
+            onTap: () => unawaited(go(action)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              child: Row(
+                children: [
+                  Icon(icon, size: 22, color: AvenTone.text(context)),
+                  const SizedBox(width: 18),
+                  Expanded(child: Text(label, style: const TextStyle(fontSize: 15))),
+                ],
+              ),
+            ),
+          );
+        }
+
         return SafeArea(
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              if (title.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // What was pressed: the image itself, or the link's site.
+                Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        width: 52,
+                        height: 52,
+                        child: hasImage
+                            ? Image.network(
+                                src,
+                                fit: BoxFit.cover,
+                                cacheWidth: 156,
+                                errorBuilder: (context, error, stack) => ColoredBox(
+                                  color: AvenTone.elevated(context),
+                                  child: const Icon(Icons.image_outlined),
+                                ),
+                              )
+                            : ColoredBox(
+                                color: AvenTone.elevated(context),
+                                child: Center(child: _SiteIcon(url: link, size: 26)),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title.isEmpty ? host : title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            target,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 13, color: AvenTone.textMuted(context)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (hasLink) ...[
+                  const SizedBox(height: 18),
+                  GridView.count(
+                    crossAxisCount: 5,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 4,
+                    childAspectRatio: 0.7,
+                    children: [
+                      _MenuTile(
+                        icon: Icons.tab_outlined,
+                        label: avenText('aven_open_new_tab'),
+                        onTap: () => unawaited(go(() async => _openInBackground(link))),
+                      ),
+                      _MenuTile(
+                        icon: Icons.visibility_off_outlined,
+                        label: avenText('aven_private'),
+                        onTap: () => unawaited(go(() => _openInNewTab(link, incognito: true))),
+                      ),
+                      _MenuTile(
+                        icon: Icons.link,
+                        label: avenText('aven_copy_link'),
+                        onTap: () => unawaited(go(() async {
+                          await Clipboard.setData(ClipboardData(text: link));
+                          _notify(avenText('aven_link_copied'), icon: Icons.link);
+                        })),
+                      ),
+                      _MenuTile(
+                        icon: Icons.share_outlined,
+                        label: avenText('aven_share'),
+                        onTap: () => unawaited(go(() => WebInput.share(link))),
+                      ),
+                      _MenuTile(
+                        icon: Icons.connected_tv,
+                        label: avenText('aven_cast_short'),
+                        onTap: () => unawaited(go(() => _shareWithTv(link: link))),
+                      ),
+                    ],
                   ),
-                ),
-              if (hasLink) ...[
-                ListTile(
-                  leading: const Icon(Icons.tab),
-                  title: Text(avenText('aven_open_new_tab')),
-                  onTap: () => unawaited(go(() => _openInNewTab(link))),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.visibility_off_outlined),
-                  title: Text(avenText('aven_open_private')),
-                  onTap: () => unawaited(go(() => _openInNewTab(link, incognito: true))),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.link),
-                  title: Text(avenText('aven_copy_link')),
-                  onTap: () => unawaited(go(() async {
-                    await Clipboard.setData(ClipboardData(text: link));
-                  })),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.share_outlined),
-                  title: Text(avenText('aven_share_link')),
-                  onTap: () => unawaited(go(() => WebInput.share(link))),
-                ),
+                ],
+                if (hasImage) ...[
+                  const SizedBox(height: 12),
+                  _MenuCard(
+                    children: [
+                      row(Icons.image_outlined, avenText('aven_open_image'),
+                          () async => _openInBackground(src)),
+                      row(Icons.download_outlined, avenText('aven_save_image'),
+                          () => WebInput.saveUrl(src)),
+                      row(Icons.copy, avenText('aven_copy_image'), () async {
+                        await Clipboard.setData(ClipboardData(text: src));
+                        _notify(avenText('aven_link_copied'), icon: Icons.link);
+                      }),
+                    ],
+                  ),
+                ],
               ],
-              if (hasImage) ...[
-                ListTile(
-                  leading: const Icon(Icons.image_outlined),
-                  title: Text(avenText('aven_open_image')),
-                  onTap: () => unawaited(go(() => _openInNewTab(src))),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.download_outlined),
-                  title: Text(avenText('aven_save_image')),
-                  onTap: () => unawaited(go(() => WebInput.saveUrl(src))),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.copy),
-                  title: Text(avenText('aven_copy_image')),
-                  onTap: () => unawaited(go(() async {
-                    await Clipboard.setData(ClipboardData(text: src));
-                  })),
-                ),
-              ],
-            ],
+            ),
           ),
         );
       },
@@ -2205,28 +2373,106 @@ class _BrowserPageState extends _BrowserPageBase
           {'id': id, 'value': await _store.loadSitePermission(host, id), 'fallback': 'ask'},
     ];
     if (!mounted) return;
+    final secure = _connection == 'secure';
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: AvenTone.elevated(context),
+      backgroundColor: AvenTone.background(context),
       showDragHandle: true,
       isScrollControlled: true,
       builder: (context) {
+        final ink = AvenTone.text(context);
+        final muted = AvenTone.textMuted(context);
+        if (host.isEmpty) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.tune, size: 36, color: muted),
+                  const SizedBox(height: 12),
+                  Text(avenText('aven_site_settings_empty'), textAlign: TextAlign.center),
+                ],
+              ),
+            ),
+          );
+        }
         return SafeArea(
-          child: host.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(avenText('aven_site_settings_empty')),
-                )
-              : ListView(
-                  shrinkWrap: true,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                      child: Text(
-                        host,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: AvenTone.elevated(context),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Center(child: _SiteIcon(url: _pageUrl, size: 26)),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            host,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 6),
+                          // Connection state; opens the certificate details.
+                          InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () {
+                              Navigator.pop(context);
+                              unawaited(_showSecurity());
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+                              decoration: BoxDecoration(
+                                color: (secure ? const Color(0xFF1E8E3E) : AvenColors.live)
+                                    .withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    secure ? Icons.lock : Icons.lock_open,
+                                    size: 15,
+                                    color: secure ? const Color(0xFF1E8E3E) : AvenColors.live,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    avenText(secure ? 'aven_secure' : 'aven_insecure'),
+                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ink),
+                                  ),
+                                  Icon(Icons.chevron_right, size: 16, color: muted),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                  child: Text(
+                    avenText('aven_site_settings'),
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: muted),
+                  ),
+                ),
+                _MenuCard(
+                  children: [
                     for (final item in items)
                       _SitePermRow(
                         id: item['id'] ?? '',
@@ -2236,9 +2482,11 @@ class _BrowserPageState extends _BrowserPageBase
                         onChanged: (value) =>
                             unawaited(_store.saveSitePermission(host, item['id'] ?? '', value)),
                       ),
-                    const SizedBox(height: 8),
                   ],
                 ),
+              ],
+            ),
+          ),
         );
       },
     );
@@ -2274,10 +2522,12 @@ class _BrowserPageState extends _BrowserPageBase
     await _openInput(url);
   }
 
-  Future<void> _shareWithTv() async {
-    final media = _castMediaUrl;
+  /// Sends the page (or its playing video) to an Aven TV; [link] sends that
+  /// link instead, from the long-press menu.
+  Future<void> _shareWithTv({String? link}) async {
+    final media = link == null ? _castMediaUrl : null;
     final play = media != null && _isStreamUrl(media);
-    final url = play ? media : _pageUrl;
+    final url = link ?? (play ? media : _pageUrl);
     if (url == null || !isAvenWebUrl(url) || !mounted) return;
     final picked = await showModalBottomSheet<({String name, String host, int port})>(
       context: context,
@@ -2293,10 +2543,9 @@ class _BrowserPageState extends _BrowserPageBase
       play: play,
     );
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok ? avenText('aven_cast_sent') : avenText('aven_cast_unreachable')),
-      ),
+    _notify(
+      ok ? avenText('aven_cast_sent') : avenText('aven_cast_unreachable'),
+      icon: ok ? Icons.connected_tv : Icons.tv_off_outlined,
     );
   }
 
@@ -2674,8 +2923,23 @@ class _BrowserPageState extends _BrowserPageBase
                 showSuggestions: _homeSuggestions,
                 showBookmarks: _homeBookmarks,
                 onRemoveHistory: (url) => unawaited(() async {
+                  final before = _history;
+                  final removed = before.where((item) => item.url == url).toList();
                   final next = await _store.removeHistory(url);
-                  if (mounted) setState(() => _history = next);
+                  if (!mounted) return;
+                  setState(() => _history = next);
+                  _notify(
+                    avenText('aven_recent_removed'),
+                    icon: Icons.history,
+                    action: avenText('aven_undo'),
+                    onAction: () => unawaited(() async {
+                      for (final item in removed.reversed) {
+                        await _store.addHistory(item);
+                      }
+                      final restored = await _store.loadHistory();
+                      if (mounted) setState(() => _history = restored);
+                    }()),
+                  );
                 }()),
                 onTapField: () => setState(() => _startEditing = true),
                 onLeaveField: () {
@@ -2738,6 +3002,7 @@ class _BrowserPageState extends _BrowserPageBase
                 },
                 onHome: _showStart,
                 onBookmark: _toggleBookmark,
+                onReadLater: () => unawaited(_readLater()),
                 onLibrary: _openLibrary,
                 onToggleAdBlock: _toggleAdBlock,
                 onToggleReader: () => unawaited(_toggleReader()),

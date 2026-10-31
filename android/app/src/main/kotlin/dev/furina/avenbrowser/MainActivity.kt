@@ -21,6 +21,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.core.view.WindowCompat
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.embedding.android.FlutterActivity
@@ -34,8 +35,6 @@ class MainActivity : FlutterActivity() {
     private var adBlockMode = "off"
     @Volatile private var speedMode = true
     private lateinit var channel: MethodChannel
-    private var pendingAdBlockMode: String? = null
-    private var pendingAdBlockResult: MethodChannel.Result? = null
     private var pendingSpeechResult: MethodChannel.Result? = null
     private var pendingOpenDocument: MethodChannel.Result? = null
     private var pendingCreateDocument: MethodChannel.Result? = null
@@ -230,8 +229,7 @@ class MainActivity : FlutterActivity() {
                     }
                     "setAdBlock" -> {
                         adBlockMode = call.argument<String>("mode") ?: "off"
-                        val connectDns = call.argument<Boolean>("connectDns") == true
-                        applyAdBlockDns(adBlockMode, connectDns, result)
+                        result.success(null)
                     }
                     "setSpeedMode" -> {
                         speedMode = call.argument<Boolean>("enabled") != false
@@ -924,39 +922,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun applyAdBlockDns(mode: String, connectDns: Boolean, result: MethodChannel.Result) {
-        if (mode != "adguard") {
-            // Leaving DNS mode (or on TV, where it no longer exists) shuts the VPN down.
-            try {
-                AdBlockDnsVpnService.stop(this)
-            } catch (_: Exception) {
-            }
-        }
-        if (mode == "off") {
-            try {
-                AdBlockDnsVpnService.stop(this)
-            } catch (_: Exception) {
-            }
-            result.success(mapOf("dns" to false, "mode" to mode))
-            return
-        }
-        // Boot / sync: apply local host intercept only — do not prompt for VPN.
-        if (!connectDns) {
-            result.success(mapOf("dns" to false, "mode" to mode))
-            return
-        }
-        val prepare = AdBlockDnsVpnService.prepareIntent(this)
-        if (prepare != null) {
-            pendingAdBlockMode = mode
-            pendingAdBlockResult = result
-            @Suppress("DEPRECATION")
-            startActivityForResult(prepare, REQ_VPN)
-            return
-        }
-        AdBlockDnsVpnService.start(this, mode)
-        result.success(mapOf("dns" to true, "mode" to mode))
-    }
-
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQ_ROLE) {
@@ -1027,19 +992,6 @@ class MainActivity : FlutterActivity() {
             return
         }
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_VPN) return
-        val mode = pendingAdBlockMode
-        val pending = pendingAdBlockResult
-        pendingAdBlockMode = null
-        pendingAdBlockResult = null
-        if (mode == null || pending == null) return
-        if (resultCode == RESULT_OK) {
-            AdBlockDnsVpnService.start(this, mode)
-            pending.success(mapOf("dns" to true, "mode" to mode))
-        } else {
-            // Permission denied: local host list + cosmetics still work.
-            pending.success(mapOf("dns" to false, "mode" to mode, "vpnDenied" to true))
-        }
     }
 
     /** Page a TV home screen card asked for; Dart takes it once it is ready. */
@@ -1047,6 +999,9 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         pendingOpenUrl = intent?.let { openUrlOf(it) }
+        // Android 15 draws apps edge to edge; do the same on older versions so
+        // Flutter's insets (SafeArea, viewPadding) look the same everywhere.
+        WindowCompat.enableEdgeToEdge(window)
         super.onCreate(savedInstanceState)
     }
 
@@ -1068,7 +1023,6 @@ class MainActivity : FlutterActivity() {
     companion object {
         const val EXTRA_OPEN_URL = "dev.furina.avenbrowser.OPEN_URL"
         private const val channelName = "dev.furina.avenbrowser/input"
-        private const val REQ_VPN = 7711
         private const val REQ_SPEECH = 9911
         private const val REQ_OPEN_DOC = 9921
         private const val REQ_CREATE_DOC = 9922

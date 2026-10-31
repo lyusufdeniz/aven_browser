@@ -92,6 +92,8 @@ flutter {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
+    // WindowCompat.enableEdgeToEdge: the same edge-to-edge window on every Android version.
+    implementation("androidx.core:core-ktx:1.18.0")
     // TV only: the "Aven" row on the Android TV home screen.
     add("tvImplementation", "androidx.tvprovider:tvprovider:1.0.0")
 }

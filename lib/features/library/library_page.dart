@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/l10n/aven_strings.dart';
 import '../../core/platform/aven_flavor.dart';
+import '../../core/theme/aven_dialog.dart';
 import '../../core/theme/aven_theme.dart';
 import '../../core/platform/aven_layout.dart';
 import '../../data/settings_store.dart';
@@ -107,6 +108,7 @@ class _LibraryPageState extends State<LibraryPage> {
     await _deleteDownload(id);
     await _refreshDownloads();
     if (!mounted) return;
+    _notify(avenText('aven_download_removed'), icon: Icons.delete_outline);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_downloads.isEmpty) {
@@ -202,15 +204,46 @@ class _LibraryPageState extends State<LibraryPage> {
     _syncDownloadPoll();
   }
 
+  /// Phone: confirms a change, with Undo where it can be taken back. TV keeps
+  /// its own focus flow, so it gets no bar there.
+  void _notify(String text, {IconData? icon, VoidCallback? onUndo}) {
+    if (!mounted || !AvenFlavor.isMobile) return;
+    final ink = Theme.of(context).colorScheme.onInverseSurface;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Row(
+          children: [
+            if (icon != null) ...[Icon(icon, size: 20, color: ink), const SizedBox(width: 12)],
+            Expanded(child: Text(text)),
+          ],
+        ),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        duration: const Duration(seconds: 3),
+        persist: false,
+        action: onUndo == null ? null : SnackBarAction(label: avenText('aven_undo'), onPressed: onUndo),
+      ));
+  }
+
   Future<void> _removeBookmarkAt(int linkIndex) async {
     final links = _visibleLinks;
     if (linkIndex < 0 || linkIndex >= links.length) return;
     final target = links[linkIndex];
+    final before = _bookmarks;
     final next = await widget.store.saveBookmarks(
       _bookmarks.where((item) => item.url != target.url).toList(),
     );
     if (!mounted) return;
     setState(() => _bookmarks = next);
+    _notify(
+      avenText('aven_bookmark_removed'),
+      icon: Icons.star_border,
+      onUndo: () => unawaited(() async {
+        final back = await widget.store.saveBookmarks(before);
+        if (mounted) setState(() => _bookmarks = back);
+      }()),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final count = _rightCount;
@@ -226,17 +259,36 @@ class _LibraryPageState extends State<LibraryPage> {
   Future<void> _removeReadingAt(int index) async {
     if (index < 0 || index >= _reading.length) return;
     final target = _reading[index];
-    final file = target.file;
-    if (file != null) {
-      try {
-        await File(file).delete();
-      } catch (_) {}
-    }
+    final before = _reading;
     final next = await widget.store.saveReadingList(
       _reading.where((item) => item.savedAt != target.savedAt).toList(),
     );
     if (!mounted) return;
     setState(() => _reading = next);
+    var undone = false;
+    // The offline copy goes only once Undo is no longer offered.
+    Future<void> dropFile() async {
+      final file = target.file;
+      if (undone || file == null) return;
+      try {
+        await File(file).delete();
+      } catch (_) {}
+    }
+
+    if (AvenFlavor.isMobile) {
+      _notify(
+        avenText('aven_reading_removed'),
+        icon: Icons.bookmark_remove_outlined,
+        onUndo: () => unawaited(() async {
+          undone = true;
+          final back = await widget.store.saveReadingList(before);
+          if (mounted) setState(() => _reading = back);
+        }()),
+      );
+      Timer(const Duration(seconds: 5), () => unawaited(dropFile()));
+    } else {
+      unawaited(dropFile());
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_reading.isEmpty) {
@@ -305,6 +357,7 @@ class _LibraryPageState extends State<LibraryPage> {
     await widget.store.clearHistory(newerThan: newerThan);
     if (!mounted) return;
     setState(() => _history = const []);
+    _notify(avenText('aven_history_cleared'), icon: Icons.delete_sweep_outlined);
     await _load();
     if (mounted) _focusLeft(1);
   }
@@ -1031,27 +1084,26 @@ class _RangePickerState extends State<_RangePicker> {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 440),
-        child: Material(
-          color: AvenColors.panel,
-          borderRadius: BorderRadius.circular(18),
-          clipBehavior: Clip.antiAlias,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
+      child: AvenDialogEntrance(
+        child: AvenDialogPanel(
+          maxWidth: 480,
+          padding: const EdgeInsets.fromLTRB(20, 30, 20, 18),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                const Center(child: AvenDialogBadge(icon: Icons.delete_sweep_outlined)),
+                const SizedBox(height: 16),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                   child: Text(
-                    avenText('aven_clear_history').toUpperCase(),
+                    avenText('aven_clear_history'),
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.4,
-                      color: AvenColors.textMuted,
+                      fontFamily: 'Cal Sans',
+                      fontSize: 26,
+                      fontWeight: FontWeight.w600,
+                      color: AvenColors.text,
                     ),
                   ),
                 ),
@@ -1071,7 +1123,6 @@ class _RangePickerState extends State<_RangePicker> {
                   ),
               ],
             ),
-          ),
         ),
       ),
     );

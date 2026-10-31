@@ -159,8 +159,6 @@
     <string name="aven_adblock_off_detail">No blocking. Recommended so video players on film and series sites keep working.</string>
     <string name="aven_adblock_local">Local list</string>
     <string name="aven_adblock_local_detail">In-app host list and hidden ad styles. Does not change network settings or ask for extra permission.</string>
-    <string name="aven_adblock_dns">DNS blocking</string>
-    <string name="aven_adblock_dns_detail">DNS blocking in addition to the local list. Asks for network permission and blocks more aggressively.</string>
     <string name="aven_off">Off</string>
     <string name="aven_theme_system">System</string>
     <string name="aven_theme_system_detail">Matches the phone light or dark color.</string>
@@ -270,4 +268,24 @@
     <string name="aven_home_bookmarks_show">Your bookmarks appear as cards under the suggestions.</string>
     <string name="aven_home_bookmarks_hide">Bookmarks stay in the Library.</string>
     <string name="aven_remove_recent">Remove from history</string>
+    <string name="aven_bookmark_added">Added to bookmarks</string>
+    <string name="aven_bookmark_removed">Removed from bookmarks</string>
+    <string name="aven_view">View</string>
+    <string name="aven_desktop_now_on">Showing the desktop site</string>
+    <string name="aven_desktop_now_off">Showing the mobile site</string>
+    <string name="aven_adblock_now_on">Ad blocking is on</string>
+    <string name="aven_adblock_now_off">Ad blocking is off</string>
+    <string name="aven_reader_now_on">Reading mode is on</string>
+    <string name="aven_reader_now_off">Reading mode is off</string>
+    <string name="aven_reader_none">No article on this page for reading mode</string>
+    <string name="aven_link_copied">Link copied</string>
+    <string name="aven_recent_removed">Removed from history</string>
+    <string name="aven_private_started">Private tab · pages you open here are not saved</string>
+    <string name="aven_opened_new_tab">Opened in a new tab</string>
+    <string name="aven_switch">Switch</string>
+    <string name="aven_cast_received">Opened from your phone</string>
+    <string name="aven_history_cleared">History cleared</string>
+    <string name="aven_reading_removed">Removed from your reading list</string>
+    <string name="aven_download_removed">Download removed</string>
+    <string name="aven_reports_cleared">Error reports cleared</string>
 </resources>

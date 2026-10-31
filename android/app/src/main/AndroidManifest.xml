@@ -12,8 +12,6 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Downloaded APKs open in the system installer (browser use case). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
@@ -47,18 +45,6 @@
               android:resource="@style/NormalTheme"
               />
         </activity>
-        <service
-            android:name=".AdBlockDnsVpnService"
-            android:exported="false"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="specialUse">
-            <intent-filter>
-                <action android:name="android.net.VpnService"/>
-            </intent-filter>
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="adblock_dns"/>
-        </service>
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />

@@ -246,11 +246,8 @@ class WebInput {
     return _channel.invokeMethod<void>('watchMedia');
   }
 
-  Future<void> setAdBlock(String mode, {bool connectDns = false}) {
-    return _channel.invokeMethod<void>('setAdBlock', {
-      'mode': mode,
-      'connectDns': connectDns,
-    });
+  Future<void> setAdBlock(String mode) {
+    return _channel.invokeMethod<void>('setAdBlock', {'mode': mode});
   }
 
   /// TV speed mode: block trackers, webfonts, and chat widgets.

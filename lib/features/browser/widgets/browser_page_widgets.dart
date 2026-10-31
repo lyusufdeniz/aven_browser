@@ -584,7 +584,8 @@ class _StartPageState extends State<_StartPage> {
       List.generate(_suggestions.length, (_) => FocusNode());
   late final List<FocusNode> _bookmarkFocus =
       List.generate(_bookmarkLimit, (_) => FocusNode());
-  late final List<FocusNode> _actionFocus = List.generate(3, (_) => FocusNode());
+  // TV home actions: library, settings.
+  late final List<FocusNode> _actionFocus = List.generate(2, (_) => FocusNode());
   static const _watchLimit = 8;
   late final List<FocusNode> _watchFocus = List.generate(_watchLimit, (_) => FocusNode());
   late final Listenable _watchRailListenable = Listenable.merge(_watchFocus);
@@ -1019,7 +1020,7 @@ class _StartPageState extends State<_StartPage> {
   void _onActionKey(int index, KeyEvent event) {
     if (event is! KeyDownEvent) return;
     final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.arrowRight && index < 2) {
+    if (key == LogicalKeyboardKey.arrowRight && index < _actionFocus.length - 1) {
       _requestNode(_actionFocus[index + 1]);
       return;
     }
@@ -1047,13 +1048,10 @@ class _StartPageState extends State<_StartPage> {
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.gameButtonA ||
         key == LogicalKeyboardKey.space) {
-      switch (index) {
-        case 0:
-          widget.onOpenHistory();
-        case 1:
-          widget.onOpenBookmarks();
-        default:
-          widget.onSettings();
+      if (index == 0) {
+        widget.onOpenBookmarks();
+      } else {
+        widget.onSettings();
       }
     }
   }
@@ -1344,9 +1342,11 @@ class _StartPageState extends State<_StartPage> {
                               order: const NumericFocusOrder(1),
                               child: _StartAction(
                                 focusNode: _actionFocus[0],
-                                icon: Icons.history,
-                                label: avenText('aven_history'),
-                                onPressed: widget.onOpenHistory,
+                                icon: Icons.video_library_outlined,
+                                label: avenText('aven_library'),
+                                // Opens on bookmarks; history, downloads and the
+                                // reading list are tabs inside.
+                                onPressed: widget.onOpenBookmarks,
                                 onKeyEvent: (event) => _onActionKey(0, event),
                               ),
                             ),
@@ -1355,21 +1355,10 @@ class _StartPageState extends State<_StartPage> {
                               order: const NumericFocusOrder(2),
                               child: _StartAction(
                                 focusNode: _actionFocus[1],
-                                icon: Icons.star_outline,
-                                label: avenText('aven_bookmarks'),
-                                onPressed: widget.onOpenBookmarks,
-                                onKeyEvent: (event) => _onActionKey(1, event),
-                              ),
-                            ),
-                            const SizedBox(width: 14),
-                            FocusTraversalOrder(
-                              order: const NumericFocusOrder(3),
-                              child: _StartAction(
-                                focusNode: _actionFocus[2],
                                 icon: Icons.settings,
                                 label: avenText('aven_settings'),
                                 onPressed: widget.onSettings,
-                                onKeyEvent: (event) => _onActionKey(2, event),
+                                onKeyEvent: (event) => _onActionKey(1, event),
                               ),
                             ),
                           ],
@@ -2441,120 +2430,102 @@ class _SitePermRowState extends State<_SitePermRow> {
   @override
   Widget build(BuildContext context) {
     final ink = AvenTone.text(context);
-    final paper = AvenTone.background(context);
     final muted = AvenTone.textMuted(context);
+    const choices = ['ask', 'allow', 'block'];
     final usingDefault = _value == widget.fallback;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              Icon(_permIcon, size: 20, color: ink),
-              const SizedBox(width: 10),
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: AvenTone.background(context),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(_permIcon, size: 19, color: ink),
+              ),
+              const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  widget.label,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-              ),
-              Text(
-                usingDefault
-                    ? '${_choiceLabel(_value)} · varsayılan'
-                    : _choiceLabel(_value),
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: usingDefault ? muted : ink,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _choice(
-                value: 'ask',
-                label: avenText('aven_ask'),
-                icon: Icons.help_outline,
-                ink: ink,
-                paper: paper,
-              ),
-              _choice(
-                value: 'allow',
-                label: avenText('aven_allow'),
-                icon: Icons.check_circle_outline,
-                ink: ink,
-                paper: paper,
-              ),
-              _choice(
-                value: 'block',
-                label: avenText('aven_block'),
-                icon: Icons.block,
-                ink: ink,
-                paper: paper,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _choice({
-    required String value,
-    required String label,
-    required IconData icon,
-    required Color ink,
-    required Color paper,
-  }) {
-    final selected = _value == value;
-    final isDefault = value == widget.fallback;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Material(
-          color: selected ? ink : Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(
-              color: selected ? ink : ink.withValues(alpha: 0.28),
-            ),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () {
-              setState(() => _value = value);
-              widget.onChanged(value);
-            },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Column(
-                children: [
-                  Icon(icon, size: 18, color: selected ? paper : ink),
-                  const SizedBox(height: 4),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: selected ? paper : ink,
-                    ),
-                  ),
-                  if (isDefault)
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                     Text(
-                      avenText('aven_default'),
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: selected ? paper.withValues(alpha: 0.75) : ink.withValues(alpha: 0.55),
+                      usingDefault
+                          ? '${_choiceLabel(_value)} · ${avenText('aven_default')}'
+                          : _choiceLabel(_value),
+                      style: TextStyle(fontSize: 12, color: muted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Segmented choice: the selected part slides under the label.
+          LayoutBuilder(
+            builder: (context, box) {
+              final part = box.maxWidth / choices.length;
+              return Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AvenTone.background(context),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Stack(
+                  children: [
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOutCubic,
+                      left: part * choices.indexOf(_value).clamp(0, 2) + 3,
+                      top: 3,
+                      bottom: 3,
+                      width: part - 6,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: ink,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
                       ),
                     ),
-                ],
-              ),
-            ),
+                    Row(
+                      children: [
+                        for (final value in choices)
+                          Expanded(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () {
+                                if (_value == value) return;
+                                HapticFeedback.selectionClick();
+                                setState(() => _value = value);
+                                widget.onChanged(value);
+                              },
+                              child: Center(
+                                child: AnimatedDefaultTextStyle(
+                                  duration: const Duration(milliseconds: 180),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: _value == value ? AvenTone.background(context) : ink,
+                                  ),
+                                  child: Text(_choiceLabel(value)),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
-        ),
+        ],
       ),
     );
   }
@@ -3242,6 +3213,7 @@ class _FloatingMenu extends StatelessWidget {
     required this.onReload,
     required this.onHome,
     required this.onBookmark,
+    required this.onReadLater,
     required this.onLibrary,
     required this.onToggleAdBlock,
     required this.onToggleReader,
@@ -3270,6 +3242,7 @@ class _FloatingMenu extends StatelessWidget {
   final VoidCallback onReload;
   final VoidCallback onHome;
   final VoidCallback onBookmark;
+  final VoidCallback onReadLater;
   final VoidCallback onLibrary;
   final VoidCallback onToggleAdBlock;
   final VoidCallback onToggleReader;
@@ -3334,6 +3307,7 @@ class _FloatingMenu extends StatelessWidget {
                         onReload: onReload,
                         onHome: onHome,
                         onBookmark: onBookmark,
+                        onReadLater: onReadLater,
                         onLibrary: onLibrary,
                         onToggleAdBlock: onToggleAdBlock,
                         onToggleReader: onToggleReader,
@@ -3810,6 +3784,7 @@ class _MenuBar extends StatefulWidget {
     required this.onReload,
     required this.onHome,
     required this.onBookmark,
+    required this.onReadLater,
     required this.onLibrary,
     required this.onToggleAdBlock,
     required this.onToggleReader,
@@ -3833,6 +3808,7 @@ class _MenuBar extends StatefulWidget {
   final VoidCallback onReload;
   final VoidCallback onHome;
   final VoidCallback onBookmark;
+  final VoidCallback onReadLater;
   final VoidCallback onLibrary;
   final VoidCallback onToggleAdBlock;
   final VoidCallback onToggleReader;
@@ -3849,7 +3825,7 @@ class _MenuBar extends StatefulWidget {
 class _MenuBarState extends State<_MenuBar> {
   late final List<FocusNode> _nodes = [
     widget.firstFocus,
-    ...List.generate(12, (_) => FocusNode()),
+    ...List.generate(13, (_) => FocusNode()),
   ];
 
   @override
@@ -3878,6 +3854,7 @@ class _MenuBarState extends State<_MenuBar> {
       (Icons.refresh, avenText('aven_reload'), true, widget.onReload, null),
       (Icons.home, avenText('aven_home'), true, widget.onHome, null),
       (widget.saved ? Icons.star : Icons.star_border, avenText('aven_bookmark'), true, widget.onBookmark, null),
+      (Icons.bookmark_add_outlined, avenText('aven_read_later'), true, widget.onReadLater, null),
       (Icons.history, avenText('aven_library'), true, widget.onLibrary, null),
       (
         widget.adBlockOn ? Icons.shield : Icons.shield_outlined,

@@ -13,9 +13,13 @@ class AvenConfirmDialog extends StatefulWidget {
     required this.confirmLabel,
     this.icon = Icons.help_outline,
     this.autofocusConfirm = false,
+    this.destructive = false,
     this.onCancel,
     this.onConfirm,
   });
+
+  /// Confirm turns red when focused (quit, delete).
+  final bool destructive;
 
   final String title;
   final String message;
@@ -109,114 +113,166 @@ class _AvenConfirmDialogState extends State<AvenConfirmDialog> {
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
       child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minWidth: 520,
-            maxWidth: 680,
-          ),
-          child: Material(
-            color: AvenColors.panel.withValues(alpha: 0.98),
-            elevation: 18,
-            shadowColor: Colors.black87,
-            borderRadius: BorderRadius.circular(18),
-            clipBehavior: Clip.antiAlias,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: AvenColors.panel,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: AvenColors.text.withValues(alpha: 0.06),
+        child: AvenDialogEntrance(
+          child: AvenDialogPanel(
+            maxWidth: 620,
+            padding: const EdgeInsets.fromLTRB(44, 40, 44, 34),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(child: AvenDialogBadge(icon: widget.icon, alert: widget.destructive)),
+                const SizedBox(height: 22),
+                Text(
+                  widget.title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'Cal Sans',
+                    fontSize: 32,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.3,
+                    height: 1.15,
+                    color: AvenColors.text,
+                  ),
                 ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(32, 28, 32, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                const SizedBox(height: 12),
+                Text(
+                  widget.message,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    height: 1.45,
+                    color: AvenColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 34),
+                Row(
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: AvenColors.text.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: AvenColors.text.withValues(alpha: 0.16),
-                            ),
-                          ),
-                          child: Icon(widget.icon, size: 28, color: AvenColors.text),
+                    Expanded(
+                      child: FocusTraversalOrder(
+                        order: const NumericFocusOrder(0),
+                        child: AvenDialogButton(
+                          label: widget.cancelLabel,
+                          focusNode: _cancelFocus,
+                          onKeyEvent: _onCancelKey,
+                          onPressed: _cancel,
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.title,
-                                style: const TextStyle(
-                                  fontFamily: 'Cal Sans',
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.3,
-                                  height: 1.15,
-                                  color: AvenColors.text,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                widget.message,
-                                maxLines: 4,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 17,
-                                  height: 1.45,
-                                  color: AvenColors.textMuted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 26),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FocusTraversalOrder(
-                            order: const NumericFocusOrder(0),
-                            child: AvenDialogButton(
-                              label: widget.cancelLabel,
-                              focusNode: _cancelFocus,
-                              onKeyEvent: _onCancelKey,
-                              onPressed: _cancel,
-                            ),
-                          ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: FocusTraversalOrder(
+                        order: const NumericFocusOrder(1),
+                        child: AvenDialogButton(
+                          label: widget.confirmLabel,
+                          focusNode: _confirmFocus,
+                          primary: true,
+                          destructive: widget.destructive,
+                          onKeyEvent: _onConfirmKey,
+                          onPressed: _confirm,
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FocusTraversalOrder(
-                            order: const NumericFocusOrder(1),
-                            child: AvenDialogButton(
-                              label: widget.confirmLabel,
-                              focusNode: _confirmFocus,
-                              primary: true,
-                              onKeyEvent: _onConfirmKey,
-                              onPressed: _confirm,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Fades and grows a TV dialog in, so it does not just pop onto the page.
+class AvenDialogEntrance extends StatelessWidget {
+  const AvenDialogEntrance({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      child: child,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.scale(scale: 0.94 + 0.06 * t, child: child),
+      ),
+    );
+  }
+}
+
+/// TV dialog surface: rounded slate card with a soft top light and a deep shadow.
+class AvenDialogPanel extends StatelessWidget {
+  const AvenDialogPanel({
+    super.key,
+    required this.child,
+    this.maxWidth = 620,
+    this.padding = const EdgeInsets.all(32),
+  });
+
+  final Widget child;
+  final double maxWidth;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.lerp(AvenColors.panel, AvenColors.text, 0.06)!,
+              AvenColors.panel,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: AvenColors.text.withValues(alpha: 0.08)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.6),
+              blurRadius: 64,
+              offset: const Offset(0, 24),
+            ),
+          ],
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Padding(padding: padding, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+/// Round icon at the top of a TV dialog.
+class AvenDialogBadge extends StatelessWidget {
+  const AvenDialogBadge({super.key, required this.icon, this.alert = false});
+
+  final IconData icon;
+  final bool alert;
+
+  @override
+  Widget build(BuildContext context) {
+    final tone = alert ? AvenColors.live : AvenColors.text;
+    return Container(
+      width: 84,
+      height: 84,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: tone.withValues(alpha: 0.10),
+        border: Border.all(color: tone.withValues(alpha: 0.22), width: 1.5),
+        boxShadow: [BoxShadow(color: tone.withValues(alpha: 0.12), blurRadius: 32)],
+      ),
+      child: Icon(icon, size: 40, color: tone),
     );
   }
 }
@@ -230,8 +286,10 @@ class AvenDialogButton extends StatelessWidget {
     required this.onKeyEvent,
     required this.onPressed,
     this.primary = false,
+    this.destructive = false,
   });
 
+  final bool destructive;
   final String label;
   final FocusNode focusNode;
   final KeyEventResult Function(FocusNode node, KeyEvent event) onKeyEvent;
@@ -248,28 +306,41 @@ class AvenDialogButton extends StatelessWidget {
         builder: (context, _) {
           final focused = focusNode.hasFocus;
           final Color fill = focused
-              ? AvenColors.focusFill
+              ? (destructive ? AvenColors.live : AvenColors.focusFill)
               : primary
                   ? AvenColors.text.withValues(alpha: 0.16)
                   : AvenColors.elevated;
+          final Color ink = focused
+              ? (destructive ? Colors.white : AvenColors.onFocus)
+              : AvenColors.text;
           return AvenFocusZoom(
             focused: focused,
             scale: 1.04,
-            borderRadius: 12,
+            borderRadius: 30,
             showHalo: false,
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: onPressed,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(30),
                 overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-                child: Container(
-                  constraints: const BoxConstraints(minHeight: 54),
+                child: AnimatedContainer(
+                  duration: AvenFocusMotion.duration,
+                  curve: AvenFocusMotion.curve,
+                  constraints: const BoxConstraints(minHeight: 60),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                   decoration: BoxDecoration(
                     color: fill,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(
+                      color: !focused && primary
+                          ? AvenColors.text.withValues(alpha: 0.22)
+                          : Colors.transparent,
+                    ),
+                    boxShadow: focused
+                        ? [BoxShadow(color: fill.withValues(alpha: 0.35), blurRadius: 22)]
+                        : const [],
                   ),
                   alignment: Alignment.center,
                   child: Text(
@@ -278,7 +349,7 @@ class AvenDialogButton extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
-                      color: focused ? AvenColors.onFocus : AvenColors.text,
+                      color: ink,
                     ),
                   ),
                 ),
