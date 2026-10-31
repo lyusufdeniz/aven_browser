@@ -10,7 +10,9 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
+import android.view.KeyEvent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodChannel
@@ -18,11 +20,14 @@ import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Same-LAN handoff: the TV build advertises itself, the phone finds it and
- * sends the open page or a direct video URL.
+ * sends the open page or a direct video URL. The same link carries remote
+ * commands (keys, cursor moves, typed text) from the phone's TV remote.
  */
 internal object AvenCast {
     private const val castServiceType = "_avenbrowser._tcp."
@@ -36,6 +41,12 @@ internal object AvenCast {
     private var multicast: WifiManager.MulticastLock? = null
     private var pendingDiscover: MethodChannel.Result? = null
     private var discoverActivity: Activity? = null
+    private var hostActivity: WeakReference<Activity>? = null
+
+    // Phone side of the remote: one kept-open socket, written in order.
+    private val remoteWriter = Executors.newSingleThreadExecutor()
+    private var remoteSocket: Socket? = null
+    private var remoteTarget = ""
 
     fun attach(messenger: MethodChannel) {
         channel = messenger
@@ -47,8 +58,62 @@ internal object AvenCast {
      * asking used to block this on a denial and re-prompt on every launch.
      */
     fun host(activity: Activity) {
+        hostActivity = WeakReference(activity)
         if (server != null) return
         startServer(activity.applicationContext)
+    }
+
+    /** Phone: sends one remote command; reconnects once if the TV dropped the link. */
+    fun sendRemote(host: String, port: Int, payload: Map<String, Any?>, result: MethodChannel.Result) {
+        if (host.isBlank() || port <= 0) {
+            result.success(false)
+            return
+        }
+        val line = JSONObject(payload).toString() + "\n"
+        remoteWriter.execute {
+            val target = "$host:$port"
+            var ok = false
+            for (attempt in 0..1) {
+                try {
+                    var socket = remoteSocket
+                    if (socket == null || socket.isClosed || remoteTarget != target) {
+                        try {
+                            socket?.close()
+                        } catch (_: Throwable) {
+                        }
+                        socket = Socket().apply {
+                            tcpNoDelay = true
+                            connect(InetSocketAddress(host, port), 2500)
+                        }
+                        remoteSocket = socket
+                        remoteTarget = target
+                    }
+                    socket.getOutputStream().apply {
+                        write(line.toByteArray(Charsets.UTF_8))
+                        flush()
+                    }
+                    ok = true
+                    break
+                } catch (_: Throwable) {
+                    try {
+                        remoteSocket?.close()
+                    } catch (_: Throwable) {
+                    }
+                    remoteSocket = null
+                }
+            }
+            main.post { result.success(ok) }
+        }
+    }
+
+    fun closeRemote() {
+        remoteWriter.execute {
+            try {
+                remoteSocket?.close()
+            } catch (_: Throwable) {
+            }
+            remoteSocket = null
+        }
     }
 
     fun discover(activity: Activity, result: MethodChannel.Result) {
@@ -145,20 +210,10 @@ internal object AvenCast {
                 } catch (_: Throwable) {
                     break
                 }
-                // A client that times out or drops only loses its own link;
-                // the TV keeps listening for the next one.
-                val line = try {
-                    client.soTimeout = 4000
-                    client.getInputStream().bufferedReader().readLine()
-                } catch (_: Throwable) {
-                    null
-                } finally {
-                    try {
-                        client.close()
-                    } catch (_: Throwable) {
-                    }
-                }
-                if (!line.isNullOrBlank()) deliver(line)
+                // Each phone gets its own reader: a link send is one line, the
+                // remote keeps the socket open for many. A client that stalls or
+                // drops only loses its own link; the TV keeps listening.
+                Thread { serve(client) }.start()
             }
         }.start()
         val manager = context.getSystemService(NsdManager::class.java) ?: return
@@ -187,10 +242,32 @@ internal object AvenCast {
         }
     }
 
+    private fun serve(client: Socket) {
+        try {
+            client.soTimeout = 120_000
+            val reader = client.getInputStream().bufferedReader()
+            while (true) {
+                val line = reader.readLine() ?: break
+                if (line.isNotBlank()) deliver(line)
+            }
+        } catch (_: Throwable) {
+        } finally {
+            try {
+                client.close()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     private fun deliver(line: String) {
         val obj = try {
             JSONObject(line)
         } catch (_: Throwable) {
+            return
+        }
+        val cmd = obj.optString("cmd")
+        if (cmd.isNotBlank()) {
+            remote(cmd, obj)
             return
         }
         val url = obj.optString("url")
@@ -260,5 +337,34 @@ internal object AvenCast {
             }
             finish()
         }, 2200)
+    }
+
+    /** TV: keys go through the activity like a real remote; the rest is Dart's. */
+    private fun remote(cmd: String, obj: JSONObject) {
+        if (cmd == "key") {
+            val code = when (obj.optString("key")) {
+                "up" -> KeyEvent.KEYCODE_DPAD_UP
+                "down" -> KeyEvent.KEYCODE_DPAD_DOWN
+                "left" -> KeyEvent.KEYCODE_DPAD_LEFT
+                "right" -> KeyEvent.KEYCODE_DPAD_RIGHT
+                "ok" -> KeyEvent.KEYCODE_DPAD_CENTER
+                "back" -> KeyEvent.KEYCODE_BACK
+                "play" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+                else -> return
+            }
+            main.post { pressKey(code) }
+            return
+        }
+        val args = HashMap<String, Any?>()
+        args["cmd"] = cmd
+        for (key in obj.keys()) args[key] = obj.opt(key)
+        main.post { channel?.invokeMethod("remote", args) }
+    }
+
+    fun pressKey(code: Int) {
+        val activity = hostActivity?.get() ?: return
+        val now = SystemClock.uptimeMillis()
+        activity.dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
+        activity.dispatchKeyEvent(KeyEvent(now, now + 40, KeyEvent.ACTION_UP, code, 0))
     }
 }

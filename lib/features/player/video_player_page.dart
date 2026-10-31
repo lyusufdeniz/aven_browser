@@ -15,10 +15,20 @@ import 'subtitle_look.dart';
 import 'video_catalog.dart';
 
 class VideoPlayerPage extends StatefulWidget {
-  const VideoPlayerPage({super.key, required this.video, required this.initialSource});
+  const VideoPlayerPage({
+    super.key,
+    required this.video,
+    required this.initialSource,
+    this.pageUrl,
+    this.pageTitle,
+  });
 
   final PageVideo video;
   final VideoSource initialSource;
+
+  /// Page the video came from; resume points are kept per page.
+  final String? pageUrl;
+  final String? pageTitle;
 
   @override
   State<VideoPlayerPage> createState() => _VideoPlayerPageState();
@@ -26,7 +36,9 @@ class VideoPlayerPage extends StatefulWidget {
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
   final _input = WebInput();
+  final _store = BrowserStore();
   VideoPlayerController? _controller;
+  DateTime _lastResumeSave = DateTime.fromMillisecondsSinceEpoch(0);
   VideoSource? _source;
   late List<VideoSource> _sources;
   List<_Cue> _cues = const [];
@@ -202,11 +214,63 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       }
     });
   }
+  /// Resume key: the page, or the media URL without its (often signed) query.
+  String get _watchKey {
+    final page = widget.pageUrl;
+    if (page != null && page.isNotEmpty) return page;
+    final uri = Uri.tryParse(widget.initialSource.url);
+    return uri == null ? widget.initialSource.url : uri.replace(query: '').toString();
+  }
+
+  /// Keeps where the video is; a finished or live video drops its entry.
+  Future<void> _saveResume(VideoPlayerController controller) async {
+    final value = controller.value;
+    if (!value.isInitialized) return;
+    final duration = value.duration;
+    final position = value.position;
+    // Live streams and clips under two minutes are not worth resuming.
+    if (duration < const Duration(minutes: 2)) return;
+    final finished = position > duration - const Duration(seconds: 20) ||
+        position.inMilliseconds > duration.inMilliseconds * 0.97;
+    final tooEarly = position < const Duration(seconds: 15);
+    final title = widget.pageTitle?.trim();
+    await _store.saveWatchProgress(
+      _watchKey,
+      finished || tooEarly
+          ? null
+          : WatchProgress(
+              key: _watchKey,
+              page: widget.pageUrl,
+              title: title == null || title.isEmpty ? (_source?.label ?? '') : title,
+              position: position,
+              duration: duration,
+              updatedAt: DateTime.now().millisecondsSinceEpoch,
+            ),
+    );
+  }
+
+  String _clock(Duration d) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    return h > 0 ? '$h:${two(m)}:${two(s)}' : '$m:${two(s)}';
+  }
+
   Future<void> _open(VideoSource source) async {
     final previous = _controller;
-    final resumeAt = previous?.value.isInitialized == true
+    var resumeAt = previous?.value.isInitialized == true
         ? previous!.value.position
         : Duration.zero;
+    Duration? resumedFrom;
+    if (previous == null) {
+      final saved = await _store.findWatchProgress(_watchKey);
+      if (saved != null) {
+        resumeAt = saved.position;
+        resumedFrom = saved.position;
+      }
+    }
+    if (!mounted) return;
 
     // Detach the old player from the tree before disposing it.
     setState(() {
@@ -260,6 +324,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           _displayedCue = null;
         });
         _revealControls();
+        if (resumedFrom != null) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
+            content: Text(avenText('aven_resumed', [_clock(resumedFrom)])),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ));
+        }
         _rememberDuration(source, next.value.duration);
         unawaited(_syncPipAspect(next));
         // Defer background work so first seconds of playback stay smooth on TV.
@@ -571,6 +642,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     final now = DateTime.now();
     final needProgress = _controls &&
         now.difference(_lastProgressUi) >= const Duration(milliseconds: 500);
+
+    if (playing && now.difference(_lastResumeSave) >= const Duration(seconds: 5)) {
+      _lastResumeSave = now;
+      unawaited(_saveResume(controller));
+    }
+    if (playChanged && !playing) unawaited(_saveResume(controller));
 
     if (!cueChanged && !playChanged && !needProgress) return;
 
@@ -990,8 +1067,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     for (final node in _barFocus) {
       node.dispose();
     }
-    _controller?.removeListener(_onVideoTick);
-    _controller?.dispose();
+    final controller = _controller;
+    controller?.removeListener(_onVideoTick);
+    if (controller != null) {
+      // Save before the player goes; dispose only after the position is read.
+      unawaited(_saveResume(controller).whenComplete(controller.dispose));
+    }
     super.dispose();
   }
 

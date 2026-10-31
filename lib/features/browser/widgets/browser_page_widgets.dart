@@ -493,9 +493,18 @@ class _StartPage extends StatefulWidget {
     required this.onOpenHistory,
     required this.onOpenDownloads,
     required this.onSettings,
+    this.watching = const [],
+    this.onResume,
+    this.showBookmarks = true,
+    this.onRemoveHistory,
   });
 
+  final bool showBookmarks;
+  final ValueChanged<String>? onRemoveHistory;
+
   final bool phone;
+  final List<WatchProgress> watching;
+  final ValueChanged<WatchProgress>? onResume;
   final TextEditingController address;
   final FocusNode focusNode;
   final bool editing;
@@ -519,31 +528,55 @@ class _StartPage extends StatefulWidget {
 class _StartPageState extends State<_StartPage> {
   static const _bookmarkLimit = 24;
   static const _suggestLimit = 8;
+  // TV home picks: video, live and music sites people open on a big screen.
   static const _suggestions = <_Suggestion>[
     _Suggestion(
-      title: 'IMDb',
-      url: 'https://www.imdb.com/',
-      logo: 'assets/suggestions/imdb.svg',
+      title: 'YouTube',
+      url: 'https://www.youtube.com/',
+      art: 'assets/suggestions/youtube.png',
+      hosts: ['youtube.com', 'youtu.be'],
     ),
     _Suggestion(
-      title: 'SofaScore',
-      url: 'https://www.sofascore.com/',
-      logo: 'assets/suggestions/sofascore.svg',
+      title: 'Netflix',
+      url: 'https://www.netflix.com/',
+      art: 'assets/suggestions/netflix.png',
+      hosts: ['netflix.com'],
     ),
     _Suggestion(
-      title: 'Wikipedia',
-      url: 'https://www.wikipedia.org/',
-      logo: 'assets/suggestions/wikipedia.svg',
+      title: 'Prime Video',
+      url: 'https://www.primevideo.com/',
+      art: 'assets/suggestions/prime.webp',
+      hosts: ['primevideo.com'],
     ),
     _Suggestion(
-      title: 'Google News',
-      url: 'https://news.google.com/',
-      logo: 'assets/suggestions/googlenews.svg',
+      title: 'Disney+',
+      url: 'https://www.disneyplus.com/',
+      art: 'assets/suggestions/disney.webp',
+      hosts: ['disneyplus.com'],
     ),
     _Suggestion(
-      title: 'The Weather Channel',
-      url: 'https://weather.com/',
-      logo: 'assets/suggestions/weather.svg',
+      title: 'HBO Max',
+      url: 'https://www.hbomax.com/',
+      art: 'assets/suggestions/max.png',
+      hosts: ['hbomax.com', 'max.com'],
+    ),
+    _Suggestion(
+      title: 'Twitch',
+      url: 'https://www.twitch.tv/',
+      art: 'assets/suggestions/twitch.png',
+      hosts: ['twitch.tv'],
+    ),
+    _Suggestion(
+      title: 'Kick',
+      url: 'https://kick.com/',
+      art: 'assets/suggestions/kick.png',
+      hosts: ['kick.com'],
+    ),
+    _Suggestion(
+      title: 'Spotify',
+      url: 'https://open.spotify.com/',
+      art: 'assets/suggestions/spotify.webp',
+      hosts: ['spotify.com'],
     ),
   ];
 
@@ -552,6 +585,9 @@ class _StartPageState extends State<_StartPage> {
   late final List<FocusNode> _bookmarkFocus =
       List.generate(_bookmarkLimit, (_) => FocusNode());
   late final List<FocusNode> _actionFocus = List.generate(3, (_) => FocusNode());
+  static const _watchLimit = 8;
+  late final List<FocusNode> _watchFocus = List.generate(_watchLimit, (_) => FocusNode());
+  late final Listenable _watchRailListenable = Listenable.merge(_watchFocus);
   late final List<FocusNode> _queryFocus =
       List.generate(_suggestLimit, (_) => FocusNode());
   final _voiceFocus = FocusNode();
@@ -618,6 +654,9 @@ class _StartPageState extends State<_StartPage> {
 
   @override
   void dispose() {
+    for (final node in _watchFocus) {
+      node.dispose();
+    }
     _suggestDebounce?.cancel();
     widget.address.removeListener(_onAddressChanged);
     _pageScroll.dispose();
@@ -738,28 +777,17 @@ class _StartPageState extends State<_StartPage> {
   static _Suggestion? _matchSuggestion(String url) {
     final host = (Uri.tryParse(url)?.host ?? '').toLowerCase();
     if (host.isEmpty) return null;
-    bool hits(String needle) =>
-        host == needle || host.endsWith('.$needle') || host.contains(needle);
-
-    if (hits('imdb.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'IMDb');
-    }
-    if (hits('sofascore.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'SofaScore');
-    }
-    if (hits('wikipedia.org') || hits('wikipedia.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'Wikipedia');
-    }
-    if (hits('news.google.com') || host.contains('news.google')) {
-      return _suggestions.firstWhere((s) => s.title == 'Google News');
-    }
-    if (hits('weather.com') || hits('theweatherchannel.com')) {
-      return _suggestions.firstWhere((s) => s.title == 'The Weather Channel');
+    for (final suggestion in _suggestions) {
+      for (final known in suggestion.hosts) {
+        if (host == known || host.endsWith('.$known')) return suggestion;
+      }
     }
     return null;
   }
 
-  int get _bookmarkCount => widget.bookmarks.length.clamp(0, _bookmarkLimit);
+  int get _bookmarkCount =>
+      widget.showBookmarks ? widget.bookmarks.length.clamp(0, _bookmarkLimit) : 0;
+  int get _watchCount => widget.watching.length.clamp(0, _watchLimit);
   bool get _hasQuerySuggests => _querySuggestions.isNotEmpty;
   bool get _showSiteRail => widget.showSuggestions && !_hasQuerySuggests;
 
@@ -802,9 +830,17 @@ class _StartPageState extends State<_StartPage> {
     }
   }
 
-  /// Actions → site suggestions (if enabled) → bookmarks.
+  /// Actions → continue watching → site suggestions (if enabled) → bookmarks.
   void _focusAfterActions() {
     if (!mounted) return;
+    if (_watchCount > 0 && !_hasQuerySuggests) {
+      _requestNode(_watchFocus.first);
+      return;
+    }
+    _focusBelowWatching();
+  }
+
+  void _focusBelowWatching() {
     if (widget.showSuggestions && !_hasQuerySuggests) {
       if (_suggestScroll.hasClients) _suggestScroll.jumpTo(0);
       _requestNode(_suggestFocus.first);
@@ -817,7 +853,35 @@ class _StartPageState extends State<_StartPage> {
   }
 
   void _focusAboveSiteRail() {
-    _requestNode(_actionFocus.first);
+    _requestNode(_watchCount > 0 ? _watchFocus.first : _actionFocus.first);
+  }
+
+  void _onWatchKey(int index, KeyEvent event) {
+    if (event is! KeyDownEvent) return;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowRight && index < _watchCount - 1) {
+      _requestNode(_watchFocus[index + 1]);
+      return;
+    }
+    if (key == LogicalKeyboardKey.arrowLeft && index > 0) {
+      _requestNode(_watchFocus[index - 1]);
+      return;
+    }
+    if (key == LogicalKeyboardKey.arrowUp) {
+      _requestNode(_actionFocus.first);
+      return;
+    }
+    if (key == LogicalKeyboardKey.arrowDown) {
+      _focusBelowWatching();
+      return;
+    }
+    if (key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.gameButtonA ||
+        key == LogicalKeyboardKey.space) {
+      widget.onResume?.call(widget.watching[index]);
+    }
   }
 
   Future<void> _startVoiceSearch() async {
@@ -973,7 +1037,7 @@ class _StartPageState extends State<_StartPage> {
     }
     if (key == LogicalKeyboardKey.arrowDown) {
       if (!_hasQuerySuggests &&
-          (widget.showSuggestions || _bookmarkCount > 0)) {
+          (widget.showSuggestions || _bookmarkCount > 0 || _watchCount > 0)) {
         _focusAfterActions();
       }
       return;
@@ -1006,7 +1070,10 @@ class _StartPageState extends State<_StartPage> {
   /// (see the omnibox in BrowserPage); recents fill only the room left.
   Widget _phoneStart(BuildContext context, double height) {
     const recentRow = 64.0;
-    final top = (_phoneSearchTop(height) - 8 - 48 - 28).clamp(8.0, double.infinity);
+    // The search bar is placed in the full area, which also covers the
+    // system navigation bar this page stops above.
+    final full = height + MediaQuery.viewPaddingOf(context).bottom;
+    final top = (_phoneSearchTop(full) - 8 - 48 - 28).clamp(8.0, double.infinity);
     return SingleChildScrollView(
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1056,14 +1123,49 @@ class _StartPageState extends State<_StartPage> {
               ],
             ),
             Expanded(
-              child: LayoutBuilder(
+              child: Padding(
+                // Clear of the floating toolbar.
+                padding: const EdgeInsets.only(bottom: 84),
+                child: LayoutBuilder(
                 builder: (context, box) {
-                  final fits = ((box.maxHeight - 28 - 22 - 8) / recentRow).floor();
+                  const watchRow = 28.0 + 22 + 84;
+                  final watching = widget.watching.take(_watchLimit).toList();
+                  final showWatch = watching.isNotEmpty && box.maxHeight >= watchRow;
+                  final room = box.maxHeight - (showWatch ? watchRow : 0);
+                  final fits = ((room - 28 - 22 - 8) / recentRow).floor();
                   final items = widget.history.take(fits.clamp(0, 4)).toList();
-                  if (items.isEmpty) return const SizedBox.shrink();
+                  if (items.isEmpty && !showWatch) return const SizedBox.shrink();
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (showWatch) ...[
+                        const SizedBox(height: 28),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                          child: Text(
+                            avenText('aven_continue_watching'),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AvenTone.textMuted(context),
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          height: 84,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                            itemCount: watching.length,
+                            separatorBuilder: (_, _) => const SizedBox(width: 10),
+                            itemBuilder: (context, index) => _WatchCard(
+                              entry: watching[index],
+                              onPressed: () => widget.onResume?.call(watching[index]),
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (items.isEmpty) const SizedBox.shrink() else ...[
                       const SizedBox(height: 28),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
@@ -1081,8 +1183,13 @@ class _StartPageState extends State<_StartPage> {
                           height: recentRow,
                           child: ListTile(
                             dense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                            contentPadding: const EdgeInsets.only(left: 8),
                             leading: _SiteIcon(url: item.url),
+                            trailing: IconButton(
+                              onPressed: () => widget.onRemoveHistory?.call(item.url),
+                              icon: Icon(Icons.close, size: 18, color: AvenTone.textMuted(context)),
+                              tooltip: avenText('aven_remove_recent'),
+                            ),
                             title: Text(
                               item.title.trim().isEmpty ? item.url : item.title.trim(),
                               maxLines: 1,
@@ -1096,9 +1203,11 @@ class _StartPageState extends State<_StartPage> {
                             onTap: () => widget.onSubmit(item.url),
                           ),
                         ),
+                      ],
                     ],
                   );
                 },
+              ),
               ),
             ),
           ],
@@ -1109,7 +1218,7 @@ class _StartPageState extends State<_StartPage> {
 
   @override
   Widget build(BuildContext context) {
-    final bookmarks = widget.bookmarks.take(_bookmarkLimit).toList();
+    final bookmarks = widget.bookmarks.take(_bookmarkCount).toList();
     final showQuery = _hasQuerySuggests;
     return FocusTraversalGroup(
       policy: OrderedTraversalPolicy(),
@@ -1267,6 +1376,47 @@ class _StartPageState extends State<_StartPage> {
                         ),
                       ),
                     if (!widget.phone && !showQuery) ...[
+                      if (_watchCount > 0) ...[
+                        const SizedBox(height: 22),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            avenText('aven_continue_watching'),
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: AvenColors.textMuted,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 172,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            clipBehavior: Clip.none,
+                            physics: const ClampingScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(4, 18, 48, 18),
+                            child: Row(
+                              children: [
+                                for (var index = 0; index < _watchCount; index++) ...[
+                                  if (index > 0) const SizedBox(width: _suggestGap),
+                                  FocusTraversalOrder(
+                                    order: NumericFocusOrder(5 + index * 0.01),
+                                    child: _WatchCard(
+                                      entry: widget.watching[index],
+                                      tv: true,
+                                      focusNode: _watchFocus[index],
+                                      railListenable: _watchRailListenable,
+                                      onKeyEvent: (event) => _onWatchKey(index, event),
+                                      onPressed: () => widget.onResume?.call(widget.watching[index]),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                       if (_showSiteRail) ...[
                         const SizedBox(height: 22),
                         Align(
@@ -1281,7 +1431,8 @@ class _StartPageState extends State<_StartPage> {
                         ),
                         const SizedBox(height: 10),
                         SizedBox(
-                          height: 188,
+                          // Art card, its name underneath, and room for the focus lift.
+                          height: 204,
                           child: SingleChildScrollView(
                             controller: _suggestScroll,
                             scrollDirection: Axis.horizontal,
@@ -1466,16 +1617,24 @@ class _Suggestion {
   const _Suggestion({
     required this.title,
     required this.url,
-    required this.logo,
+    required this.art,
+    required this.hosts,
   });
 
   final String title;
   final String url;
-  final String logo;
+
+  /// 16:9 brand artwork that fills the card.
+  final String art;
+
+  /// Sites whose bookmarks reuse this artwork.
+  final List<String> hosts;
 
   static const faceBackground = Color(0xFF000000);
 }
 
+/// TV home suggestion: full-bleed brand art with the name underneath; the
+/// focused card lifts, gets a white ring and a soft glow, the rest dim.
 class _SuggestionPoster extends StatelessWidget {
   const _SuggestionPoster({
     required this.suggestion,
@@ -1493,11 +1652,12 @@ class _SuggestionPoster extends StatelessWidget {
   final ValueChanged<KeyEvent> onKeyEvent;
   final VoidCallback onPressed;
 
+  static const width = 228.0;
+  static const artHeight = 128.0;
+
   @override
   Widget build(BuildContext context) {
-    final face = _SuggestionLogo(
-      suggestion: suggestion,
-    );
+    final art = _SuggestionLogo(suggestion: suggestion);
     return Focus(
       focusNode: focusNode,
       onKeyEvent: (node, event) {
@@ -1514,74 +1674,69 @@ class _SuggestionPoster extends StatelessWidget {
       },
       child: ListenableBuilder(
         listenable: railListenable,
-        child: face,
+        child: art,
         builder: (context, child) {
           final focused = focusNode.hasFocus;
-          final railActive = railNodes.any((node) => node.hasFocus);
-          final dimmed = railActive && !focused;
-          return AnimatedScale(
-            scale: focused ? 1.04 : 1,
-            duration: AvenFocusMotion.duration,
-            curve: AvenFocusMotion.curve,
+          final dimmed = railNodes.any((node) => node.hasFocus) && !focused;
+          return GestureDetector(
+            onTap: onPressed,
             child: SizedBox(
-              width: 228,
-              height: 136,
-              child: Stack(
-                fit: StackFit.expand,
-                clipBehavior: Clip.none,
+              width: width,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Positioned.fill(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: onPressed,
-                        borderRadius: BorderRadius.circular(14),
-                        overlayColor:
-                            const WidgetStatePropertyAll(Colors.transparent),
+                  AnimatedScale(
+                    scale: focused ? 1.06 : 1,
+                    duration: AvenFocusMotion.duration,
+                    curve: AvenFocusMotion.curve,
+                    child: AnimatedContainer(
+                      duration: AvenFocusMotion.duration,
+                      curve: AvenFocusMotion.curve,
+                      width: width,
+                      height: artHeight,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: focused
+                            ? [
+                                BoxShadow(
+                                  color: AvenColors.text.withValues(alpha: 0.22),
+                                  blurRadius: 24,
+                                  spreadRadius: 1,
+                                ),
+                              ]
+                            : const [],
+                      ),
+                      foregroundDecoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: focused ? AvenColors.text : AvenColors.text.withValues(alpha: 0.08),
+                          width: focused ? 3 : 1,
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
                         child: AnimatedOpacity(
-                          opacity: dimmed ? 0.34 : 1,
+                          opacity: dimmed ? 0.45 : 1,
                           duration: const Duration(milliseconds: 260),
                           curve: Curves.easeOutCubic,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                const ColoredBox(
-                                  color: _Suggestion.faceBackground,
-                                ),
-                                child!,
-                                if (dimmed)
-                                  ColoredBox(
-                                    color: AvenColors.background
-                                        .withValues(alpha: 0.45),
-                                  ),
-                              ],
-                            ),
-                          ),
+                          child: child,
                         ),
                       ),
                     ),
                   ),
-                  Positioned(
-                    left: 2,
-                    top: 2,
-                    right: 2,
-                    bottom: 2,
-                    child: IgnorePointer(
-                      child: AnimatedContainer(
-                        duration: AvenFocusMotion.duration,
-                        curve: AvenFocusMotion.curve,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: focused
-                                ? AvenColors.text.withValues(alpha: 0.88)
-                                : Colors.transparent,
-                            width: 2.5,
-                          ),
-                        ),
-                      ),
+                  const SizedBox(height: 10),
+                  AnimatedDefaultTextStyle(
+                    duration: AvenFocusMotion.duration,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: focused ? FontWeight.w700 : FontWeight.w500,
+                      color: focused
+                          ? AvenColors.text
+                          : AvenColors.textMuted.withValues(alpha: dimmed ? 0.6 : 1),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(suggestion.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
                   ),
                 ],
@@ -1601,44 +1756,17 @@ class _SuggestionLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: SvgPicture.asset(
-                suggestion.logo,
-                fit: BoxFit.contain,
-                // Keep brand fills from the SVG (no tint).
-                placeholderBuilder: (_) => const Icon(
-                  Icons.public,
-                  size: 36,
-                  color: AvenColors.text,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Flexible(
-              child: Text(
-                suggestion.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.left,
-                style: const TextStyle(
-                  fontFamily: 'sans-serif',
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.1,
-                  color: AvenColors.text,
-                ),
-              ),
-            ),
-          ],
-        ),
+    final px = (_SuggestionPoster.width * MediaQuery.devicePixelRatioOf(context)).round();
+    return Image.asset(
+      suggestion.art,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      cacheWidth: px,
+      filterQuality: FilterQuality.medium,
+      errorBuilder: (context, error, stack) => const ColoredBox(
+        color: _Suggestion.faceBackground,
+        child: Center(child: Icon(Icons.public, size: 36, color: AvenColors.text)),
       ),
     );
   }
@@ -1924,6 +2052,123 @@ class _StartAction extends StatelessWidget {
 
 /// Top of the phone search bar on the start screen: the middle of the page.
 /// BrowserPage places the omnibox here; the start page leaves room for it.
+/// Continue watching: the page's title, its site and how far the video got.
+class _WatchCard extends StatelessWidget {
+  const _WatchCard({
+    required this.entry,
+    required this.onPressed,
+    this.tv = false,
+    this.focusNode,
+    this.railListenable,
+    this.onKeyEvent,
+  });
+
+  final WatchProgress entry;
+  final VoidCallback onPressed;
+  final bool tv;
+  final FocusNode? focusNode;
+  final Listenable? railListenable;
+  final ValueChanged<KeyEvent>? onKeyEvent;
+
+  Widget _face(BuildContext context, bool focused) {
+    final ink = tv ? AvenColors.text : AvenTone.text(context);
+    final muted = tv ? AvenColors.textMuted : AvenTone.textMuted(context);
+    final host = Uri.tryParse(entry.page ?? '')?.host ?? '';
+    final title = entry.title.trim().isEmpty ? host : entry.title.trim();
+    return AnimatedContainer(
+      duration: AvenFocusMotion.duration,
+      curve: AvenFocusMotion.curve,
+      width: tv ? 300 : 220,
+      height: tv ? 136 : 76,
+      padding: EdgeInsets.fromLTRB(12, tv ? 14 : 10, 12, tv ? 14 : 10),
+      decoration: BoxDecoration(
+        color: tv ? AvenColors.panel : AvenTone.elevated(context),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: focused ? ink.withValues(alpha: 0.88) : Colors.transparent,
+          width: 2.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.play_circle_outline, size: tv ? 26 : 20, color: ink),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: tv ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: tv ? 16 : 14, fontWeight: FontWeight.w600, color: ink),
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            host,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: muted),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: entry.fraction,
+              minHeight: 4,
+              color: ink,
+              backgroundColor: ink.withValues(alpha: 0.15),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!tv) {
+      return InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(14),
+        child: _face(context, false),
+      );
+    }
+    final node = focusNode!;
+    return Focus(
+      focusNode: node,
+      onKeyEvent: (_, event) {
+        onKeyEvent?.call(event);
+        return event is KeyDownEvent &&
+                (_isArrow(event.logicalKey) ||
+                    event.logicalKey == LogicalKeyboardKey.enter ||
+                    event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                    event.logicalKey == LogicalKeyboardKey.select ||
+                    event.logicalKey == LogicalKeyboardKey.gameButtonA ||
+                    event.logicalKey == LogicalKeyboardKey.space)
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
+      },
+      child: ListenableBuilder(
+        listenable: railListenable ?? node,
+        builder: (context, _) {
+          final focused = node.hasFocus;
+          return AnimatedScale(
+            scale: focused ? 1.04 : 1,
+            duration: AvenFocusMotion.duration,
+            curve: AvenFocusMotion.curve,
+            child: GestureDetector(onTap: onPressed, child: _face(context, focused)),
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// Site favicon (Google's favicon service), a globe when there is none.
 class _SiteIcon extends StatelessWidget {
   const _SiteIcon({required this.url, this.size = 20});
@@ -2011,6 +2256,7 @@ class _PhoneOmnibox extends StatelessWidget {
     required this.onTapField,
     required this.onSubmit,
     required this.onShare,
+    this.onHide,
     this.incognito = false,
     this.connection = 'unknown',
     this.onSecurity,
@@ -2027,6 +2273,9 @@ class _PhoneOmnibox extends StatelessWidget {
   final VoidCallback onTapField;
   final ValueChanged<String> onSubmit;
   final VoidCallback onShare;
+
+  /// Tucks the bar away so the top of the page shows; null on the start screen.
+  final VoidCallback? onHide;
   final bool incognito;
   final String connection;
   final VoidCallback? onSecurity;
@@ -2040,6 +2289,8 @@ class _PhoneOmnibox extends StatelessWidget {
         color: incognito ? const Color(0xFF2A2A32) : AvenTone.elevated(context),
         borderRadius: BorderRadius.circular(28),
         clipBehavior: Clip.antiAlias,
+        elevation: 6,
+        shadowColor: Colors.black.withValues(alpha: 0.45),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -2088,6 +2339,12 @@ class _PhoneOmnibox extends StatelessWidget {
                           ),
                           tooltip: avenText('aven_share'),
                         ),
+                        if (onHide != null && !addressFocus.hasFocus)
+                          IconButton(
+                            onPressed: onHide,
+                            icon: Icon(Icons.expand_less, size: 24, color: ink),
+                            tooltip: avenText('aven_hide_address'),
+                          ),
                       ],
                     );
                   },
@@ -2391,8 +2648,12 @@ class _PhoneTopBar extends StatelessWidget {
     required this.canShare,
     required this.canReload,
     required this.onReload,
+    required this.onReadLater,
+    required this.onRemote,
   });
 
+  final VoidCallback onReadLater;
+  final VoidCallback onRemote;
   final int tabCount;
   final bool canBack;
   final bool canForward;
@@ -2444,12 +2705,12 @@ class _PhoneTopBar extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 GridView.count(
-                  crossAxisCount: 4,
+                  crossAxisCount: 5,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: 6,
-                  childAspectRatio: 0.82,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 4,
+                  childAspectRatio: 0.7,
                   children: [
                     _MenuTile(
                       icon: Icons.add,
@@ -2466,6 +2727,11 @@ class _PhoneTopBar extends StatelessWidget {
                       label: avenText('aven_bookmark'),
                       active: saved,
                       onTap: canShare ? () => run(onBookmark) : null,
+                    ),
+                    _MenuTile(
+                      icon: Icons.bookmark_add_outlined,
+                      label: avenText('aven_read_later'),
+                      onTap: canShare ? () => run(onReadLater) : null,
                     ),
                     _MenuTile(
                       icon: Icons.refresh,
@@ -2489,8 +2755,13 @@ class _PhoneTopBar extends StatelessWidget {
                     ),
                     _MenuTile(
                       icon: Icons.connected_tv,
-                      label: playingVideo ? avenText('aven_cast_play') : avenText('aven_cast_share'),
+                      label: avenText('aven_cast_short'),
                       onTap: canShare ? () => run(onCast) : null,
+                    ),
+                    _MenuTile(
+                      icon: Icons.settings_remote_outlined,
+                      label: avenText('aven_tv_remote'),
+                      onTap: () => run(onRemote),
                     ),
                   ],
                 ),
@@ -2568,12 +2839,15 @@ class _PhoneTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = AvenTone.text(context);
+    // A rounded bar floating over the page, not a strip glued to the bottom.
     return Material(
-      color: AvenTone.background(context),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 52,
+      color: AvenTone.elevated(context),
+      borderRadius: BorderRadius.circular(28),
+      clipBehavior: Clip.antiAlias,
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.5),
+      child: SizedBox(
+          height: 56,
           child: Row(
             children: [
               Expanded(
@@ -2630,7 +2904,6 @@ class _PhoneTopBar extends StatelessWidget {
             ],
           ),
         ),
-      ),
     );
   }
 }
@@ -2725,8 +2998,12 @@ class _PhoneTabGrid extends StatelessWidget {
     required this.onCloseAll,
     required this.onNewTab,
     required this.onIncognito,
+    required this.closed,
+    required this.onReopen,
   });
 
+  final List<({String url, String title})> closed;
+  final ValueChanged<int> onReopen;
   final List<_PageTab> tabs;
   final int tabIndex;
   final VoidCallback onCloseGrid;
@@ -2735,6 +3012,53 @@ class _PhoneTabGrid extends StatelessWidget {
   final VoidCallback onCloseAll;
   final VoidCallback onNewTab;
   final VoidCallback onIncognito;
+
+  void _showClosed(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.6),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Text(
+                    avenText('aven_recently_closed'),
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                if (closed.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                    child: Text(avenText('aven_recently_closed_empty')),
+                  ),
+                for (var index = 0; index < closed.length; index++)
+                  ListTile(
+                    leading: _SiteIcon(url: closed[index].url),
+                    title: Text(closed[index].title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(
+                      Uri.tryParse(closed[index].url)?.host ?? closed[index].url,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      onReopen(index);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2758,6 +3082,11 @@ class _PhoneTabGrid extends StatelessWidget {
                           : avenText('aven_tab_count', [tabs.length]),
                       style: const TextStyle(fontSize: 18),
                     ),
+                  ),
+                  IconButton(
+                    onPressed: closed.isEmpty ? null : () => _showClosed(context),
+                    tooltip: avenText('aven_recently_closed'),
+                    icon: const Icon(Icons.restore),
                   ),
                 ],
               ),
@@ -3828,15 +4157,16 @@ class _MenuTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
+        // Icons line up across a row even when a label wraps to two lines.
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const SizedBox(height: 4),
             DecoratedBox(
               decoration: BoxDecoration(color: circle, shape: BoxShape.circle),
               child: SizedBox(
-                width: 52,
-                height: 52,
-                child: Icon(icon, size: 24, color: glyph),
+                width: 48,
+                height: 48,
+                child: Icon(icon, size: 22, color: glyph),
               ),
             ),
             const SizedBox(height: 8),

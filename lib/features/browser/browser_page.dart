@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/l10n/aven_strings.dart';
@@ -20,6 +20,7 @@ import '../../platform/web_input.dart';
 import '../library/library_page.dart';
 import '../player/video_catalog.dart';
 import '../player/video_player_page.dart';
+import '../remote/tv_remote_page.dart';
 import '../settings/settings_page.dart';
 import 'media_site.dart';
 import 'page_engine.dart';
@@ -85,6 +86,57 @@ const _editableCheck = '''
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   return el.isContentEditable === true;
 })()
+''';
+
+/// Phone page hooks: tells Flutter when to tuck the bars away (scrolling
+/// down), bring them back (up or near the top), and how far a pull at the
+/// very top has gone. Inner scrolled panes never count as "at the top".
+const _scrollHooks = r'''
+(function(){
+  if (window.__avenScrollHook || !window.AvenScroll) return;
+  window.__avenScrollHook = true;
+  function send(m){ try { AvenScroll.postMessage(m); } catch (e) {} }
+  function top(){ return window.scrollY || document.documentElement.scrollTop || 0; }
+  var last = top(), run = 0, hidden = false;
+  window.addEventListener('scroll', function(){
+    var y = top(), d = y - last;
+    last = y;
+    if (y < 48) { run = 0; if (hidden) { hidden = false; send('show'); } return; }
+    if ((d > 0) !== (run > 0)) run = 0;
+    run += d;
+    if (!hidden && run > 56) { hidden = true; send('hide'); }
+    else if (hidden && run < -40) { hidden = false; send('show'); }
+  }, {passive: true});
+  var startY = null, dist = 0, shown = 0;
+  function scrolledAbove(el){
+    for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      if (el.scrollTop > 0) return true;
+    }
+    return false;
+  }
+  function report(v){
+    if (Math.abs(v - shown) < 0.04 && v !== 0) return;
+    shown = v;
+    send('pull:' + v.toFixed(2));
+  }
+  document.addEventListener('touchstart', function(e){
+    dist = 0;
+    startY = e.touches.length === 1 && top() <= 0 && !scrolledAbove(e.target)
+      ? e.touches[0].clientY : null;
+  }, {passive: true});
+  document.addEventListener('touchmove', function(e){
+    if (startY === null) return;
+    if (top() > 0 || e.touches.length !== 1) { startY = null; if (shown) report(0); return; }
+    dist = e.touches[0].clientY - startY;
+    report(dist > 0 ? Math.min(dist / 150, 1.5) : 0);
+  }, {passive: true});
+  function end(){
+    if (startY !== null && shown) send(dist >= 150 ? 'refresh' : 'pull:0');
+    startY = null; dist = 0; shown = 0;
+  }
+  document.addEventListener('touchend', end, {passive: true});
+  document.addEventListener('touchcancel', end, {passive: true});
+})();
 ''';
 
 class BrowserPage extends StatefulWidget {
@@ -162,6 +214,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   bool _warnWebView = false;
   bool _lite = false;
   bool _homeSuggestions = true;
+  bool _homeBookmarks = true;
   bool _desktopSite = false;
   String _connection = 'unknown';
   bool _findOpen = false;
@@ -169,6 +222,23 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   int _findTotal = 0;
   Timer? _previewTimer;
   bool _voiceBusy = false;
+
+  /// Phone: tabs closed lately, newest first, for Undo and the tab grid.
+  final List<({String url, String title})> _closedTabs = [];
+
+  /// Phone: the page scrolled down, so the address and tool bars step aside.
+  bool _barsHidden = false;
+
+  /// Phone: the user tucked the address bar away to see the top of a page;
+  /// it comes back once they scroll down and up again.
+  bool _addressTucked = false;
+
+  /// Phone: pull-to-refresh distance (1 = far enough), and a reload it started.
+  final _pull = ValueNotifier<double>(0);
+  bool _pullRefreshing = false;
+
+  /// Videos left part way, newest first (start screen row).
+  List<WatchProgress> _watching = const [];
   final _findText = TextEditingController();
   final _findFocus = FocusNode();
   List<SearchSuggestion> _omniboxSuggestions = const [];
@@ -240,10 +310,17 @@ class _BrowserPageState extends _BrowserPageBase
         unawaited(_showContextMenu({
           for (final entry in raw.entries) '${entry.key}': '${entry.value ?? ''}',
         }));
+      } else if (call.method == 'remote' && call.arguments is Map) {
+        _onRemote(Map<Object?, Object?>.from(call.arguments as Map));
       } else if (call.method == 'cast' && call.arguments is Map) {
         final raw = Map<Object?, Object?>.from(call.arguments as Map);
         final url = '${raw['url'] ?? ''}';
-        unawaited(_openCast(url, raw['play'] == true));
+        // Phone: a link from another app gets its own tab.
+        if (AvenFlavor.isMobile) {
+          unawaited(_openInNewTab(url));
+        } else {
+          unawaited(_openCast(url, raw['play'] == true));
+        }
       }
     });
     _ticker = createTicker(_onTick);
@@ -406,6 +483,7 @@ class _BrowserPageState extends _BrowserPageBase
     final agent = await _store.loadAgent();
     final lite = await _store.loadLiteBrowsing(fallback: !AvenFlavor.isMobile);
     final homeSuggestions = await _store.loadHomeSuggestions();
+    final homeBookmarks = await _store.loadHomeBookmarks();
     final version = await _input.webViewVersion();
     await _input.setAdBlock(block.name);
     await _applyAgent(agent);
@@ -420,16 +498,23 @@ class _BrowserPageState extends _BrowserPageBase
       _adBlockProvider = provider;
       _lite = lite;
       _homeSuggestions = homeSuggestions;
+      _homeBookmarks = homeBookmarks;
       _desktopSite = agent == BrowserAgent.desktop;
       _warnWebView = !AvenFlavor.isMobile && major != null && major < 80;
     });
     if (AvenFlavor.isMobile) await _restoreTabs();
+    unawaited(_refreshWatching());
     unawaited(_syncHomeChannel());
-    final launchUrl = AvenFlavor.isMobile ? null : await _input.takeLaunchUrl();
+    final launchUrl = await _input.takeLaunchUrl();
     if (launchUrl != null && mounted) {
-      await _openCast(launchUrl, false);
+      if (AvenFlavor.isMobile) {
+        await _openInNewTab(launchUrl);
+      } else {
+        await _openCast(launchUrl, false);
+      }
       return;
     }
+    if (AvenFlavor.isMobile) unawaited(_offerDefaultBrowser());
     // Start screen never mounts WebView; keep native side paused anyway.
     if (_onStart) {
       unawaited(_suspendWebPage());
@@ -514,6 +599,12 @@ class _BrowserPageState extends _BrowserPageBase
       'AvenField',
       onMessageReceived: _onFieldMessage,
     );
+    if (AvenFlavor.isMobile) {
+      await _controller.addJavaScriptChannel(
+        'AvenScroll',
+        onMessageReceived: _onScrollMessage,
+      );
+    }
     try {
       _userAgent = await _controller.getUserAgent();
     } catch (_) {}
@@ -536,6 +627,53 @@ class _BrowserPageState extends _BrowserPageBase
       pageHooks: _pageHooks,
       videoWatch: videoWatchScript,
     );
+    if (AvenFlavor.isMobile) {
+      try {
+        await _controller.runJavaScript(_scrollHooks);
+      } catch (_) {}
+    }
+  }
+
+  /// Phone page scroll: hide the bars going down, show them going up, and
+  /// pull down at the very top to reload.
+  void _onScrollMessage(JavaScriptMessage message) {
+    if (!mounted || !AvenFlavor.isMobile) return;
+    final text = message.message;
+    if (text == 'hide' || text == 'show') {
+      final hide = text == 'hide' &&
+          !_onStart &&
+          !_findOpen &&
+          !_addressFocus.hasFocus &&
+          _pageError == null;
+      // Scrolling back up also brings back an address bar the user tucked away.
+      final untuck = text == 'show' && _addressTucked;
+      if (hide != _barsHidden || untuck) {
+        setState(() {
+          _barsHidden = hide;
+          if (untuck) _addressTucked = false;
+        });
+      }
+      return;
+    }
+    if (text == 'refresh') {
+      _pull.value = 0;
+      unawaited(HapticFeedback.mediumImpact());
+      setState(() {
+        _pullRefreshing = true;
+        _barsHidden = false;
+        _pageError = null;
+        _readerOn = false;
+      });
+      unawaited(_controller.reload());
+      // A page that never reports finishing must not leave the spinner up.
+      Timer(const Duration(seconds: 8), () {
+        if (mounted && _pullRefreshing) setState(() => _pullRefreshing = false);
+      });
+      return;
+    }
+    if (text.startsWith('pull:')) {
+      _pull.value = double.tryParse(text.substring(5)) ?? 0;
+    }
   }
 
   @override
@@ -598,8 +736,10 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   void _showStart() {
+    unawaited(_refreshWatching());
     setState(() {
       _onStart = true;
+      _barsHidden = false;
       _phoneTabsOpen = false;
       _omniboxSuggestions = const [];
       _menuOpen = false;
@@ -764,7 +904,7 @@ class _BrowserPageState extends _BrowserPageBase
       _history = await _store.loadHistory();
       if (!mounted) return;
       setState(() => _saved = _bookmarks.any((item) => item.url == _pageUrl));
-      if (picked != null) await _openInput(picked);
+      if (picked != null) await _openPicked(picked);
       return;
     }
     final opener = FocusManager.instance.primaryFocus;
@@ -778,10 +918,292 @@ class _BrowserPageState extends _BrowserPageBase
     if (!mounted) return;
     setState(() => _saved = _bookmarks.any((item) => item.url == _pageUrl));
     if (picked != null) {
-      await _openInput(picked);
+      await _openPicked(picked);
       return;
     }
     _restoreFocusAfterPanel(opener);
+  }
+
+  Future<void> _openPicked(String picked) async {
+    const prefix = LibraryPage.readingPrefix;
+    if (picked.startsWith(prefix)) {
+      await _openReading(int.tryParse(picked.substring(prefix.length)) ?? 0);
+    } else {
+      await _openInput(picked);
+    }
+  }
+
+  Object? _decodeJs(Object? raw) {
+    var value = raw;
+    // Android hands the JSON back as a quoted string; unwrap until it is data.
+    for (var i = 0; i < 3 && value is String; i++) {
+      try {
+        value = jsonDecode(value);
+      } catch (_) {
+        return value;
+      }
+    }
+    return value;
+  }
+
+  void _toast(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(text),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 84),
+      ));
+  }
+
+  /// Read later: keeps the link, plus the article text for offline reading.
+  Future<void> _readLater() async {
+    final url = _pageUrl;
+    if (_onStart || url == null || !isAvenWebUrl(url)) return;
+    final title = (_pageTitle?.trim().isNotEmpty ?? false) ? _pageTitle!.trim() : url;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    String? file;
+    try {
+      final data = _decodeJs(await _controller.runJavaScriptReturningResult(readerExtractScript));
+      final html = data is Map ? '${data['html'] ?? ''}' : '';
+      final dir = await WebInput.filesDir();
+      if (html.trim().length > 200 && dir != null) {
+        final out = File('$dir/reading/$now.json');
+        await out.create(recursive: true);
+        await out.writeAsString(jsonEncode({'html': html}));
+        file = out.path;
+      }
+    } catch (_) {}
+    final current = await _store.loadReadingList();
+    for (final old in current.where((item) => item.url == url)) {
+      final path = old.file;
+      if (path == null) continue;
+      try {
+        await File(path).delete();
+      } catch (_) {}
+    }
+    await _store.saveReadingList([
+      ReadingItem(title: title, url: url, savedAt: now, file: file),
+      ...current.where((item) => item.url != url),
+    ]);
+    if (!mounted) return;
+    _toast(avenText(file == null ? 'aven_reading_saved' : 'aven_reading_saved_offline'));
+  }
+
+  /// Opens a reading list copy in the page view, without the network.
+  Future<void> _openReading(int savedAt) async {
+    final items = await _store.loadReadingList();
+    final item = items.where((entry) => entry.savedAt == savedAt).firstOrNull;
+    if (item == null || !mounted) return;
+    String? article;
+    try {
+      final data = jsonDecode(await File(item.file!).readAsString());
+      if (data is Map && data['html'] is String) article = data['html'] as String;
+    } catch (_) {}
+    if (!mounted) return;
+    if (article == null) {
+      await _openInput(item.url);
+      return;
+    }
+    final saved = DateTime.fromMillisecondsSinceEpoch(savedAt);
+    final page = offlineReadingPage(
+      item: item,
+      article: article,
+      dark: Theme.of(context).brightness == Brightness.dark,
+      savedLabel: avenText('aven_offline_copy', ['${saved.day}.${saved.month}.${saved.year}']),
+    );
+    setState(() {
+      _onStart = false;
+      _menuOpen = false;
+      _addressEditing = false;
+      _startEditing = false;
+      _pageError = null;
+      _readerOn = false;
+      _pageUrl = item.url;
+      _pageTitle = item.title;
+      _address.text = item.url;
+    });
+    _syncChrome();
+    _addressFocus.unfocus();
+    _startFocus.unfocus();
+    _surfaceFocus.canRequestFocus = true;
+    _webSuspended = false;
+    try {
+      await _input.resumeWebView();
+    } catch (_) {}
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    try {
+      await _controller.loadHtml(page, baseUrl: item.url);
+    } catch (_) {}
+    unawaited(_wakeSurface());
+  }
+
+  Future<void> _refreshWatching() async {
+    final items = await _store.loadWatchProgress();
+    if (!mounted) return;
+    setState(() => _watching = items.where((item) => item.page != null).toList());
+  }
+
+  /// Phone: suggests making Aven the default browser, once.
+  Future<void> _offerDefaultBrowser() async {
+    if (await _store.loadDefaultBrowserAsked()) return;
+    bool isDefault;
+    try {
+      isDefault = await WebInput.isDefaultBrowser();
+    } catch (_) {
+      return;
+    }
+    if (isDefault || !mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    if (!mounted) return;
+    await _store.saveDefaultBrowserAsked();
+    if (!mounted) return;
+    final set = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(Icons.public, size: 40, color: AvenTone.text(context)),
+                const SizedBox(height: 14),
+                Text(
+                  avenText('aven_default_title'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  avenText('aven_default_detail'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 15, color: AvenTone.textMuted(context)),
+                ),
+                const SizedBox(height: 22),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: Text(avenText('aven_default_set')),
+                ),
+                const SizedBox(height: 6),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: Text(avenText('aven_default_later')),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (set == true) {
+      try {
+        await WebInput.requestDefaultBrowser();
+      } catch (_) {}
+    }
+  }
+
+  /// Phone: pick an Aven TV on the network and drive it from the phone.
+  Future<void> _openTvRemote() async {
+    final picked = await showModalBottomSheet<({String name, String host, int port})>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      builder: (context) => const _CastTvSheet(),
+    );
+    if (picked == null || !mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (context) => TvRemotePage(name: picked.name, host: picked.host, port: picked.port),
+      ),
+    );
+  }
+
+  /// TV: a command from a phone remote. Keys arrive as real key presses
+  /// (see AvenCast); this handles the cursor, scrolling and typed text.
+  void _onRemote(Map<Object?, Object?> args) {
+    if (!mounted || AvenFlavor.isMobile) return;
+    double number(Object? value) => value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+    final onPage = !_onStart &&
+        !_menuOpen &&
+        _pageError == null &&
+        !_openingVideo &&
+        (ModalRoute.of(context)?.isCurrent ?? true);
+    switch ('${args['cmd']}') {
+      case 'move':
+        if (!onPage || _webSize.isEmpty) return;
+        final next = _cursor.value + Offset(number(args['dx']), number(args['dy']));
+        final maxX = (_webSize.width - 1).clamp(0.0, double.infinity);
+        final maxY = (_webSize.height - 1).clamp(0.0, double.infinity);
+        final clamped = Offset(next.dx.clamp(0.0, maxX), next.dy.clamp(0.0, maxY));
+        _cursor.value = clamped;
+        _bumpCursor();
+        // Pushing past an edge scrolls the page, like holding an arrow there.
+        final overX = next.dx - clamped.dx;
+        final overY = next.dy - clamped.dy;
+        if (overX != 0 || overY != 0) {
+          unawaited(_scrollBy(overX, overY, clamped.dx, clamped.dy));
+        }
+      case 'scroll':
+        if (!onPage) return;
+        final at = _cursor.value;
+        unawaited(_scrollBy(0, number(args['dy']), at.dx, at.dy));
+      case 'click':
+        if (onPage) {
+          unawaited(_activate());
+        } else {
+          unawaited(WebInput.pressKey('ok'));
+        }
+      case 'text':
+        unawaited(_remoteText('${args['text'] ?? ''}', args['submit'] == true));
+    }
+  }
+
+  Future<void> _remoteText(String text, bool submit) async {
+    // Start screen or the menu's address bar: fill it like typing on the TV.
+    if (_onStart || _menuOpen) {
+      _address.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+      if (submit && text.trim().isNotEmpty) await _openInput(text);
+      return;
+    }
+    // A focused page field takes the text; with none, the text is a search.
+    final script = '''
+(function(){
+  var t = ${jsonEncode(text)}, submit = $submit;
+  var el = document.activeElement;
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+  var editable = el && (el.isContentEditable || /^(input|textarea)\$/i.test(el.tagName));
+  if (!editable) return 'none';
+  if (el.isContentEditable) {
+    document.execCommand('insertText', false, t);
+  } else {
+    var proto = /textarea/i.test(el.tagName) ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, t);
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  if (submit) {
+    var key = {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true};
+    el.dispatchEvent(new KeyboardEvent('keydown', key));
+    el.dispatchEvent(new KeyboardEvent('keyup', key));
+    if (el.form) {
+      try { el.form.requestSubmit ? el.form.requestSubmit() : el.form.submit(); } catch (e) {}
+    }
+  }
+  return 'ok';
+})();
+''';
+    try {
+      final result = await _controller.runJavaScriptReturningResult(script);
+      if ('$result'.contains('ok')) return;
+    } catch (_) {}
+    if (submit && text.trim().isNotEmpty) await _openInput(text);
   }
 
   Future<void> _openSettings() async {
@@ -803,6 +1225,7 @@ class _BrowserPageState extends _BrowserPageBase
     final provider = await _store.loadAdBlockProvider();
     final agent = await _store.loadAgent();
     final lite = await _store.loadLiteBrowsing(fallback: !AvenFlavor.isMobile);
+    final homeBookmarks = await _store.loadHomeBookmarks();
     final homeSuggestions = await _store.loadHomeSuggestions();
     await _input.setAdBlock(block.name);
     await _applyAgent(agent);
@@ -814,6 +1237,7 @@ class _BrowserPageState extends _BrowserPageBase
       _adBlockProvider = provider;
       _lite = lite;
       _homeSuggestions = homeSuggestions;
+      _homeBookmarks = homeBookmarks;
     });
     if (!_onStart && isAvenWebUrl(_pageUrl)) {
       await _controller.reload();
@@ -1083,10 +1507,15 @@ class _BrowserPageState extends _BrowserPageBase
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (context) =>
-              VideoPlayerPage(video: video, initialSource: initial),
+          builder: (context) => VideoPlayerPage(
+            video: video,
+            initialSource: initial,
+            pageUrl: _pageUrl,
+            pageTitle: _pageTitle,
+          ),
         ),
       );
+      unawaited(_refreshWatching());
     } finally {
       _openingVideo = false;
       if (mounted) setState(() {});
@@ -1346,7 +1775,61 @@ class _BrowserPageState extends _BrowserPageBase
     }
   }
 
+  /// Remembers [tabs] for Undo; returns how many were worth remembering.
+  int _rememberClosed(Iterable<_PageTab> tabs) {
+    var count = 0;
+    for (final tab in tabs) {
+      final url = tab.url;
+      if (tab.incognito || url == null || !isAvenWebUrl(url)) continue;
+      _closedTabs.removeWhere((item) => item.url == url);
+      _closedTabs.insert(0, (url: url, title: tab.title));
+      count++;
+    }
+    if (_closedTabs.length > 15) _closedTabs.removeRange(15, _closedTabs.length);
+    return count;
+  }
+
+  void _offerUndo(int count) {
+    if (!AvenFlavor.isMobile || count == 0 || !mounted) return;
+    // Oldest first, so Undo brings the tabs back in their old order.
+    final items = _closedTabs.take(count).toList().reversed.toList();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(
+          count == 1 ? avenText('aven_tab_closed') : avenText('aven_tabs_closed', [count]),
+        ),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 84),
+        duration: const Duration(seconds: 4),
+        // With an action Flutter keeps the bar up until tapped; let it time out.
+        persist: false,
+        action: SnackBarAction(
+          label: avenText('aven_undo'),
+          onPressed: () => _reopenClosed(items),
+        ),
+      ));
+  }
+
+  void _reopenClosed(List<({String url, String title})> items) {
+    if (items.isEmpty || !mounted) return;
+    _closedTabs.removeWhere((closed) => items.any((item) => item.url == closed.url));
+    // Close all leaves one blank tab behind; reuse it.
+    final blank = _tabs.length == 1 && _tabs.first.url == null;
+    setState(() {
+      if (blank) _tabs.clear();
+      for (final item in items) {
+        _tabs.add(_PageTab()
+          ..url = item.url
+          ..title = item.title);
+      }
+    });
+    _selectTab(_tabs.length - 1);
+  }
+
   void _closeAllTabs() {
+    final remembered = _rememberClosed(_tabs);
+    _offerUndo(remembered);
     setState(() {
       _tabs
         ..clear()
@@ -1843,6 +2326,7 @@ class _BrowserPageState extends _BrowserPageBase
 
   void _closeTab(int index) {
     if (index < 0 || index >= _tabs.length) return;
+    _offerUndo(_rememberClosed([_tabs[index]]));
     if (_tabs.length == 1) {
       _tabs[0] = _PageTab();
       _showStart();
@@ -1946,9 +2430,68 @@ class _BrowserPageState extends _BrowserPageBase
     await SystemNavigator.pop();
   }
 
+  /// Phone toolbar; it floats over the bottom of the page (see build).
+  Widget _phoneBar() {
+    return _PhoneTopBar(
+                tabCount: _tabs.length,
+                canBack: _canBack,
+                canForward: _canForward,
+                saved: _saved,
+                adBlockOn: _adBlock.isEnabled,
+                readerOn: _readerOn,
+                zoom: _zoom,
+                desktopSite: _desktopSite,
+                onBack: () {
+                  if (_canBack) {
+                    unawaited(_controller.goBack());
+                  } else if (!_onStart) {
+                    _showStart();
+                  }
+                },
+                onForward: () => _controller.goForward(),
+                onNewTab: _newTab,
+                onTabs: () => unawaited(_openTabGrid()),
+                onBookmark: _toggleBookmark,
+                onLibrary: _openLibrary,
+                onToggleAdBlock: _toggleAdBlock,
+                onToggleReader: () => unawaited(_toggleReader()),
+                onZoomOut: () => _setZoom(_zoom - 10),
+                onZoomIn: () => _setZoom(_zoom + 10),
+                onZoomReset: () => _setZoom(100),
+                onSettings: _openSettings,
+                onToggleDesktop: () => unawaited(_toggleDesktopSite()),
+                onIncognito: () => unawaited(_newIncognitoTab()),
+                onFind: () {
+                  if (_onStart) return;
+                  _addressFocus.unfocus();
+                  setState(() => _findOpen = true);
+                  // The menu sheet hands focus back as it closes; take it after that.
+                  Future<void>.delayed(const Duration(milliseconds: 300), () {
+                    if (mounted && _findOpen) _findFocus.requestFocus();
+                  });
+                },
+                onDownloads: () => unawaited(_openLibrary(section: 2)),
+                onCast: () => unawaited(_shareWithTv()),
+                playingVideo: _castMediaUrl != null,
+                onSiteSettings: () => unawaited(_showSiteSettings()),
+                canShare: !_onStart && isAvenWebUrl(_pageUrl),
+                canReload: !_onStart,
+                onReload: () {
+                  setState(() {
+                    _pageError = null;
+                    _readerOn = false;
+                  });
+                  unawaited(_controller.reload());
+                },
+                onReadLater: () => unawaited(_readLater()),
+                onRemote: () => unawaited(_openTvRemote()),
+              );
+  }
+
   @override
   void dispose() {
     _downloadPoll?.cancel();
+    _pull.dispose();
     _findFocus.dispose();
     HardwareKeyboard.instance.removeHandler(_onHardwareKey);
     _input.setHandler(null);
@@ -2020,6 +2563,12 @@ class _BrowserPageState extends _BrowserPageBase
                   _newTab();
                 },
                 onIncognito: () => unawaited(_newIncognitoTab()),
+                closed: _closedTabs,
+                onReopen: (index) {
+                  if (index < 0 || index >= _closedTabs.length) return;
+                  setState(() => _phoneTabsOpen = false);
+                  _reopenClosed([_closedTabs[index]]);
+                },
               )
             : Column(
           children: [
@@ -2123,6 +2672,11 @@ class _BrowserPageState extends _BrowserPageBase
                 bookmarks: _bookmarks,
                 history: _history,
                 showSuggestions: _homeSuggestions,
+                showBookmarks: _homeBookmarks,
+                onRemoveHistory: (url) => unawaited(() async {
+                  final next = await _store.removeHistory(url);
+                  if (mounted) setState(() => _history = next);
+                }()),
                 onTapField: () => setState(() => _startEditing = true),
                 onLeaveField: () {
                   if (_startEditing) setState(() => _startEditing = false);
@@ -2133,6 +2687,8 @@ class _BrowserPageState extends _BrowserPageBase
                 onOpenHistory: () => _openLibrary(section: 1),
                 onOpenDownloads: () => _openLibrary(section: 2),
                 onSettings: _openSettings,
+                watching: _watching,
+                onResume: (entry) => unawaited(_openInput(entry.page ?? entry.key)),
               )),
             if (_pageError != null && !_onStart)
               Positioned.fill(
@@ -2251,15 +2807,56 @@ class _BrowserPageState extends _BrowserPageBase
                   final atTop = !_onStart;
                   return LayoutBuilder(
                     builder: (context, constraints) {
+                      final barsAway = atTop && _barsHidden;
+                      final fieldAway = barsAway || (atTop && _addressTucked);
                       final fieldTop = atTop
-                          ? 4.0
+                          ? (fieldAway ? -68.0 : 4.0)
                           : _phoneSearchTop(constraints.maxHeight);
+                      // Both bars float over the page: it fills the screen under
+                      // them and does not reflow as they slide away.
                       return Stack(
                         children: [
                           Padding(
-                            padding: EdgeInsets.only(top: atTop ? 60 : 0),
+                            // The page stops above the system navigation bar.
+                            padding: EdgeInsets.only(
+                              bottom: MediaQuery.viewPaddingOf(context).bottom,
+                            ),
                             child: page,
                           ),
+                          if (!_onStart)
+                            ValueListenableBuilder<double>(
+                              valueListenable: _pull,
+                              builder: (context, pull, _) {
+                                if (pull <= 0 && !_pullRefreshing) return const SizedBox.shrink();
+                                final shown = _pullRefreshing ? 1.0 : pull.clamp(0.0, 1.2);
+                                return Positioned(
+                                  top: (fieldAway ? 8 : 68) + 44 * shown,
+                                  left: 0,
+                                  right: 0,
+                                  child: IgnorePointer(
+                                    child: Center(
+                                      child: Material(
+                                        elevation: 3,
+                                        shape: const CircleBorder(),
+                                        color: AvenTone.elevated(context),
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(9),
+                                          child: SizedBox(
+                                            width: 22,
+                                            height: 22,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.4,
+                                              value: _pullRefreshing ? null : shown.clamp(0.0, 1.0),
+                                              color: AvenTone.text(context),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                           AnimatedPositioned(
                             duration: const Duration(milliseconds: 180),
                             curve: Curves.easeOutCubic,
@@ -2291,8 +2888,28 @@ class _BrowserPageState extends _BrowserPageBase
                               connection: _onStart ? 'unknown' : _connection,
                               onSecurity: () => unawaited(_showSecurity()),
                               onShare: () => unawaited(_sharePage()),
+                              onHide: _onStart
+                                  ? null
+                                  : () {
+                                      _addressFocus.unfocus();
+                                      setState(() => _addressTucked = true);
+                                    },
                             ),
                           ),
+                          // Floating toolbar: slides off the bottom while a page scrolls
+                          // down or the keyboard is up; the find bar replaces it.
+                          if (!_findOpen)
+                            AnimatedPositioned(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutCubic,
+                              left: 12,
+                              right: 12,
+                              bottom: (_barsHidden && !_onStart) ||
+                                      MediaQuery.viewInsetsOf(context).bottom > 0
+                                  ? -96
+                                  : 12 + MediaQuery.viewPaddingOf(context).bottom,
+                              child: _phoneBar(),
+                            ),
                           if ((_onStart
                                   ? _startFocus.hasFocus
                                   : _addressFocus.hasFocus &&
@@ -2371,60 +2988,6 @@ class _BrowserPageState extends _BrowserPageBase
                   unawaited(WebInput.removeDownload(id));
                 },
                 onDismiss: () => setState(() => _toastHoldId = null),
-              ),
-            // The find bar takes the toolbar's place while it is open.
-            if (AvenFlavor.isMobile && !_pageFullscreen && !_findOpen)
-              _PhoneTopBar(
-                tabCount: _tabs.length,
-                canBack: _canBack,
-                canForward: _canForward,
-                saved: _saved,
-                adBlockOn: _adBlock.isEnabled,
-                readerOn: _readerOn,
-                zoom: _zoom,
-                desktopSite: _desktopSite,
-                onBack: () {
-                  if (_canBack) {
-                    unawaited(_controller.goBack());
-                  } else if (!_onStart) {
-                    _showStart();
-                  }
-                },
-                onForward: () => _controller.goForward(),
-                onNewTab: _newTab,
-                onTabs: () => unawaited(_openTabGrid()),
-                onBookmark: _toggleBookmark,
-                onLibrary: _openLibrary,
-                onToggleAdBlock: _toggleAdBlock,
-                onToggleReader: () => unawaited(_toggleReader()),
-                onZoomOut: () => _setZoom(_zoom - 10),
-                onZoomIn: () => _setZoom(_zoom + 10),
-                onZoomReset: () => _setZoom(100),
-                onSettings: _openSettings,
-                onToggleDesktop: () => unawaited(_toggleDesktopSite()),
-                onIncognito: () => unawaited(_newIncognitoTab()),
-                onFind: () {
-                  if (_onStart) return;
-                  _addressFocus.unfocus();
-                  setState(() => _findOpen = true);
-                  // The menu sheet hands focus back as it closes; take it after that.
-                  Future<void>.delayed(const Duration(milliseconds: 300), () {
-                    if (mounted && _findOpen) _findFocus.requestFocus();
-                  });
-                },
-                onDownloads: () => unawaited(_openLibrary(section: 2)),
-                onCast: () => unawaited(_shareWithTv()),
-                playingVideo: _castMediaUrl != null,
-                onSiteSettings: () => unawaited(_showSiteSettings()),
-                canShare: !_onStart && isAvenWebUrl(_pageUrl),
-                canReload: !_onStart,
-                onReload: () {
-                  setState(() {
-                    _pageError = null;
-                    _readerOn = false;
-                  });
-                  unawaited(_controller.reload());
-                },
               ),
             if (AvenFlavor.isMobile && _findOpen)
               Material(

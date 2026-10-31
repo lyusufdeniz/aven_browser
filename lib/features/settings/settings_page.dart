@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -7,6 +9,8 @@ import '../../core/platform/aven_flavor.dart';
 import '../../core/platform/aven_layout.dart';
 import '../../core/aven_app_info.dart';
 import '../../core/url/url_input.dart';
+import '../../data/bookmark_file.dart';
+import '../../data/error_reports.dart';
 import '../../data/settings_store.dart';
 import '../../platform/web_input.dart';
 import '../player/subtitle_look.dart';
@@ -53,6 +57,7 @@ class _SettingsPageState extends State<SettingsPage> {
   BrowserAgent _agent = BrowserAgent.defaultAgent;
   bool _lite = false;
   bool _homeSuggestions = true;
+  bool _homeBookmarks = true;
   SubtitleStyle _subtitles = const SubtitleStyle();
   late final List<FocusNode> _leftFocus =
       List.generate(7, (index) => FocusNode(debugLabel: 'settings-left-$index'));
@@ -86,6 +91,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final agent = await widget.store.loadAgent();
     final lite = await widget.store.loadLiteBrowsing(fallback: !AvenFlavor.isMobile);
     final homeSuggestions = await widget.store.loadHomeSuggestions();
+    final homeBookmarks = await widget.store.loadHomeBookmarks();
     final subtitles = await widget.store.loadSubtitleStyle();
     if (!mounted) return;
     setState(() {
@@ -95,6 +101,7 @@ class _SettingsPageState extends State<SettingsPage> {
       _agent = agent;
       _lite = lite;
       _homeSuggestions = homeSuggestions;
+      _homeBookmarks = homeBookmarks;
     });
   }
 
@@ -130,10 +137,125 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) setState(() {});
   }
 
+  void _toast(String text) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating));
+  }
+
+  Future<void> _importBookmarks() async {
+    final html = await WebInput.openDocument();
+    if (html == null || !mounted) return;
+    final found = BookmarkFile.parse(html);
+    if (found.isEmpty) {
+      _toast(avenText('aven_import_none'));
+      return;
+    }
+    final current = await widget.store.loadBookmarks();
+    final known = current.map((item) => item.url).toSet();
+    final added = found.where((item) => !known.contains(item.url)).toList();
+    await widget.store.saveBookmarks([...current, ...added]);
+    if (mounted) _toast(avenText('aven_imported', [added.length]));
+  }
+
+  Future<void> _export(String file, String folder, List<WebLink> links) async {
+    final ok = await WebInput.createDocument(file, BookmarkFile.build(folder, links));
+    if (ok && mounted) _toast(avenText('aven_exported'));
+  }
+
+  Future<void> _showErrorReports() async {
+    var reports = ErrorReports.load();
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AvenTone.elevated(context),
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              avenText('aven_error_reports'),
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: reports.isEmpty
+                                ? null
+                                : () => unawaited(WebInput.share(
+                                      reports.map((item) => item.text).join('\n\n-----\n\n'),
+                                    )),
+                            child: Text(avenText('aven_share_reports')),
+                          ),
+                          TextButton(
+                            onPressed: reports.isEmpty
+                                ? null
+                                : () {
+                                    ErrorReports.clear();
+                                    setLocal(() => reports = ErrorReports.load());
+                                    setState(() {});
+                                  },
+                            child: Text(avenText('aven_clear_reports')),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (reports.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                        child: Text(avenText('aven_error_reports_none')),
+                      )
+                    else
+                      Flexible(
+                        child: ListView(
+                          shrinkWrap: true,
+                          children: [
+                            for (final item in reports)
+                              ListTile(
+                                leading: const Icon(Icons.bug_report_outlined),
+                                title: Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                subtitle: Text(_stamp(item.at)),
+                                onTap: () => unawaited(WebInput.share(item.text)),
+                              ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _stamp(DateTime at) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${at.year}-${two(at.month)}-${two(at.day)} ${two(at.hour)}:${two(at.minute)}';
+  }
+
   Future<void> _selectSubtitles(SubtitleStyle style) async {
     await widget.store.saveSubtitleStyle(style);
     if (!mounted) return;
     setState(() => _subtitles = style);
+  }
+
+  Future<void> _selectHomeBookmarks(bool enabled) async {
+    await widget.store.saveHomeBookmarks(enabled);
+    if (!mounted) return;
+    setState(() => _homeBookmarks = enabled);
   }
 
   Future<void> _selectHomeSuggestions(bool enabled) async {
@@ -162,7 +284,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   int get _rightCount => switch (_section) {
     0 => _blocks.length,
-    1 => 2,
+    1 => 4,
     2 => _engines.length,
     3 => 2,
     4 => _agents.length,
@@ -232,8 +354,12 @@ class _SettingsPageState extends State<SettingsPage> {
       case 0:
         _selectBlock(_blocks[index]);
       case 1:
-        // Göster, Gizle
-        _selectHomeSuggestions(index == 0);
+        // Suggestions: show, hide; bookmarks: show, hide.
+        if (index < 2) {
+          _selectHomeSuggestions(index == 0);
+        } else {
+          _selectHomeBookmarks(index == 2);
+        }
       case 2:
         _selectEngine(_engines[index]);
       case 3:
@@ -492,6 +618,69 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
         ],
+        _PhoneSettingsHeading(avenText('aven_default_browser')),
+        FutureBuilder<bool>(
+          future: WebInput.isDefaultBrowser(),
+          builder: (context, snapshot) {
+            final isDefault = snapshot.data == true;
+            return _PhoneSettingsOption(
+              title: isDefault ? avenText('aven_default_is') : avenText('aven_default_set'),
+              subtitle: isDefault ? null : avenText('aven_default_not'),
+              icon: isDefault ? Icons.check_circle_outline : Icons.public,
+              selected: false,
+              onTap: () => unawaited(() async {
+                await WebInput.requestDefaultBrowser();
+                if (mounted) setState(() {});
+              }()),
+            );
+          },
+        ),
+        _PhoneSettingsHeading(avenText('aven_data')),
+        _PhoneSettingsOption(
+          title: avenText('aven_import_bookmarks'),
+          subtitle: avenText('aven_import_bookmarks_detail'),
+          icon: Icons.file_download_outlined,
+          selected: false,
+          onTap: () => unawaited(_importBookmarks()),
+        ),
+        _PhoneSettingsOption(
+          title: avenText('aven_export_bookmarks'),
+          subtitle: avenText('aven_export_detail'),
+          icon: Icons.file_upload_outlined,
+          selected: false,
+          onTap: () => unawaited(() async {
+            await _export(
+              'aven-bookmarks.html',
+              avenText('aven_bookmarks'),
+              await widget.store.loadBookmarks(),
+            );
+          }()),
+        ),
+        _PhoneSettingsOption(
+          title: avenText('aven_export_history'),
+          subtitle: avenText('aven_export_detail'),
+          icon: Icons.history,
+          selected: false,
+          onTap: () => unawaited(() async {
+            await _export(
+              'aven-history.html',
+              avenText('aven_history'),
+              await widget.store.loadHistory(),
+            );
+          }()),
+        ),
+        _PhoneSettingsOption(
+          title: avenText('aven_error_reports'),
+          subtitle: () {
+            final count = ErrorReports.load().length;
+            return count == 0
+                ? avenText('aven_error_reports_none')
+                : avenText('aven_error_reports_detail', [count]);
+          }(),
+          icon: Icons.bug_report_outlined,
+          selected: false,
+          onTap: () => unawaited(_showErrorReports()),
+        ),
         _PhoneSettingsHeading(avenText('aven_about')),
         _PhoneSettingsOption(
           title: avenText('aven_version'),
@@ -513,6 +702,35 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _panel({bool compact = false}) {
     if (_section == 5) return _subtitlePanel(compact);
+    if (_section == 1) {
+      final rows = [
+        (avenText('aven_show'), avenText('aven_show_detail'), _homeSuggestions),
+        (avenText('aven_hide'), avenText('aven_hide_detail'), !_homeSuggestions),
+        (avenText('aven_show'), avenText('aven_home_bookmarks_show'), _homeBookmarks),
+        (avenText('aven_hide'), avenText('aven_home_bookmarks_hide'), !_homeBookmarks),
+      ];
+      Widget row(int index) => _SettingRow(
+            focusNode: _rightFocus[index],
+            onKeyEvent: (event) => _onRightKey(index, event),
+            onTap: () => _activateRight(index),
+            checked: rows[index].$3,
+            title: rows[index].$1,
+            subtitle: rows[index].$2,
+          );
+      return ListView(
+        padding: _panelPadding(compact),
+        clipBehavior: Clip.none,
+        children: [
+          _SectionLabel(avenText('aven_home_suggestions')),
+          row(0),
+          row(1),
+          const SizedBox(height: 18),
+          _SectionLabel(avenText('aven_home_bookmarks')),
+          row(2),
+          row(3),
+        ],
+      );
+    }
     if (_section == 6) {
       return ListView(
         padding: _panelPadding(compact),

@@ -2,6 +2,7 @@ package dev.furina.avenbrowser
 
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.app.role.RoleManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -9,6 +10,7 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import android.speech.RecognizerIntent
 import android.util.Rational
 import android.view.InputDevice
@@ -35,6 +37,10 @@ class MainActivity : FlutterActivity() {
     private var pendingAdBlockMode: String? = null
     private var pendingAdBlockResult: MethodChannel.Result? = null
     private var pendingSpeechResult: MethodChannel.Result? = null
+    private var pendingOpenDocument: MethodChannel.Result? = null
+    private var pendingCreateDocument: MethodChannel.Result? = null
+    private var pendingCreateText: String? = null
+    private var pendingRoleResult: MethodChannel.Result? = null
     /** Bumps on every pause/resume so stale posted runnables cannot invert order. */
     @Volatile private var webViewLifecycle = 0
 
@@ -128,6 +134,35 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "appStrings" -> result.success(appStrings())
+                    "filesDir" -> result.success(filesDir.absolutePath)
+                    "isDefaultBrowser" -> result.success(isDefaultBrowser())
+                    "requestDefaultBrowser" -> requestDefaultBrowser(result)
+                    "openDocument" -> openDocument(result)
+                    "createDocument" -> createDocument(
+                        call.argument<String>("name") ?: "aven.html",
+                        call.argument<String>("mime") ?: "text/html",
+                        call.argument<String>("text") ?: "",
+                        result,
+                    )
+                    "sendTvRemote" -> AvenCast.sendRemote(
+                        call.argument<String>("host") ?: "",
+                        call.argument<Int>("port") ?: 0,
+                        call.argument<Map<String, Any?>>("payload").orEmpty(),
+                        result,
+                    )
+                    "closeTvRemote" -> {
+                        AvenCast.closeRemote()
+                        result.success(null)
+                    }
+                    "pressKey" -> {
+                        val code = when (call.argument<String>("key")) {
+                            "ok" -> KeyEvent.KEYCODE_DPAD_CENTER
+                            "back" -> KeyEvent.KEYCODE_BACK
+                            else -> null
+                        }
+                        if (code != null) AvenCast.pressKey(code)
+                        result.success(null)
+                    }
                     "discoverTvs" -> AvenCast.discover(this, result)
                     "sendToTv" -> AvenCast.send(
                         call.argument<String>("host") ?: "",
@@ -238,6 +273,89 @@ class MainActivity : FlutterActivity() {
             out[field.name] = getString(id)
         }
         return out
+    }
+
+    private fun isDefaultBrowser(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roles = getSystemService(RoleManager::class.java)
+            if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_BROWSER)) {
+                return roles.isRoleHeld(RoleManager.ROLE_BROWSER)
+            }
+        }
+        val probe = Intent(Intent.ACTION_VIEW, Uri.parse("https://example.com"))
+        @Suppress("DEPRECATION")
+        val handler = packageManager.resolveActivity(probe, PackageManager.MATCH_DEFAULT_ONLY)
+        return handler?.activityInfo?.packageName == packageName
+    }
+
+    /** Android 10+ asks with its own dialog; older phones get the default apps screen. */
+    private fun requestDefaultBrowser(result: MethodChannel.Result) {
+        if (isDefaultBrowser()) {
+            result.success(true)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roles = getSystemService(RoleManager::class.java)
+            if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_BROWSER) && pendingRoleResult == null) {
+                pendingRoleResult = result
+                try {
+                    @Suppress("DEPRECATION")
+                    startActivityForResult(roles.createRequestRoleIntent(RoleManager.ROLE_BROWSER), REQ_ROLE)
+                    return
+                } catch (_: Exception) {
+                    pendingRoleResult = null
+                }
+            }
+        }
+        try {
+            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        } catch (_: Exception) {
+        }
+        result.success(false)
+    }
+
+    /** Lets the user pick a file (bookmark HTML) and returns its text. */
+    private fun openDocument(result: MethodChannel.Result) {
+        if (pendingOpenDocument != null) {
+            result.success(null)
+            return
+        }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/html", "text/plain", "application/octet-stream"))
+        }
+        pendingOpenDocument = result
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQ_OPEN_DOC)
+        } catch (_: Exception) {
+            pendingOpenDocument = null
+            result.success(null)
+        }
+    }
+
+    /** Lets the user choose where to save [text]; true once it is written. */
+    private fun createDocument(name: String, mime: String, text: String, result: MethodChannel.Result) {
+        if (pendingCreateDocument != null) {
+            result.success(false)
+            return
+        }
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = mime
+            putExtra(Intent.EXTRA_TITLE, name)
+        }
+        pendingCreateDocument = result
+        pendingCreateText = text
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, REQ_CREATE_DOC)
+        } catch (_: Exception) {
+            pendingCreateDocument = null
+            pendingCreateText = null
+            result.success(false)
+        }
     }
 
     private fun isPipSupported(): Boolean {
@@ -841,6 +959,59 @@ class MainActivity : FlutterActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_ROLE) {
+            val pending = pendingRoleResult
+            pendingRoleResult = null
+            pending?.success(isDefaultBrowser())
+            return
+        }
+        if (requestCode == REQ_OPEN_DOC) {
+            val pending = pendingOpenDocument
+            pendingOpenDocument = null
+            val uri = data?.data
+            if (pending == null) return
+            if (resultCode != Activity.RESULT_OK || uri == null) {
+                pending.success(null)
+                return
+            }
+            Thread {
+                val text = try {
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        // Bookmark files are small; refuse anything absurd.
+                        val bytes = stream.readBytes()
+                        if (bytes.size > 20 * 1024 * 1024) null else String(bytes, Charsets.UTF_8)
+                    }
+                } catch (_: Exception) {
+                    null
+                }
+                runOnUiThread { pending.success(text) }
+            }.start()
+            return
+        }
+        if (requestCode == REQ_CREATE_DOC) {
+            val pending = pendingCreateDocument
+            val text = pendingCreateText
+            pendingCreateDocument = null
+            pendingCreateText = null
+            val uri = data?.data
+            if (pending == null) return
+            if (resultCode != Activity.RESULT_OK || uri == null || text == null) {
+                pending.success(false)
+                return
+            }
+            Thread {
+                val ok = try {
+                    contentResolver.openOutputStream(uri, "wt")?.use { stream ->
+                        stream.write(text.toByteArray(Charsets.UTF_8))
+                    }
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+                runOnUiThread { pending.success(ok) }
+            }.start()
+            return
+        }
         if (requestCode == REQ_SPEECH) {
             val pending = pendingSpeechResult
             pendingSpeechResult = null
@@ -875,13 +1046,21 @@ class MainActivity : FlutterActivity() {
     private var pendingOpenUrl: String? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        pendingOpenUrl = intent?.getStringExtra(EXTRA_OPEN_URL)
+        pendingOpenUrl = intent?.let { openUrlOf(it) }
         super.onCreate(savedInstanceState)
+    }
+
+    /** A TV home card's page, or a web link another app handed to Aven. */
+    private fun openUrlOf(intent: Intent): String? {
+        intent.getStringExtra(EXTRA_OPEN_URL)?.let { return it }
+        if (intent.action != Intent.ACTION_VIEW) return null
+        val data = intent.data ?: return null
+        return if (data.scheme == "http" || data.scheme == "https") data.toString() else null
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val url = intent.getStringExtra(EXTRA_OPEN_URL) ?: return
+        val url = openUrlOf(intent) ?: return
         // Same path as a link sent from the phone.
         channel.invokeMethod("cast", mapOf("url" to url, "play" to false))
     }
@@ -891,6 +1070,9 @@ class MainActivity : FlutterActivity() {
         private const val channelName = "dev.furina.avenbrowser/input"
         private const val REQ_VPN = 7711
         private const val REQ_SPEECH = 9911
+        private const val REQ_OPEN_DOC = 9921
+        private const val REQ_CREATE_DOC = 9922
+        private const val REQ_ROLE = 9931
     }
 }
 

@@ -142,6 +142,94 @@ class SubtitleStyle {
   }
 }
 
+/// A page kept for later; [file] holds the offline copy when one was saved.
+class ReadingItem {
+  const ReadingItem({required this.title, required this.url, required this.savedAt, this.file});
+
+  final String title;
+  final String url;
+  final int savedAt;
+  final String? file;
+
+  String toJson() => jsonEncode({
+    'title': title,
+    'url': url,
+    'savedAt': savedAt,
+    if (file != null) 'file': file,
+  });
+
+  static ReadingItem? fromJson(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final url = decoded['url'];
+      final savedAt = decoded['savedAt'];
+      if (url is! String || url.isEmpty || savedAt is! int) return null;
+      final title = decoded['title'];
+      final file = decoded['file'];
+      return ReadingItem(
+        title: title is String && title.trim().isNotEmpty ? title : url,
+        url: url,
+        savedAt: savedAt,
+        file: file is String && file.isNotEmpty ? file : null,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+/// Where a video was left: [key] is the page (or the media URL without a page).
+class WatchProgress {
+  const WatchProgress({
+    required this.key,
+    required this.page,
+    required this.title,
+    required this.position,
+    required this.duration,
+    required this.updatedAt,
+  });
+
+  final String key;
+  final String? page;
+  final String title;
+  final Duration position;
+  final Duration duration;
+  final int updatedAt;
+
+  double get fraction => duration.inMilliseconds <= 0
+      ? 0
+      : (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
+
+  String toJson() => jsonEncode({
+    'key': key,
+    if (page != null) 'page': page,
+    'title': title,
+    'pos': position.inMilliseconds,
+    'dur': duration.inMilliseconds,
+    'at': updatedAt,
+  });
+
+  static WatchProgress? fromJson(String raw) {
+    try {
+      final d = jsonDecode(raw);
+      if (d is! Map || d['key'] is! String) return null;
+      final page = d['page'];
+      final title = d['title'];
+      return WatchProgress(
+        key: d['key'] as String,
+        page: page is String && page.isNotEmpty ? page : null,
+        title: title is String ? title : '',
+        position: Duration(milliseconds: (d['pos'] as num?)?.toInt() ?? 0),
+        duration: Duration(milliseconds: (d['dur'] as num?)?.toInt() ?? 0),
+        updatedAt: (d['at'] as num?)?.toInt() ?? 0,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 class BrowserStore {
   static const _bookmarksKey = 'bookmarks';
   static const _historyKey = 'history';
@@ -157,6 +245,8 @@ class BrowserStore {
   static const _subtitleBackgroundKey = 'subtitle_background';
   static const _subtitleColorKey = 'subtitle_color';
   static const _themeKey = 'theme_choice';
+  static const _readingKey = 'reading_list';
+  static const _watchKey = 'watch_progress';
 
   Future<SearchEngine> loadEngine() async {
     final prefs = await SharedPreferences.getInstance();
@@ -290,6 +380,19 @@ class BrowserStore {
     await prefs.setInt(_openTabIndexKey, index.clamp(0, kept.length - 1));
   }
 
+  static const _homeBookmarksKey = 'home_bookmarks';
+
+  /// TV: bookmark cards on the home screen.
+  Future<bool> loadHomeBookmarks() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_homeBookmarksKey) ?? true;
+  }
+
+  Future<void> saveHomeBookmarks(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_homeBookmarksKey, enabled);
+  }
+
   Future<bool> loadHomeSuggestions() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_homeSuggestionsKey) ?? true;
@@ -358,7 +461,8 @@ class BrowserStore {
   }
 
   Future<List<WebLink>> saveBookmarks(List<WebLink> links) async {
-    final trimmed = links.take(200).toList();
+    // Room for a bookmark file imported from another browser.
+    final trimmed = links.take(2000).toList();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_bookmarksKey, trimmed.map((link) => link.toJson()).toList());
     return trimmed;
@@ -380,6 +484,13 @@ class BrowserStore {
     return next;
   }
 
+  Future<List<WebLink>> removeHistory(String url) async {
+    final next = (await loadHistory()).where((item) => item.url != url).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_historyKey, next.map((item) => item.toJson()).toList());
+    return next;
+  }
+
   Future<void> clearHistory({Duration? newerThan}) async {
     final prefs = await SharedPreferences.getInstance();
     if (newerThan == null) {
@@ -393,6 +504,57 @@ class BrowserStore {
       return at < cutoff;
     }).toList();
     await prefs.setStringList(_historyKey, kept.map((item) => item.toJson()).toList());
+  }
+
+  static const _defaultAskedKey = 'default_browser_asked';
+
+  /// The phone asks once to become the default browser; Settings keeps the option.
+  Future<bool> loadDefaultBrowserAsked() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_defaultAskedKey) ?? false;
+  }
+
+  Future<void> saveDefaultBrowserAsked() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_defaultAskedKey, true);
+  }
+
+  Future<List<ReadingItem>> loadReadingList() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_readingKey) ?? const <String>[];
+    return raw.map(ReadingItem.fromJson).whereType<ReadingItem>().toList();
+  }
+
+  Future<List<ReadingItem>> saveReadingList(List<ReadingItem> items) async {
+    final kept = items.take(100).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_readingKey, kept.map((item) => item.toJson()).toList());
+    return kept;
+  }
+
+  Future<List<WatchProgress>> loadWatchProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getStringList(_watchKey) ?? const <String>[];
+    return raw.map(WatchProgress.fromJson).whereType<WatchProgress>().toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+  }
+
+  Future<WatchProgress?> findWatchProgress(String key) async {
+    for (final item in await loadWatchProgress()) {
+      if (item.key == key) return item;
+    }
+    return null;
+  }
+
+  /// Saves [entry], or drops the key when [entry] is null (video finished).
+  Future<void> saveWatchProgress(String key, WatchProgress? entry) async {
+    final current = await loadWatchProgress();
+    final next = [
+      ?entry,
+      ...current.where((item) => item.key != key),
+    ].take(20).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_watchKey, next.map((item) => item.toJson()).toList());
   }
 
   List<WebLink> _readList(SharedPreferences prefs, String key) {

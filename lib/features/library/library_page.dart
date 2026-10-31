@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,14 +17,27 @@ class LibraryPage extends StatefulWidget {
   final BrowserStore store;
   final int initialSection;
 
+  /// Reading list rows with an offline copy come back as this prefix + id.
+  static const readingPrefix = 'aven-reading:';
+
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
 class _LibraryPageState extends State<LibraryPage> {
-  List<String> get _sections =>
-      [avenText('aven_bookmarks'), avenText('aven_history'), avenText('aven_downloads')];
-  static const _icons = [Icons.star_outline, Icons.history, Icons.download_outlined];
+  List<String> get _sections => [
+        avenText('aven_bookmarks'),
+        avenText('aven_history'),
+        avenText('aven_downloads'),
+        avenText('aven_reading_list'),
+      ];
+  static const _icons = [
+    Icons.star_outline,
+    Icons.history,
+    Icons.download_outlined,
+    Icons.chrome_reader_mode_outlined,
+  ];
+
   static const _linkLimit = 40;
 
   int _section = 0;
@@ -31,9 +45,10 @@ class _LibraryPageState extends State<LibraryPage> {
   List<WebLink> _bookmarks = const [];
   List<WebLink> _history = const [];
   List<Map<String, String>> _downloads = const [];
+  List<ReadingItem> _reading = const [];
   Timer? _downloadPoll;
   late final List<FocusNode> _leftFocus =
-      List.generate(3, (index) => FocusNode(debugLabel: 'library-left-$index'));
+      List.generate(4, (index) => FocusNode(debugLabel: 'library-left-$index'));
   late final List<FocusNode> _rightFocus =
       List.generate(_linkLimit + 2, (index) => FocusNode(debugLabel: 'library-right-$index'));
   late final List<FocusNode> _deleteFocus =
@@ -153,7 +168,14 @@ class _LibraryPageState extends State<LibraryPage> {
 
   List<WebLink> get _visibleLinks {
     if (_section == 2) return const [];
-    final source = _section == 0 ? _bookmarks : _history;
+    final source = switch (_section) {
+      0 => _bookmarks,
+      1 => _history,
+      _ => [
+          for (final item in _reading)
+            WebLink(title: item.title, url: item.url, savedAt: item.savedAt),
+        ],
+    };
     return source.take(_linkLimit).toList();
   }
 
@@ -169,11 +191,13 @@ class _LibraryPageState extends State<LibraryPage> {
     final bookmarks = await widget.store.loadBookmarks();
     final history = await widget.store.loadHistory();
     final downloads = await _fetchDownloads();
+    final reading = await widget.store.loadReadingList();
     if (!mounted) return;
     setState(() {
       _bookmarks = bookmarks;
       _history = history;
       _downloads = downloads;
+      _reading = reading;
     });
     _syncDownloadPoll();
   }
@@ -196,6 +220,30 @@ class _LibraryPageState extends State<LibraryPage> {
       }
       final nextIndex = linkIndex.clamp(0, count - 1);
       _requestRight(nextIndex);
+    });
+  }
+
+  Future<void> _removeReadingAt(int index) async {
+    if (index < 0 || index >= _reading.length) return;
+    final target = _reading[index];
+    final file = target.file;
+    if (file != null) {
+      try {
+        await File(file).delete();
+      } catch (_) {}
+    }
+    final next = await widget.store.saveReadingList(
+      _reading.where((item) => item.savedAt != target.savedAt).toList(),
+    );
+    if (!mounted) return;
+    setState(() => _reading = next);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_reading.isEmpty) {
+        _focusLeft(_section);
+      } else {
+        _requestRight(index.clamp(0, _reading.length - 1));
+      }
     });
   }
 
@@ -285,6 +333,7 @@ class _LibraryPageState extends State<LibraryPage> {
   /// Rows with a delete button: bookmarks and (on TV) downloads.
   int get _deletableCount {
     if (_section == 0) return _bookmarks.isEmpty ? 0 : _visibleLinks.length;
+    if (_section == 3) return _visibleLinks.length;
     if (_section == 2 && !AvenFlavor.isMobile) return _downloads.length;
     return 0;
   }
@@ -292,6 +341,8 @@ class _LibraryPageState extends State<LibraryPage> {
   void _removeAt(int index) {
     if (_section == 2) {
       _removeDownloadAt(index);
+    } else if (_section == 3) {
+      _removeReadingAt(index);
     } else {
       _removeBookmarkAt(index);
     }
@@ -439,6 +490,12 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
     if (links.isEmpty) return;
+    if (_section == 3) {
+      final item = _reading[index];
+      final offline = item.file != null && File(item.file!).existsSync();
+      Navigator.pop(context, offline ? '${LibraryPage.readingPrefix}${item.savedAt}' : item.url);
+      return;
+    }
     Navigator.pop(context, links[index].url);
   }
 
@@ -657,6 +714,21 @@ class _LibraryPageState extends State<LibraryPage> {
             title: avenText('aven_no_bookmarks'),
             subtitle: avenText('aven_no_bookmarks_detail'),
           ),
+        if (links.isEmpty && _section == 3)
+          _LibraryTile(
+            focusNode: _rightFocus[0],
+            selected: false,
+            row: !compact,
+            onKeyEvent: (event) => _onRightKey(0, event),
+            onFocus: () {
+              if (_onLeft) setState(() => _onLeft = false);
+              _ensureVisible(_rightFocus[0]);
+            },
+            onTap: () {},
+            leading: const Icon(Icons.chrome_reader_mode_outlined, size: 24),
+            title: avenText('aven_reading_empty'),
+            subtitle: avenText('aven_reading_empty_detail'),
+          ),
         if (links.isEmpty && _section == 1)
           const SizedBox.shrink()
         else
@@ -673,12 +745,14 @@ class _LibraryPageState extends State<LibraryPage> {
               onTap: () => _activateRight(_section == 1 ? index + 1 : index),
               leading: _Favicon(url: links[index].url),
               title: links[index].title,
-              subtitle: links[index].url,
-              trailing: _section == 0
+              subtitle: _section == 3 && _reading[index].file != null
+                  ? '${avenText('aven_offline')} · ${Uri.tryParse(links[index].url)?.host ?? links[index].url}'
+                  : links[index].url,
+              trailing: _section == 0 || _section == 3
                   ? _DeleteButton(
                       focusNode: _deleteFocus[index],
                       onKeyEvent: (event) => _onDeleteKey(index, event),
-                      onTap: () => _removeBookmarkAt(index),
+                      onTap: () => _removeAt(index),
                     )
                   : null,
             ),

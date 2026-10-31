@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../core/l10n/aven_strings.dart';
+import '../../data/settings_store.dart';
 
 /// Compact article reader for TV WebView (enter / exit via JS).
 String get readerToggleScript => _readerToggleScript.replaceAll(
@@ -37,82 +38,7 @@ const _readerToggleScript = r'''
     return restore() ? 'off' : 'fail';
   }
 
-  function visible(el){
-    if (!el || !el.getBoundingClientRect) return false;
-    var r = el.getBoundingClientRect();
-    return r.width > 40 && r.height > 40;
-  }
-
-  function cleanClone(root){
-    var clone = root.cloneNode(true);
-    var kill = clone.querySelectorAll(
-      'script,style,noscript,iframe,nav,aside,footer,form,button,svg,canvas,video,audio,' +
-      '[role="navigation"],[role="banner"],[role="complementary"],[role="contentinfo"],' +
-      '.ad,.ads,.advert,.advertisement,.sidebar,.share,.social,.comments,.comment,' +
-      '.newsletter,.popup,.modal,.cookie,.paywall,.related,.recommended,.promo'
-    );
-    for (var i = 0; i < kill.length; i++) {
-      try { kill[i].remove(); } catch (e) {}
-    }
-    var junk = clone.querySelectorAll('[class*="ad-"],[id*="ad-"],[class*="share"],[class*="social"]');
-    for (var j = 0; j < junk.length; j++) {
-      try { junk[j].remove(); } catch (e) {}
-    }
-    return clone;
-  }
-
-  function score(el){
-    if (!el || !visible(el)) return 0;
-    var text = (el.innerText || '').replace(/\s+/g, ' ').trim();
-    var len = text.length;
-    if (len < 280) return 0;
-    var p = el.querySelectorAll('p').length;
-    var links = el.querySelectorAll('a').length;
-    var imgs = el.querySelectorAll('img').length;
-    var linkPenalty = Math.min(links * 18, len * 0.35);
-    return len + p * 90 + imgs * 20 - linkPenalty;
-  }
-
-  function pickArticle(){
-    var selectors = [
-      'article',
-      'main',
-      '[role="main"]',
-      '.post-content',
-      '.entry-content',
-      '.article-content',
-      '.article-body',
-      '.story-body',
-      '#article-body',
-      '#content',
-      '.content',
-      '.post',
-      '.entry'
-    ];
-    var best = null;
-    var bestScore = 0;
-    for (var s = 0; s < selectors.length; s++) {
-      var nodes = document.querySelectorAll(selectors[s]);
-      for (var i = 0; i < nodes.length; i++) {
-        var sc = score(nodes[i]);
-        if (sc > bestScore) {
-          bestScore = sc;
-          best = nodes[i];
-        }
-      }
-    }
-    if (best && bestScore >= 400) return best;
-    var blocks = document.body ? document.body.children : [];
-    for (var b = 0; b < blocks.length; b++) {
-      var sc2 = score(blocks[b]);
-      if (sc2 > bestScore) {
-        bestScore = sc2;
-        best = blocks[b];
-      }
-    }
-    return bestScore >= 400 ? best : null;
-  }
-
+''' + _readerPick + r'''
   var source = pickArticle();
   if (!source) return 'none';
 
@@ -230,3 +156,144 @@ const _readerToggleScript = r'''
   return 'on';
 })();
 ''';
+
+// Article finder shared by reader mode and Read later.
+const _readerPick = r'''
+  function visible(el){
+    if (!el || !el.getBoundingClientRect) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 40 && r.height > 40;
+  }
+
+  function cleanClone(root){
+    var clone = root.cloneNode(true);
+    var kill = clone.querySelectorAll(
+      'script,style,noscript,iframe,nav,aside,footer,form,button,svg,canvas,video,audio,' +
+      '[role="navigation"],[role="banner"],[role="complementary"],[role="contentinfo"],' +
+      '.ad,.ads,.advert,.advertisement,.sidebar,.share,.social,.comments,.comment,' +
+      '.newsletter,.popup,.modal,.cookie,.paywall,.related,.recommended,.promo'
+    );
+    for (var i = 0; i < kill.length; i++) {
+      try { kill[i].remove(); } catch (e) {}
+    }
+    var junk = clone.querySelectorAll('[class*="ad-"],[id*="ad-"],[class*="share"],[class*="social"]');
+    for (var j = 0; j < junk.length; j++) {
+      try { junk[j].remove(); } catch (e) {}
+    }
+    return clone;
+  }
+
+  function score(el){
+    if (!el || !visible(el)) return 0;
+    var text = (el.innerText || '').replace(/\s+/g, ' ').trim();
+    var len = text.length;
+    if (len < 280) return 0;
+    var p = el.querySelectorAll('p').length;
+    var links = el.querySelectorAll('a').length;
+    var imgs = el.querySelectorAll('img').length;
+    var linkPenalty = Math.min(links * 18, len * 0.35);
+    return len + p * 90 + imgs * 20 - linkPenalty;
+  }
+
+  function pickArticle(){
+    var selectors = [
+      'article',
+      'main',
+      '[role="main"]',
+      '.post-content',
+      '.entry-content',
+      '.article-content',
+      '.article-body',
+      '.story-body',
+      '#article-body',
+      '#content',
+      '.content',
+      '.post',
+      '.entry'
+    ];
+    var best = null;
+    var bestScore = 0;
+    for (var s = 0; s < selectors.length; s++) {
+      var nodes = document.querySelectorAll(selectors[s]);
+      for (var i = 0; i < nodes.length; i++) {
+        var sc = score(nodes[i]);
+        if (sc > bestScore) {
+          bestScore = sc;
+          best = nodes[i];
+        }
+      }
+    }
+    if (best && bestScore >= 400) return best;
+    var blocks = document.body ? document.body.children : [];
+    for (var b = 0; b < blocks.length; b++) {
+      var sc2 = score(blocks[b]);
+      if (sc2 > bestScore) {
+        bestScore = sc2;
+        best = blocks[b];
+      }
+    }
+    return bestScore >= 400 ? best : null;
+  }
+
+''';
+
+/// Read later: the page's article (or body) as clean HTML with absolute links.
+const readerExtractScript = r'''
+(function(){
+''' + _readerPick + r'''
+  var source = pickArticle() || document.body;
+  if (!source) return '';
+  var title = document.title || '';
+  try {
+    var h = (source.querySelector && source.querySelector('h1')) || document.querySelector('h1');
+    if (h && h.innerText && h.innerText.trim()) title = h.innerText.trim();
+  } catch (e) {}
+  var article = cleanClone(source);
+  try {
+    article.querySelectorAll('#aven-reader-root > p:first-child').forEach(function(n){ n.remove(); });
+    article.querySelectorAll('img').forEach(function(img){
+      var src = img.currentSrc || img.src;
+      if (src) img.setAttribute('src', src);
+      img.removeAttribute('srcset');
+      img.removeAttribute('sizes');
+      img.removeAttribute('loading');
+    });
+    article.querySelectorAll('a[href]').forEach(function(a){ a.setAttribute('href', a.href); });
+    article.querySelectorAll('[style]').forEach(function(n){ n.removeAttribute('style'); });
+  } catch (e) {}
+  return JSON.stringify({title: title, html: article.innerHTML.slice(0, 800000)});
+})();
+''';
+
+/// Offline copy shown in the page view; [article] is what [readerExtractScript] kept.
+String offlineReadingPage({
+  required ReadingItem item,
+  required String article,
+  required bool dark,
+  required String savedLabel,
+}) {
+  String esc(String text) => text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+  final bg = dark ? '#131418' : '#FFFFFF';
+  final fg = dark ? '#ECEEF2' : '#1A1B20';
+  final muted = dark ? '#9AA0AA' : '#5F6470';
+  final link = dark ? '#8AB4F8' : '#1A57C9';
+  return '''<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(item.title)}</title>
+<style>
+body{margin:0 auto;max-width:44rem;padding:16px 18px 56px;background:$bg;color:$fg;
+font:18px/1.65 sans-serif;overflow-wrap:break-word}
+img,video,iframe{max-width:100%;height:auto}a{color:$link}
+pre{white-space:pre-wrap}table{display:block;overflow-x:auto}
+h1{font-size:1.6em;line-height:1.25;margin:.2em 0 .6em}
+.aven-offline{font-size:13px;color:$muted;margin:0 0 6px}
+</style></head><body>
+<p class="aven-offline">${esc(savedLabel)}</p>
+<h1>${esc(item.title)}</h1>
+$article
+</body></html>''';
+}

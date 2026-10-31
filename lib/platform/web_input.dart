@@ -123,6 +123,44 @@ class WebInput {
     };
   }
 
+  static Future<bool> isDefaultBrowser() async =>
+      await _channel.invokeMethod<bool>('isDefaultBrowser') ?? false;
+
+  /// Asks Android to make Aven the default browser; true once it is.
+  static Future<bool> requestDefaultBrowser() async =>
+      await _channel.invokeMethod<bool>('requestDefaultBrowser') ?? false;
+
+  /// App-private files directory (reading list copies, error reports).
+  static Future<String?> filesDir() => _channel.invokeMethod<String>('filesDir');
+
+  /// Lets the user pick a file and returns its text, or null when cancelled.
+  static Future<String?> openDocument() => _channel.invokeMethod<String>('openDocument');
+
+  /// Lets the user choose where to save [text]; true once it is written.
+  static Future<bool> createDocument(String name, String text, {String mime = 'text/html'}) async {
+    final ok = await _channel.invokeMethod<bool>('createDocument', {
+      'name': name,
+      'mime': mime,
+      'text': text,
+    });
+    return ok == true;
+  }
+
+  /// Phone remote: one command for the TV ("key", "move", "click", "scroll", "text").
+  static Future<bool> sendTvRemote(String host, int port, Map<String, Object?> payload) async {
+    final ok = await _channel.invokeMethod<bool>('sendTvRemote', {
+      'host': host,
+      'port': port,
+      'payload': payload,
+    });
+    return ok == true;
+  }
+
+  static Future<void> closeTvRemote() => _channel.invokeMethod<void>('closeTvRemote');
+
+  /// TV: presses "ok" or "back" as if it came from the remote.
+  static Future<void> pressKey(String key) => _channel.invokeMethod<void>('pressKey', {'key': key});
+
   static Future<void> share(String text) {
     return _channel.invokeMethod<void>('share', {'text': text});
   }

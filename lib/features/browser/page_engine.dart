@@ -24,6 +24,9 @@ abstract class PageEngine implements JsRunner {
   Future<void> setUserAgent(String? userAgent);
   Future<String?> getUserAgent();
   Future<void> loadRequest(Uri uri);
+
+  /// Shows [html] as if it were [baseUrl] (offline reading list copies).
+  Future<void> loadHtml(String html, {String? baseUrl});
   Future<void> reload();
   Future<void> goBack();
   Future<void> goForward();

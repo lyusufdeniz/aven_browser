@@ -100,6 +100,10 @@ class WebViewPageEngine implements PageEngine {
   Future<void> loadRequest(Uri uri) => controller.loadRequest(uri);
 
   @override
+  Future<void> loadHtml(String html, {String? baseUrl}) =>
+      controller.loadHtmlString(html, baseUrl: baseUrl);
+
+  @override
   Future<void> reload() => controller.reload();
 
   @override

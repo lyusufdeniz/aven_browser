@@ -22,6 +22,7 @@ mixin _BrowserNavigation on _BrowserPageBase {
       _pageUrl = url;
       _pageError = null;
       _readerOn = false;
+      _barsHidden = false;
       if (isAvenWebUrl(url)) {
         _onStart = false;
         _address.text = url;
@@ -102,6 +103,7 @@ mixin _BrowserNavigation on _BrowserPageBase {
       _schedulePreview();
     }
     setState(() {
+      _pullRefreshing = false;
       _pageUrl = url;
       _pageTitle = label;
       _canBack = back;
