@@ -191,16 +191,8 @@ internal class MediaWatchClient(
     }
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
-        // Emulator / leanback WebView often rejects player CDN certs.
-        // Cancel keeps site players blank ("jwplayer is not defined").
-        try {
-            handler.proceed()
-        } catch (_: Exception) {
-            try {
-                inner.onReceivedSslError(view, handler, error)
-            } catch (_: Exception) {
-            }
-        }
+        // Play rejects WebView clients that call SslErrorHandler.proceed().
+        handler.cancel()
     }
 
     override fun onReceivedClientCertRequest(view: WebView, request: ClientCertRequest) {
