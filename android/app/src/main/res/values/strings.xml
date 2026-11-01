@@ -156,9 +156,8 @@
     <string name="aven_browser">Browser</string>
     <string name="aven_about">About</string>
     <string name="aven_appearance">Appearance</string>
-    <string name="aven_adblock_off_detail">No blocking. Recommended so video players on film and series sites keep working.</string>
-    <string name="aven_adblock_local">Local list</string>
-    <string name="aven_adblock_local_detail">In-app host list and hidden ad styles. Does not change network settings or ask for extra permission.</string>
+    <string name="aven_adblock_off_detail">Pages load as they are, ads included.</string>
+    <string name="aven_adblock_local_detail">Blocks ads and trackers on pages. Some video sites may not play with it on.</string>
     <string name="aven_off">Off</string>
     <string name="aven_theme_system">System</string>
     <string name="aven_theme_system_detail">Matches the phone light or dark color.</string>
@@ -251,11 +250,6 @@
     <string name="aven_imported">%1$d bookmarks imported</string>
     <string name="aven_import_none">No bookmarks found in that file</string>
     <string name="aven_exported">Saved</string>
-    <string name="aven_error_reports">Error reports</string>
-    <string name="aven_error_reports_detail">%1$d saved on this device</string>
-    <string name="aven_error_reports_none">No errors recorded</string>
-    <string name="aven_share_reports">Share</string>
-    <string name="aven_clear_reports">Clear</string>
     <string name="aven_hide_address">Hide address bar</string>
     <string name="aven_default_title">Make Aven your default browser</string>
     <string name="aven_default_detail">Links you open in other apps will open in Aven, with its ad blocking and player.</string>
@@ -287,5 +281,7 @@
     <string name="aven_history_cleared">History cleared</string>
     <string name="aven_reading_removed">Removed from your reading list</string>
     <string name="aven_download_removed">Download removed</string>
-    <string name="aven_reports_cleared">Error reports cleared</string>
+    <string name="aven_website">Website</string>
+    <string name="aven_speak">Speak now</string>
+    <string name="aven_subtitle_track">Subtitle track</string>
 </resources>

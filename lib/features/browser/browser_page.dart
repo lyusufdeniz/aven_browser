@@ -173,6 +173,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   final _startFocus = FocusNode();
   final _surfaceFocus = FocusNode();
   final _menuFocus = FocusNode();
+  final _menuVoiceFocus = FocusNode();
   final _cursor = ValueNotifier<Offset>(Offset.zero);
   final _cursorVisible = ValueNotifier<bool>(true);
   final _cursorLook = ValueNotifier<_CursorLook>(_CursorLook.normal);
@@ -282,6 +283,7 @@ abstract class _BrowserPageBase extends State<BrowserPage>
   Future<void> _installLiteCss();
   Future<void> _installAdblockCss();
   Future<void> _refreshSecurity();
+  void _leavePageTyping();
   Future<void> _installMediaSiteHints();
   Future<void> _openInput(String raw);
   void _syncChrome();
@@ -310,6 +312,8 @@ class _BrowserPageState extends _BrowserPageBase
         unawaited(_showContextMenu({
           for (final entry in raw.entries) '${entry.key}': '${entry.value ?? ''}',
         }));
+      } else if (call.method == 'pageTypingEnded') {
+        _leavePageTyping();
       } else if (call.method == 'remote' && call.arguments is Map) {
         _onRemote(Map<Object?, Object?>.from(call.arguments as Map));
       } else if (call.method == 'cast' && call.arguments is Map) {
@@ -613,6 +617,7 @@ class _BrowserPageState extends _BrowserPageBase
 
   Future<void> _onWatchedMedia(String url) async {
     if (!mounted || !isAvenWebUrl(url) || isAdMediaUrl(url)) return;
+    if (AvenFlavor.isMobile) return;
     // Feed the media pool / focused badge only - do not auto-open Aven player.
     try {
       await _controller.runJavaScript(
@@ -626,7 +631,8 @@ class _BrowserPageState extends _BrowserPageBase
     await WebScripts.installHooks(
       _controller,
       pageHooks: _pageHooks,
-      videoWatch: videoWatchScript,
+      // The phone plays videos in the page; the Aven player is a TV thing.
+      videoWatch: AvenFlavor.isMobile ? '' : videoWatchScript,
     );
     if (AvenFlavor.isMobile) {
       try {
@@ -1266,17 +1272,19 @@ class _BrowserPageState extends _BrowserPageBase
 
   Future<void> _openSettings() async {
     final opener = FocusManager.instance.primaryFocus;
+    // Settings close with a link when the user picks the website row.
+    final String? link;
     if (AvenFlavor.isMobile) {
-      await Navigator.of(context).push<void>(
+      link = await Navigator.of(context).push<String>(
         MaterialPageRoute(
           builder: (context) => SettingsPage(store: _store, input: _input),
         ),
       );
     } else {
-    await _showTvSheet<void>(
-      label: avenText('aven_settings'),
-      child: SettingsPage(store: _store, input: _input),
-    );
+      link = await _showTvSheet<String>(
+        label: avenText('aven_settings'),
+        child: SettingsPage(store: _store, input: _input),
+      );
     }
     final engine = await _store.loadEngine();
     final block = await _store.loadAdBlock();
@@ -1297,6 +1305,10 @@ class _BrowserPageState extends _BrowserPageBase
       _homeSuggestions = homeSuggestions;
       _homeBookmarks = homeBookmarks;
     });
+    if (link != null) {
+      await _openInput(link);
+      return;
+    }
     if (!_onStart && isAvenWebUrl(_pageUrl)) {
       await _controller.reload();
     }
@@ -1369,11 +1381,22 @@ class _BrowserPageState extends _BrowserPageBase
     }
   }
 
-  void _openMenu() {
-    if (_pageTyping) {
-      _pageTyping = false;
-      _input.setPageTyping(false);
+  /// Back on the remote ended typing in a page field (Android side).
+  @override
+  void _leavePageTyping() {
+    if (!_pageTyping) return;
+    _pageTyping = false;
+    if (!_menuOpen) {
+      _surfaceFocus.canRequestFocus = true;
+      _surfaceFocus.requestFocus();
     }
+  }
+
+  void _openMenu() {
+    // Reset both sides: a stale typing flag on either would keep the D-pad
+    // away from the menu.
+    _pageTyping = false;
+    unawaited(_input.setPageTyping(false));
     _resetPointerState();
     setState(() => _menuOpen = true);
     _syncChrome();
@@ -1398,6 +1421,9 @@ class _BrowserPageState extends _BrowserPageBase
 
   void _onFieldMessage(JavaScriptMessage message) {
     final typing = message.message.trim() == '1';
+    // Opening the menu blurs the WebView, and the page then reports its
+    // still-active field again; typing must not start under open chrome.
+    if (typing && (_menuOpen || _onStart)) return;
     if (!mounted || typing == _pageTyping) return;
     _pageTyping = typing;
     _input.setPageTyping(typing);
@@ -1479,6 +1505,7 @@ class _BrowserPageState extends _BrowserPageBase
   }
 
   Future<void> _onVideoMessage(JavaScriptMessage message) async {
+    if (AvenFlavor.isMobile) return;
     final parsed = parsePlayedVideo(message.message);
     if (parsed == null || !mounted || _openingVideo) return;
     _openingVideo = true;
@@ -2762,6 +2789,7 @@ class _BrowserPageState extends _BrowserPageBase
     _startFocus.dispose();
     _surfaceFocus.dispose();
     _menuFocus.dispose();
+    _menuVoiceFocus.dispose();
     _cursor.dispose();
     _cursorVisible.dispose();
     _cursorLook.dispose();
@@ -3011,6 +3039,9 @@ class _BrowserPageState extends _BrowserPageBase
                 onZoomReset: () => _setZoom(100),
                 onSettings: _openSettings,
                 onExit: _confirmExit,
+                voiceFocus: _menuVoiceFocus,
+                voiceBusy: _voiceBusy,
+                onVoice: () => unawaited(_voiceSearch()),
               ),
             if (_warnWebView)
               const Align(

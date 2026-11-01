@@ -462,7 +462,7 @@ class MainActivity : FlutterActivity() {
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
             )
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, locale)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Konuşun")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.aven_speak))
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
         pendingSpeechResult = result
@@ -476,6 +476,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Open Flutter chrome (menu, start screen) always owns the keys.
+        if (chromeOpen && pageTyping) pageTyping = false
         if (!pageTyping && isCursorKey(event.keyCode)) {
             val flutterView = findFlutterView(window.decorView)
             if (flutterView != null) {
@@ -489,6 +491,8 @@ class MainActivity : FlutterActivity() {
             if (event.action == KeyEvent.ACTION_UP) {
                 pageTyping = false
                 webView?.clearFocus()
+                // Dart must leave typing too, or it keeps ignoring the D-pad.
+                channel.invokeMethod("pageTypingEnded", null)
             }
             return true
         }
@@ -599,7 +603,10 @@ class MainActivity : FlutterActivity() {
     private fun focusWebInput() {
         val webView = findWebView(window.decorView) ?: return
         webView.post {
-            setWebViewFocusable(true, requestFocus = true)
+            // Re-requesting focus on a WebView that already has it blurs the
+            // page field (YouTube then closes its search box), so only focus
+            // it when it lost focus.
+            if (!webView.hasFocus()) setWebViewFocusable(true, requestFocus = true)
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
             imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
         }
@@ -868,7 +875,9 @@ class MainActivity : FlutterActivity() {
         } else {
             ViewGroup.FOCUS_BLOCK_DESCENDANTS
         }
-        if (requestFocus) {
+        // Asking again while the WebView already has focus blurs the page's
+        // focused field (YouTube closes its search box, the keyboard drops).
+        if (requestFocus && !webView.hasFocus()) {
             webView.requestFocus()
         }
     }

@@ -144,6 +144,11 @@ mixin _CursorInput on _BrowserPageBase {
   }
 
   bool _onHardwareKey(KeyEvent event) {
+    // Android sends keys to the page while typing, so an arrow reaching
+    // Flutter means typing already ended; a stale flag would freeze the cursor.
+    if (_pageTyping && !_menuOpen && _isArrow(event.logicalKey)) {
+      _leavePageTyping();
+    }
     if (!mounted ||
         _onStart ||
         _menuOpen ||

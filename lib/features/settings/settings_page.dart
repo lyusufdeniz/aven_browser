@@ -10,7 +10,6 @@ import '../../core/platform/aven_layout.dart';
 import '../../core/aven_app_info.dart';
 import '../../core/url/url_input.dart';
 import '../../data/bookmark_file.dart';
-import '../../data/error_reports.dart';
 import '../../data/settings_store.dart';
 import '../../platform/web_input.dart';
 import '../player/subtitle_look.dart';
@@ -47,7 +46,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // off → local → DNS; default → desktop → mobile → tv; engines keep enum order.
   static const _engines = SearchEngine.values;
-  static final _blocks = AdBlock.available;
   static const _agents = BrowserAgent.values;
 
   int _section = 0;
@@ -163,90 +161,6 @@ class _SettingsPageState extends State<SettingsPage> {
     if (ok && mounted) _toast(avenText('aven_exported'));
   }
 
-  Future<void> _showErrorReports() async {
-    var reports = ErrorReports.load();
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: AvenTone.elevated(context),
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setLocal) {
-            return SafeArea(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              avenText('aven_error_reports'),
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: reports.isEmpty
-                                ? null
-                                : () => unawaited(WebInput.share(
-                                      reports.map((item) => item.text).join('\n\n-----\n\n'),
-                                    )),
-                            child: Text(avenText('aven_share_reports')),
-                          ),
-                          TextButton(
-                            onPressed: reports.isEmpty
-                                ? null
-                                : () {
-                                    ErrorReports.clear();
-                                    setLocal(() => reports = ErrorReports.load());
-                                    setState(() {});
-                                    _toast(avenText('aven_reports_cleared'));
-                                  },
-                            child: Text(avenText('aven_clear_reports')),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (reports.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-                        child: Text(avenText('aven_error_reports_none')),
-                      )
-                    else
-                      Flexible(
-                        child: ListView(
-                          shrinkWrap: true,
-                          children: [
-                            for (final item in reports)
-                              ListTile(
-                                leading: const Icon(Icons.bug_report_outlined),
-                                title: Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-                                subtitle: Text(_stamp(item.at)),
-                                onTap: () => unawaited(WebInput.share(item.text)),
-                              ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  String _stamp(DateTime at) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    return '${at.year}-${two(at.month)}-${two(at.day)} ${two(at.hour)}:${two(at.minute)}';
-  }
-
   Future<void> _selectSubtitles(SubtitleStyle style) async {
     await widget.store.saveSubtitleStyle(style);
     if (!mounted) return;
@@ -284,13 +198,13 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   int get _rightCount => switch (_section) {
-    0 => _blocks.length,
+    0 => 1, // Ad blocking: one On/Off row
     1 => 4,
     2 => _engines.length,
     3 => 2,
     4 => _agents.length,
     5 => _subtitleOptionCount,
-    _ => 2, // Hakkında
+    _ => 3, // About: version, developer, website
   };
 
   static final _subtitleOptionCount = SubtitleStyle.sizes.length +
@@ -353,7 +267,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void _activateRight(int index) {
     switch (_section) {
       case 0:
-        _selectBlock(_blocks[index]);
+        _selectBlock(_block.isEnabled ? AdBlock.off : AdBlock.local);
       case 1:
         // Suggestions: show, hide; bookmarks: show, hide.
         if (index < 2) {
@@ -370,7 +284,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 5:
         _selectSubtitleOption(index);
       default:
-        break;
+        if (index == 2) Navigator.of(context).pop(AvenAppInfo.website);
     }
   }
 
@@ -390,13 +304,6 @@ class _SettingsPageState extends State<SettingsPage> {
       ));
     }
   }
-
-  /// Position of [value] in the size → background → color option list.
-  static int _subtitleIndexOf(String value) => [
-        ...SubtitleStyle.sizes,
-        ...SubtitleStyle.backgrounds,
-        ...SubtitleStyle.colors,
-      ].indexOf(value);
 
   static String _subtitleOptionLabel(String value) => switch (value) {
         'small' => avenText('aven_size_small'),
@@ -554,13 +461,13 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ),
         _PhoneSettingsHeading(avenText('aven_adblock')),
-        for (final block in _blocks)
-          _PhoneSettingsOption(
-            title: block.label,
-            subtitle: block.detail,
-            selected: _block == block,
-            onTap: () => _selectBlock(block),
-          ),
+        SwitchListTile(
+          secondary: Icon(_block.isEnabled ? Icons.shield : Icons.shield_outlined),
+          title: Text(avenText('aven_adblock')),
+          subtitle: Text(_block.detail),
+          value: _block.isEnabled,
+          onChanged: (on) => _selectBlock(on ? AdBlock.local : AdBlock.off),
+        ),
         _PhoneSettingsHeading(avenText('aven_search')),
         for (final engine in _engines)
           _PhoneSettingsOption(
@@ -600,25 +507,6 @@ class _SettingsPageState extends State<SettingsPage> {
           selected: !_lite,
           onTap: () => _selectLite(false),
         ),
-        for (final group in [
-          (avenText('aven_subtitle_size'), SubtitleStyle.sizes, _subtitles.size),
-          (
-            avenText('aven_subtitle_background'),
-            SubtitleStyle.backgrounds,
-            _subtitles.background,
-          ),
-          (avenText('aven_subtitle_color'), SubtitleStyle.colors, _subtitles.color),
-        ]) ...[
-          _PhoneSettingsHeading('${avenText('aven_subtitles')} · ${group.$1}'),
-          for (final value in group.$2)
-            _PhoneSettingsOption(
-              title: _subtitleOptionLabel(value),
-              selected: value == group.$3,
-              onTap: () => _selectSubtitleOption(
-                _subtitleIndexOf(value),
-              ),
-            ),
-        ],
         _PhoneSettingsHeading(avenText('aven_default_browser')),
         FutureBuilder<bool>(
           future: WebInput.isDefaultBrowser(),
@@ -672,18 +560,6 @@ class _SettingsPageState extends State<SettingsPage> {
             );
           }()),
         ),
-        _PhoneSettingsOption(
-          title: avenText('aven_error_reports'),
-          subtitle: () {
-            final count = ErrorReports.load().length;
-            return count == 0
-                ? avenText('aven_error_reports_none')
-                : avenText('aven_error_reports_detail', [count]);
-          }(),
-          icon: Icons.bug_report_outlined,
-          selected: false,
-          onTap: () => unawaited(_showErrorReports()),
-        ),
         _PhoneSettingsHeading(avenText('aven_about')),
         _PhoneSettingsOption(
           title: avenText('aven_version'),
@@ -695,10 +571,18 @@ class _SettingsPageState extends State<SettingsPage> {
         _PhoneSettingsOption(
           title: avenText('aven_developer'),
           subtitle: AvenAppInfo.developer,
-          icon: Icons.public,
+          icon: Icons.person_outline,
           selected: false,
           onTap: () {},
         ),
+        _PhoneSettingsOption(
+          title: avenText('aven_website'),
+          subtitle: Uri.parse(AvenAppInfo.website).host,
+          icon: Icons.language,
+          selected: false,
+          onTap: () => Navigator.of(context).pop(AvenAppInfo.website),
+        ),
+
       ],
     );
   }
@@ -754,19 +638,36 @@ class _SettingsPageState extends State<SettingsPage> {
             title: avenText('aven_developer'),
             value: AvenAppInfo.developer,
           ),
+          _SettingRow(
+            focusNode: _rightFocus[2],
+            onKeyEvent: (event) => _onRightKey(2, event),
+            onTap: () => Navigator.of(context).pop(AvenAppInfo.website),
+            title: avenText('aven_website'),
+            value: Uri.parse(AvenAppInfo.website).host,
+          ),
+        ],
+      );
+    }
+
+    if (_section == 0) {
+      return ListView(
+        padding: _panelPadding(compact),
+        clipBehavior: Clip.none,
+        children: [
+          _SectionLabel(avenText('aven_adblock')),
+          _SettingRow(
+            focusNode: _rightFocus[0],
+            onKeyEvent: (event) => _onRightKey(0, event),
+            onTap: () => _activateRight(0),
+            title: avenText('aven_adblock'),
+            subtitle: _block.detail,
+            toggle: _block.isEnabled,
+          ),
         ],
       );
     }
 
     final items = switch (_section) {
-      0 => [
-        for (final block in _blocks)
-          (
-            block.label,
-            block.detail,
-            _block == block,
-          ),
-      ],
       1 => [
         (
           avenText('aven_show'),
@@ -1007,7 +908,11 @@ class _SettingRow extends StatelessWidget {
     this.subtitle,
     this.value,
     this.checked,
+    this.toggle,
   });
+
+  /// Shows an On/Off switch at the end of the row.
+  final bool? toggle;
 
   final FocusNode focusNode;
   final KeyEventResult Function(KeyEvent event) onKeyEvent;
@@ -1101,6 +1006,27 @@ class _SettingRow extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 14,
                         color: ink.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
+                  if (toggle != null) ...[
+                    const SizedBox(width: 16),
+                    AnimatedContainer(
+                      duration: AvenFocusMotion.duration,
+                      width: 56,
+                      height: 30,
+                      padding: const EdgeInsets.all(3),
+                      alignment: toggle! ? Alignment.centerRight : Alignment.centerLeft,
+                      decoration: BoxDecoration(
+                        color: toggle!
+                            ? const Color(0xFF2E9E5B)
+                            : ink.withValues(alpha: 0.22),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
                       ),
                     ),
                   ],

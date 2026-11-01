@@ -90,7 +90,7 @@ List<PageVideo> parsePageVideos(Object? raw) {
           MediaTrack(
             url: url,
             kind: kind is String ? kind : 'subtitles',
-            label: label is String && label.isNotEmpty ? label : 'ParÃ§a',
+            label: label is String && label.isNotEmpty ? label : avenText('aven_subtitle_track'),
           ),
         );
       }
@@ -146,7 +146,7 @@ const _probeScript = r'''
   for (var n = 0; n < nodes.length; n++) {
     var video = nodes[n];
     var sources = [];
-    pushSource(sources, video.currentSrc, 'OynatÄ±lan');
+    pushSource(sources, video.currentSrc, 'Oynatilan');
     pushSource(sources, video.src, 'Video');
     var sourceNodes = video.querySelectorAll('source');
     for (var s = 0; s < sourceNodes.length; s++) {
@@ -162,7 +162,7 @@ const _probeScript = r'''
       tracks.push({
         url: trackUrl,
         kind: track.kind || 'subtitles',
-        label: track.label || track.srclang || track.kind || 'ParÃ§a'
+        label: track.label || track.srclang || track.kind || ''
       });
     }
     if (sources.length) videos.push({sources: sources, tracks: tracks});
@@ -183,7 +183,7 @@ const _probeScript = r'''
     for (var e = 0; e < entries.length; e++) pushSource(pageSources, entries[e].name || '', 'Net');
   }
   var metas = document.querySelectorAll('meta[property="og:video"], meta[property="og:video:url"]');
-  for (var m = 0; m < metas.length; m++) pushSource(pageSources, metas[m].content, 'Sayfa videosu');
+  for (var m = 0; m < metas.length; m++) pushSource(pageSources, metas[m].content, 'Sayfa');
   if (pageSources.length) videos.push({sources: pageSources, tracks: []});
   return JSON.stringify(videos);
 })()

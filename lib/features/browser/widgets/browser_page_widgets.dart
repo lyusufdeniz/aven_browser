@@ -1072,7 +1072,10 @@ class _StartPageState extends State<_StartPage> {
     // system navigation bar this page stops above.
     final full = height + MediaQuery.viewPaddingOf(context).bottom;
     final top = (_phoneSearchTop(full) - 8 - 48 - 28).clamp(8.0, double.infinity);
-    return SingleChildScrollView(
+    // ListTiles need a Material under them; the page background is a ColoredBox.
+    return Material(
+      type: MaterialType.transparency,
+      child: SingleChildScrollView(
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: SizedBox(
@@ -1211,6 +1214,7 @@ class _StartPageState extends State<_StartPage> {
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -3222,8 +3226,14 @@ class _FloatingMenu extends StatelessWidget {
     required this.onZoomReset,
     required this.onSettings,
     required this.onExit,
+    required this.voiceFocus,
+    required this.voiceBusy,
+    required this.onVoice,
   });
 
+  final FocusNode voiceFocus;
+  final bool voiceBusy;
+  final VoidCallback onVoice;
   final bool open;
   final TextEditingController address;
   final FocusNode addressFocus;
@@ -3252,78 +3262,81 @@ class _FloatingMenu extends StatelessWidget {
   final VoidCallback onSettings;
   final VoidCallback onExit;
 
+  static const _width = 420.0;
+
+  /// TV menu: a full-height panel that slides in from the left, like the
+  /// Settings and Library panels slide in from the right. The page stays
+  /// visible beside it, dimmed.
   @override
   Widget build(BuildContext context) {
-    return AnimatedAlign(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      alignment: editing ? Alignment.topCenter : Alignment.bottomCenter,
-      child: IgnorePointer(
-        ignoring: !open,
-        child: AnimatedSlide(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          offset: open ? Offset.zero : Offset(0, editing ? -1.4 : 1.4),
-          child: AnimatedPadding(
-            duration: const Duration(milliseconds: 180),
-            padding: editing
-                ? const EdgeInsets.fromLTRB(28, 28, 28, 0)
-                : const EdgeInsets.fromLTRB(28, 0, 28, 22),
-            child: Material(
-              elevation: 16,
-              color: AvenColors.panel.withValues(alpha: 0.96),
-              borderRadius: BorderRadius.circular(18),
-              clipBehavior: Clip.none,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-                child: FocusTraversalGroup(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: 460,
-                        child: _AddressField(
-                          controller: address,
-                          focusNode: addressFocus,
-                          editing: editing,
-                          compact: true,
-                          nextFocus: menuFocus,
-                          onTap: onTapField,
-                          onSubmit: onSubmit,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      _MenuBar(
-                        firstFocus: menuFocus,
-                        addressFocus: addressFocus,
-                        canBack: canBack,
-                        canForward: canForward,
-                        saved: saved,
-                        adBlockOn: adBlockOn,
-                        readerOn: readerOn,
-                        zoom: zoom,
-                        onBack: onBack,
-                        onForward: onForward,
-                        onReload: onReload,
-                        onHome: onHome,
-                        onBookmark: onBookmark,
-                        onReadLater: onReadLater,
-                        onLibrary: onLibrary,
-                        onToggleAdBlock: onToggleAdBlock,
-                        onToggleReader: onToggleReader,
-                        onZoomOut: onZoomOut,
-                        onZoomIn: onZoomIn,
-                        onZoomReset: onZoomReset,
-                        onSettings: onSettings,
-                        onExit: onExit,
-                      ),
-                    ],
+    return IgnorePointer(
+      ignoring: !open,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: AnimatedOpacity(
+              opacity: open ? 1 : 0,
+              duration: const Duration(milliseconds: 200),
+              child: const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xCC000000), Color(0x33000000)],
+                    stops: [0.3, 1],
                   ),
                 ),
               ),
             ),
           ),
-        ),
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            left: open ? 0 : -_width - 40,
+            top: 0,
+            bottom: 0,
+            width: _width,
+            child: Material(
+              color: AvenColors.panel,
+              elevation: 24,
+              shadowColor: Colors.black,
+              borderRadius: const BorderRadius.horizontal(right: Radius.circular(28)),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+                child: _TvMenuPanel(
+                  address: address,
+                  addressFocus: addressFocus,
+                  firstFocus: menuFocus,
+                  voiceFocus: voiceFocus,
+                  voiceBusy: voiceBusy,
+                  editing: editing,
+                  canBack: canBack,
+                  canForward: canForward,
+                  saved: saved,
+                  adBlockOn: adBlockOn,
+                  readerOn: readerOn,
+                  zoom: zoom,
+                  onTapField: onTapField,
+                  onSubmit: onSubmit,
+                  onVoice: onVoice,
+                  onBack: onBack,
+                  onForward: onForward,
+                  onReload: onReload,
+                  onHome: onHome,
+                  onBookmark: onBookmark,
+                  onReadLater: onReadLater,
+                  onLibrary: onLibrary,
+                  onToggleAdBlock: onToggleAdBlock,
+                  onToggleReader: onToggleReader,
+                  onZoomOut: onZoomOut,
+                  onZoomIn: onZoomIn,
+                  onZoomReset: onZoomReset,
+                  onSettings: onSettings,
+                  onExit: onExit,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3553,12 +3566,14 @@ class _VoiceSearchButton extends StatelessWidget {
     required this.busy,
     required this.onPressed,
     required this.onKeyEvent,
+    this.size = 56,
   });
 
   final FocusNode focusNode;
   final bool busy;
   final VoidCallback onPressed;
   final ValueChanged<KeyEvent> onKeyEvent;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -3592,14 +3607,14 @@ class _VoiceSearchButton extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
                 overlayColor: const WidgetStatePropertyAll(Colors.transparent),
                 child: Container(
-                  width: 56,
-                  height: 56,
+                  width: size,
+                  height: size,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: focused
                         ? AvenColors.focusFill
                         : AvenColors.elevated,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(size < 56 ? size / 2 : 10),
                   ),
                   child: busy
                       ? const SizedBox(
@@ -3609,7 +3624,7 @@ class _VoiceSearchButton extends StatelessWidget {
                         )
                       : Icon(
                           Icons.mic,
-                          size: 26,
+                          size: size < 56 ? 22 : 26,
                           color: focused
                               ? AvenColors.onFocus
                               : AvenColors.textMuted,
@@ -3634,6 +3649,7 @@ class _AddressField extends StatelessWidget {
     this.autofocus = false,
     this.compact = false,
     this.nextFocus,
+    this.rightFocus,
     this.onArrow,
   });
 
@@ -3645,6 +3661,7 @@ class _AddressField extends StatelessWidget {
   final bool autofocus;
   final bool compact;
   final FocusNode? nextFocus;
+  final FocusNode? rightFocus;
   final ValueChanged<LogicalKeyboardKey>? onArrow;
 
   void _beginEditing() {
@@ -3682,6 +3699,10 @@ class _AddressField extends StatelessWidget {
       }
       if (!editing && key == LogicalKeyboardKey.arrowDown && nextFocus != null) {
         nextFocus!.requestFocus();
+        return KeyEventResult.handled;
+      }
+      if (!editing && key == LogicalKeyboardKey.arrowRight && rightFocus != null) {
+        rightFocus!.requestFocus();
         return KeyEventResult.handled;
       }
       if (!editing && nextFocus != null && _isArrow(key)) {
@@ -3743,20 +3764,24 @@ class _AddressField extends StatelessWidget {
         filled: true,
         fillColor: AvenColors.elevated,
         isDense: true,
+        prefixIcon: compact
+            ? const Icon(Icons.search, size: 20, color: AvenColors.textMuted)
+            : null,
+        prefixIconConstraints: const BoxConstraints(minWidth: 40, minHeight: 36),
         contentPadding: EdgeInsets.symmetric(
           horizontal: compact ? 12 : 16,
-          vertical: compact ? 8 : 14,
+          vertical: compact ? 11 : 14,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          borderRadius: BorderRadius.all(Radius.circular(compact ? 22 : 10)),
           borderSide: BorderSide.none,
         ),
         border: OutlineInputBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          borderRadius: BorderRadius.all(Radius.circular(compact ? 22 : 10)),
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          borderRadius: BorderRadius.all(Radius.circular(compact ? 22 : 10)),
           borderSide: const BorderSide(
             color: AvenColors.accent,
             width: 2,
@@ -3769,16 +3794,27 @@ class _AddressField extends StatelessWidget {
   }
 }
 
-class _MenuBar extends StatefulWidget {
-  const _MenuBar({
-    required this.firstFocus,
+/// Contents of the TV side panel: address and voice, the four page moves as
+/// tiles, labelled page tools, and Library / Settings / Exit tiles pinned at
+/// the bottom. Up and down walk the rows; on Zoom, left and right change the
+/// size.
+class _TvMenuPanel extends StatefulWidget {
+  const _TvMenuPanel({
+    required this.address,
     required this.addressFocus,
+    required this.firstFocus,
+    required this.voiceFocus,
+    required this.voiceBusy,
+    required this.editing,
     required this.canBack,
     required this.canForward,
     required this.saved,
     required this.adBlockOn,
     required this.readerOn,
     required this.zoom,
+    required this.onTapField,
+    required this.onSubmit,
+    required this.onVoice,
     required this.onBack,
     required this.onForward,
     required this.onReload,
@@ -3795,14 +3831,21 @@ class _MenuBar extends StatefulWidget {
     required this.onExit,
   });
 
-  final FocusNode firstFocus;
+  final TextEditingController address;
   final FocusNode addressFocus;
+  final FocusNode firstFocus;
+  final FocusNode voiceFocus;
+  final bool voiceBusy;
+  final bool editing;
   final bool canBack;
   final bool canForward;
   final bool saved;
   final bool adBlockOn;
   final bool readerOn;
   final int zoom;
+  final VoidCallback onTapField;
+  final ValueChanged<String> onSubmit;
+  final VoidCallback onVoice;
   final VoidCallback onBack;
   final VoidCallback onForward;
   final VoidCallback onReload;
@@ -3819,232 +3862,420 @@ class _MenuBar extends StatefulWidget {
   final VoidCallback onExit;
 
   @override
-  State<_MenuBar> createState() => _MenuBarState();
+  State<_TvMenuPanel> createState() => _TvMenuPanelState();
 }
 
-class _MenuBarState extends State<_MenuBar> {
-  late final List<FocusNode> _nodes = [
+class _TvMenuPanelState extends State<_TvMenuPanel> {
+  static const _rowCount = 5;
+  static const _zoomRow = 4;
+
+  late final List<FocusNode> _nav = [
     widget.firstFocus,
-    ...List.generate(13, (_) => FocusNode()),
+    for (var i = 1; i < 4; i++) FocusNode(debugLabel: 'tv-menu-nav-$i'),
   ];
+  late final List<FocusNode> _rows =
+      List.generate(_rowCount, (i) => FocusNode(debugLabel: 'tv-menu-row-$i'));
+  late final List<FocusNode> _app =
+      List.generate(3, (i) => FocusNode(debugLabel: 'tv-menu-app-$i'));
 
   @override
   void dispose() {
-    for (final node in _nodes.skip(1)) {
+    for (final node in _nav.skip(1)) {
+      node.dispose();
+    }
+    for (final node in [..._rows, ..._app]) {
       node.dispose();
     }
     super.dispose();
   }
 
-  void _move(int index, LogicalKeyboardKey key) {
-    if (key == LogicalKeyboardKey.arrowRight && index < _nodes.length - 1) {
-      _nodes[index + 1].requestFocus();
-    } else if (key == LogicalKeyboardKey.arrowLeft && index > 0) {
-      _nodes[index - 1].requestFocus();
+  KeyEventResult _onAppKey(int index, KeyEvent event, VoidCallback action) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (index > 0) _focus(_app[index - 1]);
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      if (index < _app.length - 1) _focus(_app[index + 1]);
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      _focus(_rows.last);
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      // Bottom of the panel.
+    } else if (_activates(key)) {
+      action();
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  bool _activates(LogicalKeyboardKey key) =>
+      key == LogicalKeyboardKey.enter ||
+      key == LogicalKeyboardKey.numpadEnter ||
+      key == LogicalKeyboardKey.select ||
+      key == LogicalKeyboardKey.gameButtonA ||
+      key == LogicalKeyboardKey.space;
+
+  void _focus(FocusNode node) {
+    node.requestFocus();
+    final ctx = node.context;
+    if (ctx != null) {
+      Scrollable.ensureVisible(ctx, alignment: 0.5, duration: const Duration(milliseconds: 140));
+    }
+  }
+
+  KeyEventResult _onNavKey(int index, KeyEvent event, VoidCallback action, bool enabled) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      if (index > 0) _focus(_nav[index - 1]);
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      if (index < _nav.length - 1) _focus(_nav[index + 1]);
     } else if (key == LogicalKeyboardKey.arrowUp) {
       widget.addressFocus.requestFocus();
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      _focus(_rows.first);
+    } else if (_activates(key)) {
+      if (enabled) action();
+    } else {
+      return KeyEventResult.ignored;
     }
+    return KeyEventResult.handled;
+  }
+
+  KeyEventResult _onRowKey(int index, KeyEvent event, VoidCallback action) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowUp) {
+      _focus(index == 0 ? _nav.first : _rows[index - 1]);
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      _focus(index < _rows.length - 1 ? _rows[index + 1] : _app.first);
+    } else if (key == LogicalKeyboardKey.arrowLeft) {
+      if (index == _zoomRow) widget.onZoomOut();
+    } else if (key == LogicalKeyboardKey.arrowRight) {
+      if (index == _zoomRow) widget.onZoomIn();
+    } else if (_activates(key)) {
+      if (event is KeyDownEvent) action();
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  Widget _state(bool on) {
+    return AnimatedContainer(
+      duration: AvenFocusMotion.duration,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: on ? const Color(0xFF2E9E5B) : AvenColors.text.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        avenText(on ? 'aven_on' : 'aven_off'),
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = <(IconData?, String, bool, VoidCallback?, String?)>[
-      (Icons.arrow_back, avenText('aven_back'), widget.canBack, widget.onBack, null),
-      (Icons.arrow_forward, avenText('aven_forward'), widget.canForward, widget.onForward, null),
-      (Icons.refresh, avenText('aven_reload'), true, widget.onReload, null),
-      (Icons.home, avenText('aven_home'), true, widget.onHome, null),
-      (widget.saved ? Icons.star : Icons.star_border, avenText('aven_bookmark'), true, widget.onBookmark, null),
-      (Icons.bookmark_add_outlined, avenText('aven_read_later'), true, widget.onReadLater, null),
-      (Icons.history, avenText('aven_library'), true, widget.onLibrary, null),
+    final nav = [
+      (Icons.arrow_back, avenText('aven_back'), widget.canBack, widget.onBack),
+      (Icons.arrow_forward, avenText('aven_forward'), widget.canForward, widget.onForward),
+      (Icons.refresh, avenText('aven_reload'), true, widget.onReload),
+      (Icons.home_outlined, avenText('aven_home'), true, widget.onHome),
+    ];
+    final rows = <(IconData, String, Widget?, VoidCallback, bool)>[
+      (
+        widget.saved ? Icons.star : Icons.star_border,
+        avenText(widget.saved ? 'aven_bookmark_remove' : 'aven_bookmark_add'),
+        null,
+        widget.onBookmark,
+        false,
+      ),
+      (Icons.bookmark_add_outlined, avenText('aven_read_later'), null, widget.onReadLater, false),
+      (
+        Icons.chrome_reader_mode_outlined,
+        avenText('aven_reader_on'),
+        _state(widget.readerOn),
+        widget.onToggleReader,
+        false,
+      ),
       (
         widget.adBlockOn ? Icons.shield : Icons.shield_outlined,
-        widget.adBlockOn ? avenText('aven_adblock_on') : avenText('aven_adblock_off_short'),
-        true,
+        avenText('aven_adblock'),
+        _state(widget.adBlockOn),
         widget.onToggleAdBlock,
-        null,
+        false,
       ),
-      (
-        widget.readerOn ? Icons.chrome_reader_mode : Icons.chrome_reader_mode_outlined,
-        widget.readerOn ? avenText('aven_reader_short') : avenText('aven_reader_on'),
-        true,
-        widget.onToggleReader,
-        null,
-      ),
-      (Icons.remove, avenText('aven_zoom_out'), true, widget.onZoomOut, null),
-      (null, avenText('aven_zoom'), true, widget.onZoomReset, '%${widget.zoom}'),
-      (Icons.add, avenText('aven_zoom_in'), true, widget.onZoomIn, null),
-      (Icons.settings, avenText('aven_settings'), true, widget.onSettings, null),
-      (Icons.power_settings_new, avenText('aven_exit'), true, widget.onExit, null),
+      (Icons.zoom_in, avenText('aven_zoom'), null, widget.onZoomReset, false),
     ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
+    final app = [
+      (Icons.video_library_outlined, avenText('aven_library'), widget.onLibrary),
+      (Icons.settings_outlined, avenText('aven_settings'), widget.onSettings),
+      (Icons.power_settings_new, avenText('aven_exit'), widget.onExit),
+    ];
+    return FocusTraversalGroup(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'aven',
+            style: TextStyle(
+              fontFamily: 'Cal Sans',
+              fontSize: 30,
+              fontWeight: FontWeight.w600,
+              letterSpacing: -0.8,
+              height: 1,
+              color: AvenColors.text,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
             children: [
-              for (var index = 0; index < items.length; index++)
-                _BarButton(
-                  focusNode: _nodes[index],
-                  icon: items[index].$1,
-                  label: items[index].$5,
-                  tooltip: items[index].$2,
-                  enabled: items[index].$3,
-                  onPressed: items[index].$4 ?? () {},
-                  onArrow: (key) => _move(index, key),
+              Expanded(
+                child: _AddressField(
+                  controller: widget.address,
+                  focusNode: widget.addressFocus,
+                  editing: widget.editing,
+                  compact: true,
+                  nextFocus: widget.firstFocus,
+                  rightFocus: widget.voiceFocus,
+                  onTap: widget.onTapField,
+                  onSubmit: widget.onSubmit,
                 ),
+              ),
+              const SizedBox(width: 10),
+              _VoiceSearchButton(
+                focusNode: widget.voiceFocus,
+                busy: widget.voiceBusy,
+                size: 44,
+                onPressed: widget.onVoice,
+                onKeyEvent: (event) {
+                  if (event is! KeyDownEvent) return;
+                  final key = event.logicalKey;
+                  if (key == LogicalKeyboardKey.arrowLeft) {
+                    widget.addressFocus.requestFocus();
+                  } else if (key == LogicalKeyboardKey.arrowDown) {
+                    widget.firstFocus.requestFocus();
+                  } else if (_activates(key) && !widget.voiceBusy) {
+                    widget.onVoice();
+                  }
+                },
+              ),
             ],
           ),
-        );
-      },
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              for (var i = 0; i < nav.length; i++) ...[
+                if (i > 0) const SizedBox(width: 10),
+                Expanded(
+                  child: _TvNavTile(
+                    focusNode: _nav[i],
+                    icon: nav[i].$1,
+                    label: nav[i].$2,
+                    enabled: nav[i].$3,
+                    onPressed: nav[i].$4,
+                    onKey: (event) => _onNavKey(i, event, nav[i].$4, nav[i].$3),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          Divider(height: 1, color: AvenColors.text.withValues(alpha: 0.08)),
+          const SizedBox(height: 8),
+          for (var i = 0; i < rows.length; i++)
+            _TvMenuRow(
+              focusNode: _rows[i],
+              icon: rows[i].$1,
+              label: rows[i].$2,
+              trailing: i == _zoomRow ? _ZoomStepper(zoom: widget.zoom) : rows[i].$3,
+              onPressed: rows[i].$4,
+              onKey: (event) => _onRowKey(i, event, rows[i].$4),
+            ),
+          const Spacer(),
+          Row(
+            children: [
+              for (var i = 0; i < app.length; i++) ...[
+                if (i > 0) const SizedBox(width: 10),
+                Expanded(
+                  child: _TvNavTile(
+                    focusNode: _app[i],
+                    icon: app[i].$1,
+                    label: app[i].$2,
+                    enabled: true,
+                    danger: i == app.length - 1,
+                    onPressed: app[i].$3,
+                    onKey: (event) => _onAppKey(i, event, app[i].$3),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _BarButton extends StatelessWidget {
-  const _BarButton({
-    required this.tooltip,
-    required this.onPressed,
+/// Back / forward / reload / home: square tiles with the name under the icon.
+class _TvNavTile extends StatelessWidget {
+  const _TvNavTile({
     required this.focusNode,
-    this.icon,
-    this.label,
-    this.enabled = true,
-    this.onArrow,
+    required this.icon,
+    required this.label,
+    required this.enabled,
+    required this.onPressed,
+    required this.onKey,
+    this.danger = false,
   });
 
-  final IconData? icon;
-  final String? label;
-  final String tooltip;
-  final VoidCallback onPressed;
   final FocusNode focusNode;
+  final IconData icon;
+  final String label;
   final bool enabled;
-  final ValueChanged<LogicalKeyboardKey>? onArrow;
-
-  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final key = event.logicalKey;
-    if (onArrow != null && _isArrow(key)) {
-      onArrow!(key);
-      return KeyEventResult.handled;
-    }
-    final activate = key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.numpadEnter ||
-        key == LogicalKeyboardKey.select ||
-        key == LogicalKeyboardKey.gameButtonA ||
-        key == LogicalKeyboardKey.space;
-    if (activate) {
-      if (enabled) onPressed();
-      return KeyEventResult.handled;
-    }
-    return KeyEventResult.ignored;
-  }
+  final bool danger;
+  final VoidCallback onPressed;
+  final KeyEventResult Function(KeyEvent event) onKey;
 
   @override
   Widget build(BuildContext context) {
-    final node = focusNode;
-    return ListenableBuilder(
-      listenable: node,
-      builder: (context, _) {
-        final focused = node.hasFocus;
-        final button = Focus(
-          focusNode: node,
-          onKeyEvent: _onKey,
-          child: ExcludeFocus(
-            child: label != null
-                ? TextButton(
-                    onPressed: enabled ? onPressed : () {},
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(44, 44),
-                      fixedSize: const Size(44, 44),
-                      padding: EdgeInsets.zero,
-                      backgroundColor:
-                          focused ? AvenColors.focusFill : Colors.transparent,
-                      foregroundColor:
-                          focused ? AvenColors.onFocus : AvenColors.text,
-                      overlayColor: Colors.transparent,
-                      side: BorderSide.none,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: Text(
-                      label!,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  )
-                : IconButton(
-                    onPressed: enabled ? onPressed : () {},
-                    icon: Icon(icon),
-                    iconSize: 22,
-                    padding: EdgeInsets.zero,
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size(44, 44),
-                      fixedSize: const Size(44, 44),
-                      backgroundColor:
-                          focused ? AvenColors.focusFill : Colors.transparent,
-                      overlayColor: Colors.transparent,
-                      foregroundColor: focused
-                          ? AvenColors.onFocus
-                          : !enabled
-                              ? AvenColors.textMuted
-                              : AvenColors.text,
-                      side: BorderSide.none,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-          ),
-        );
-
-        return SizedBox(
-          width: label != null ? 52 : 48,
-          height: 70,
-          child: Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.bottomCenter,
-            children: [
-              AvenFocusZoom(
-                focused: focused,
-                scale: 1.0,
-                borderRadius: 10,
-                showHalo: false,
-                child: button,
+    return Focus(
+      focusNode: focusNode,
+      onKeyEvent: (_, event) => onKey(event),
+      child: ListenableBuilder(
+        listenable: focusNode,
+        builder: (context, _) {
+          final focused = focusNode.hasFocus;
+          final ink = focused
+              ? (danger ? Colors.white : AvenColors.onFocus)
+              : enabled
+                  ? AvenColors.text
+                  : AvenColors.textMuted.withValues(alpha: 0.45);
+          return GestureDetector(
+            onTap: enabled ? onPressed : null,
+            child: AnimatedContainer(
+              duration: AvenFocusMotion.duration,
+              curve: AvenFocusMotion.curve,
+              height: 64,
+              decoration: BoxDecoration(
+                color: focused
+                    ? (danger ? AvenColors.live : AvenColors.focusFill)
+                    : AvenColors.elevated,
+                borderRadius: BorderRadius.circular(18),
               ),
-              if (focused)
-                Positioned(
-                  bottom: 50,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: AvenColors.elevated,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      child: Text(
-                        tooltip,
-                        maxLines: 1,
-                        softWrap: false,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          height: 1.15,
-                          color: AvenColors.text,
-                        ),
-                      ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, size: 24, color: ink),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: ink),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// One labelled TV menu row; the focused row fills white like Settings rows.
+class _TvMenuRow extends StatelessWidget {
+  const _TvMenuRow({
+    required this.focusNode,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    required this.onKey,
+    this.trailing,
+    this.danger = false,
+  });
+
+  final FocusNode focusNode;
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  final KeyEventResult Function(KeyEvent event) onKey;
+  final Widget? trailing;
+  final bool danger;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: focusNode,
+      onKeyEvent: (_, event) => onKey(event),
+      child: ListenableBuilder(
+        listenable: focusNode,
+        builder: (context, _) {
+          final focused = focusNode.hasFocus;
+          final fill = focused ? (danger ? AvenColors.live : AvenColors.focusFill) : Colors.transparent;
+          final ink = focused ? (danger ? Colors.white : AvenColors.onFocus) : AvenColors.text;
+          return GestureDetector(
+            onTap: onPressed,
+            child: AnimatedContainer(
+              duration: AvenFocusMotion.duration,
+              curve: AvenFocusMotion.curve,
+              height: 44,
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: fill,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 24, color: ink),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: ink),
                     ),
                   ),
-                ),
-            ],
+                  if (trailing != null)
+                    DefaultTextStyle.merge(style: TextStyle(color: ink), child: trailing!),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Zoom value with the arrows that change it on the remote.
+class _ZoomStepper extends StatelessWidget {
+  const _ZoomStepper({required this.zoom});
+
+  final int zoom;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = DefaultTextStyle.of(context).style.color ?? AvenColors.text;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.chevron_left, size: 22, color: ink.withValues(alpha: 0.7)),
+        SizedBox(
+          width: 56,
+          child: Text(
+            '%$zoom',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: ink),
           ),
-        );
-      },
+        ),
+        Icon(Icons.chevron_right, size: 22, color: ink.withValues(alpha: 0.7)),
+      ],
     );
   }
 }

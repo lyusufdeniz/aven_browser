@@ -55,7 +55,7 @@ enum AdBlock {
 
   String get label => switch (this) {
     AdBlock.off => avenText('aven_off'),
-    AdBlock.local => avenText('aven_adblock_local'),
+    AdBlock.local => avenText('aven_on'),
   };
 
   String get detail => switch (this) {
