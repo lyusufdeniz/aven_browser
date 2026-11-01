@@ -1,0 +1,562 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Aven store studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Inter:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=Manrope:wght@700;800&family=Noto+Sans+Arabic:wght@400;500;700&family=Noto+Kufi+Arabic:wght@700&family=Noto+Sans+Devanagari:wght@400;500;700&family=Noto+Sans+JP:wght@400;500;700&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=block" rel="stylesheet">
+<style>
+@font-face { font-family: 'Cal Sans'; src: url('assets/CalSans-SemiBold.ttf'); font-weight: 600; font-display: block; }
+:root {
+  --bg:#131418; --panel:#1A1B20; --rail:#0E0F12; --text:#F1F3F7; --el:#2A2D35;
+  --focus:#E6E9F0; --on:#15171C; --muted:rgba(241,243,247,.6); --dim:rgba(241,243,247,.38);
+  --cyan:#2BC4F3; --bar:#202127;
+}
+#canvas { --fb:'Noto Sans Arabic','Noto Sans Devanagari','Noto Sans JP';
+  --ui:Roboto, var(--fb), sans-serif; --ui2:Inter, var(--fb), sans-serif;
+  --disp:'Cal Sans', var(--fb), sans-serif; --dispw:600; font-synthesis:none; }
+#canvas[data-l=ru-RU] { --disp:'Cal Sans', Manrope, sans-serif; --dispw:800; }
+#canvas[data-l=ar] { --fb:'Noto Sans Arabic'; --disp:'Cal Sans','Noto Kufi Arabic', sans-serif; --dispw:700; }
+#canvas[data-l=hi-IN] { --fb:'Noto Sans Devanagari'; --disp:'Cal Sans','Noto Sans Devanagari', sans-serif; --dispw:700; }
+#canvas[data-l=ja-JP] { --fb:'Noto Sans JP'; --disp:'Cal Sans','Noto Sans JP', sans-serif; --dispw:700; }
+.brand { direction:ltr; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html, body { background:#0b0c0f; overflow:hidden; }
+body { font-family:Roboto, sans-serif; color:var(--text); -webkit-font-smoothing:antialiased; }
+.ms { font-family:'Material Symbols Rounded'; font-weight:400; line-height:1; display:inline-block; white-space:nowrap; direction:ltr; -webkit-font-feature-settings:'liga'; vertical-align:middle; }
+#canvas { position:relative; overflow:hidden; font-family:var(--ui); }
+
+/* Marketing frame */
+.mk { position:absolute; inset:0;
+  background:
+    radial-gradient(1100px 800px at 85% -8%, rgba(43,196,243,.20), transparent 62%),
+    radial-gradient(900px 900px at -15% 108%, rgba(20,105,170,.30), transparent 62%),
+    linear-gradient(180deg,#14161b 0%,#0c0d10 100%); }
+.mk .lines { position:absolute; inset:0; opacity:.07; }
+.cap { position:absolute; left:0; right:0; padding:0 64px; text-align:center; z-index:5; }
+.cap h1, .cap p { text-wrap:balance; }
+#canvas[data-l=ja-JP] .cap h1, #canvas[data-l=ja-JP] .cap p { word-break:auto-phrase; }
+.cap h1 { font-family:var(--disp); font-weight:var(--dispw); color:#fff; letter-spacing:-.005em; word-spacing:.06em; line-height:1.08; }
+.cap p { font-family:var(--ui2); color:rgba(241,243,247,.66); line-height:1.38; margin:0 auto; }
+.brand { display:flex; align-items:center; gap:14px; justify-content:center; }
+.brand img { display:block; }
+.brand span { font-family:'Cal Sans'; color:#fff; letter-spacing:-.03em; line-height:1; }
+
+/* Device frames */
+.device { position:absolute; background:#07080a; border-radius:66px; padding:14px;
+  box-shadow:0 0 0 2px #2c2f37, 0 0 0 5px #0f1013, 0 40px 80px rgba(0,0,0,.5); }
+.device .glass { position:relative; overflow:hidden; border-radius:52px; }
+.device .scr { position:absolute; left:0; top:0; transform-origin:0 0; overflow:hidden; background:var(--bg); }
+.tvf { position:absolute; background:#060709; border-radius:22px; padding:12px;
+  box-shadow:0 0 0 2px #2a2d34, 0 40px 90px rgba(0,0,0,.55); }
+.tvf .glass { position:relative; overflow:hidden; border-radius:10px; }
+.tvf .scr { position:absolute; left:0; top:0; transform-origin:0 0; overflow:hidden; background:var(--bg); }
+
+/* Phone UI (dp units) */
+.sb { position:absolute; top:0; left:0; right:0; height:30px; display:flex; justify-content:space-between; align-items:center; padding:0 20px 0 24px; font:500 13px var(--ui); color:var(--text); z-index:30; }
+.sb .sbi { display:flex; gap:3px; }
+.cam { position:absolute; top:9px; left:50%; width:12px; height:12px; margin-left:-6px; border-radius:50%; background:#000; z-index:31; box-shadow:0 0 0 1.5px #1b1c20; }
+.gest { position:absolute; bottom:8px; left:50%; width:108px; height:4px; margin-left:-54px; border-radius:2px; background:rgba(241,243,247,.55); z-index:30; }
+.tb { position:absolute; left:14px; right:14px; bottom:26px; height:56px; border-radius:28px; background:var(--bar); display:flex; justify-content:space-around; align-items:center; box-shadow:0 8px 24px rgba(0,0,0,.45); z-index:15; color:var(--text); }
+.tabn { width:22px; height:22px; border:2px solid var(--text); border-radius:6px; font:700 11.5px var(--ui); display:grid; place-items:center; }
+.ab { position:absolute; top:38px; left:14px; right:14px; height:46px; border-radius:23px; background:var(--bar); display:flex; align-items:center; gap:10px; padding:0 14px 0 16px; color:var(--text); box-shadow:0 6px 18px rgba(0,0,0,.35); z-index:15; font:500 14.5px var(--ui); }
+.ab .host { flex:1; }
+.snack { position:absolute; left:16px; right:16px; height:48px; border-radius:12px; background:var(--focus); color:var(--on); display:flex; align-items:center; gap:12px; padding:0 16px; font:500 14px var(--ui); z-index:16; box-shadow:0 6px 18px rgba(0,0,0,.35); }
+.snack b { margin-left:auto; font-weight:700; letter-spacing:.02em; }
+.scrim { position:absolute; inset:0; background:rgba(11,12,15,.66); z-index:18; }
+.sheet { position:absolute; left:0; right:0; bottom:0; background:var(--bg); border-radius:28px 28px 0 0; z-index:19; padding:0 16px 30px; }
+.handle { width:32px; height:4px; border-radius:2px; background:rgba(241,243,247,.4); margin:12px auto 18px; }
+.fav { display:grid; place-items:center; border-radius:8px; color:#fff; font:700 14px var(--ui); flex:none; }
+.muted { color:var(--muted); }
+.lbl { font:600 13px var(--ui); color:var(--muted); }
+
+/* Websites (light) */
+.site { position:absolute; left:0; right:0; background:#fff; color:#1b1d22; overflow:hidden; }
+.serif { font-family:'Source Serif 4', var(--ui); }
+.para { font:15.5px/1.6 'Source Serif 4', var(--ui); color:#2c2f36; margin-bottom:14px; }
+
+/* TV UI (dp units) */
+.pill { display:inline-flex; align-items:center; gap:10px; height:44px; padding:0 20px; border-radius:22px; background:var(--el); font:500 17px var(--ui); color:var(--text); }
+.pill.f { background:var(--focus); color:var(--on); }
+.cur { position:absolute; width:30px; height:30px; border-radius:9px; border:2.5px solid #d8dbe2; background:rgba(18,19,23,.5); box-shadow:0 3px 10px rgba(0,0,0,.45); z-index:40; }
+.cur::after { content:''; position:absolute; left:50%; top:50%; width:7px; height:7px; margin:-3.5px; border-radius:50%; background:#fff; }
+</style>
+</head>
+<body>
+<div id="canvas"></div>
+<script src="i18n/i18n.js"></script>
+<script>
+const Q = new URLSearchParams(location.search);
+const A = Q.get('a') || 'p1';
+const L = Q.get('l') || 'en';
+const t = (en, tr) => L.startsWith('en') ? en : L.startsWith('tr') ? tr : ((window.I18N && I18N[L] && I18N[L][en]) ?? en);
+const RTL = L === 'ar';
+const FLIP = new Set(['arrow_back', 'arrow_forward', 'send']);
+const ic = (name, size = 24, fill = 0, style = '') =>
+  `<span class="ms" style="${RTL && FLIP.has(name) ? 'transform:scaleX(-1);' : ''}font-size:${size}px;font-variation-settings:'FILL' ${fill},'opsz' ${Math.min(48, Math.max(20, size))};${style}">${name}</span>`;
+
+const SIZES = {
+  p1:[1080,1920], p2:[1080,1920], p3:[1080,1920], p4:[1080,1920], p5:[1080,1920], p6:[1080,1920], p7:[1080,1920], p8:[1080,1920],
+  t1:[1920,1080], t2:[1920,1080], t3:[1920,1080], t4:[1920,1080], t5:[1920,1080],
+  fg:[1024,500], banner:[1280,720], icon:[512,512], iconLight:[512,512],
+};
+
+// ---------- Content ----------
+const VIDEOS = [
+  { en:'Surfing the longest wave in Portugal', tr:"Portekiz'in en uzun dalgasında sörf", pal:'sunset', ch:'Coastal Studio', dur:'18:42', p:.46 },
+  { en:'Night swim with glowing plankton', tr:'Işıldayan planktonlarla gece yüzüşü', pal:'night', ch:'Deep Blue', dur:'12:05', p:.72 },
+  { en:'Lighthouse keepers of the north', tr:'Kuzeyin deniz feneri bekçileri', pal:'storm', ch:'Long Form', dur:'41:10', p:.18 },
+  { en:'Slow TV: three hours of ocean sounds', tr:'Yavaş TV: üç saat okyanus sesi', pal:'teal', ch:'Calm Channel', dur:'3:02:11', p:.33 },
+  { en:'How tides really work', tr:'Gelgit aslında nasıl işler', pal:'day', ch:'Science Shorts', dur:'9:58', p:.0 },
+  { en:'Cooking fresh catch on the beach', tr:'Sahilde taze balık pişirmek', pal:'dusk', ch:'Open Fire', dur:'22:31', p:.0 },
+];
+const PAGES = [
+  { en:'How a single wave can cross an entire ocean', tr:'Tek bir dalga koca okyanusu nasıl geçer', host:'northwind.news', c:'#1f6fb2', l:'N' },
+  { en:'Weekend market guide: 12 stalls worth the queue', tr:'Hafta sonu pazar rehberi: sırayı hak eden 12 tezgah', host:'harborlocal.com', c:'#d9822b', l:'H' },
+  { en:'Build a tiny weather station at home', tr:'Evde minik bir hava istasyonu kurun', host:'makerbench.dev', c:'#2f9e6e', l:'M' },
+  { en:'The 20-minute pasta everyone asks about', tr:'Herkesin tarifini sorduğu 20 dakikalık makarna', host:'pantrynotes.com', c:'#c2444f', l:'P' },
+  { en:'Night trains of Europe, ranked', tr:"Avrupa'nın gece trenleri, sıralı", host:'slowtravel.io', c:'#6b5bd2', l:'S' },
+  { en:"A beginner's guide to film photography", tr:'Yeni başlayanlar için film fotoğrafçılığı', host:'grainandlight.com', c:'#8a6d3b', l:'G' },
+];
+const SITES = [
+  { name:'Tidepool', g:['#ff5f6d','#ffc371'], i:'play_arrow' },
+  { name:'Lumen', g:['#5b2ee8','#b06ab3'], i:'movie' },
+  { name:'Orbit Live', g:['#0f9b8e','#38ef7d'], i:'sensors' },
+  { name:'Cadence', g:['#e1306c','#f77737'], i:'graphic_eq' },
+  { name:'Northwind', g:['#1f6fb2','#4fc3f7'], i:'newspaper' },
+  { name:'Kickoff', g:['#1e3c72','#2a5298'], i:'sports_soccer' },
+];
+const fav = (p, s = 32, r = 8) => `<div class="fav" style="width:${s}px;height:${s}px;border-radius:${r}px;background:${p.c};font-size:${s * .45}px">${p.l}</div>`;
+
+// ---------- Scenery (SVG) ----------
+const PALS = {
+  sunset:{ sky:['#ffd9a8','#ff9f7a','#c76b98'], sun:'#fff3d1', sea:['#5a8fd6','#3b6fb6','#244a86','#162f5c'], sy:.42 },
+  night: { sky:['#07122b','#132a5c','#1d3d73'], sun:'#e8f1ff', sea:['#0d4f6b','#0a3b52','#072a3b','#041c28'], sy:.30, stars:1, glow:'#36e0ff' },
+  storm: { sky:['#9fb0c3','#6f8299','#4b5d74'], sun:'#e9eef5', sea:['#4a6378','#38505f','#29404d','#1b2d38'], sy:.28 },
+  teal:  { sky:['#c9f1ff','#8bdcf7','#55c3ee'], sun:'#ffffff', sea:['#19a7d8','#0e8cc0','#0a6e9c','#08547a'], sy:.36 },
+  day:   { sky:['#e6f6ff','#b7e3fb','#86ccf2'], sun:'#fffbe8', sea:['#2db3e0','#1795c7','#0f78a6','#0a5a80'], sy:.25 },
+  dusk:  { sky:['#ffcf8a','#ff8a5c','#8f4f8f'], sun:'#ffe9b8', sea:['#c27a5a','#8f5550','#5e3a49','#3b2638'], sy:.48 },
+};
+let SID = 0;
+function scene(w, h, palName, opt = {}) {
+  const p = PALS[palName]; const id = 's' + (SID++);
+  const horizon = h * (opt.horizon ?? .52);
+  const wave = (y, amp, len, ph) => {
+    let d = `M0 ${h} L0 ${y}`;
+    for (let x = 0; x <= w + 8; x += Math.max(2, w / 160)) d += ` L${x.toFixed(1)} ${(y + Math.sin(x / len + ph) * amp + Math.sin(x / (len * .37) + ph * 2) * amp * .35).toFixed(1)}`;
+    return d + ` L${w} ${h} Z`;
+  };
+  let stars = '';
+  if (p.stars) for (let i = 0; i < 40; i++) {
+    const x = (Math.sin(i * 12.9898) * 43758.5453 % 1 + 1) % 1 * w, y = (Math.sin(i * 78.233) * 12345.678 % 1 + 1) % 1 * horizon * .8;
+    stars += `<circle cx="${x}" cy="${y}" r="${(i % 3) * .4 + .5}" fill="#fff" opacity="${.35 + (i % 4) * .15}"/>`;
+  }
+  const sr = Math.min(w, h) * (opt.sun ?? .11);
+  const sx = w * (opt.sunX ?? .68), sy = h * p.sy;
+  const amp = Math.max(1.5, h * .022), len = Math.max(8, w * .045);
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block">
+    <defs>
+      <linearGradient id="${id}k" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${p.sky[2]}"/><stop offset=".55" stop-color="${p.sky[1]}"/><stop offset="1" stop-color="${p.sky[0]}"/></linearGradient>
+      <radialGradient id="${id}g"><stop offset="0" stop-color="${p.sun}" stop-opacity=".9"/><stop offset="1" stop-color="${p.sun}" stop-opacity="0"/></radialGradient>
+    </defs>
+    <rect width="${w}" height="${h}" fill="url(#${id}k)"/>${stars}
+    <circle cx="${sx}" cy="${sy}" r="${sr * 3}" fill="url(#${id}g)" opacity=".55"/>
+    <circle cx="${sx}" cy="${sy}" r="${sr}" fill="${p.sun}"/>
+    <path d="${wave(horizon, amp * .5, len * 1.6, 1)}" fill="${p.sea[0]}"/>
+    <path d="${wave(horizon + h * .12, amp * .8, len * 1.2, 2.2)}" fill="${p.sea[1]}"/>
+    <path d="${wave(horizon + h * .25, amp, len, 3.1)}" fill="${p.sea[2]}"/>
+    <path d="${wave(horizon + h * .37, amp * 1.2, len * .9, .4)}" fill="${p.sea[3]}"/>
+    ${p.glow ? `<path d="${wave(horizon + h * .25, amp, len, 3.1)}" fill="none" stroke="${p.glow}" stroke-width="${Math.max(1, h * .006)}" opacity=".55"/>` : ''}
+  </svg>`;
+}
+
+// ---------- Shared phone pieces ----------
+const status = (bg = 'transparent') => `<div class="sb" style="background:${bg}"><span>12:30</span><span class="sbi">${ic('signal_cellular_alt', 16, 1)}${ic('wifi', 16, 1)}${ic('battery_full', 16, 1, 'transform:rotate(90deg)')}</span></div><div class="cam"></div>`;
+const gest = () => `<div class="gest"></div>`;
+const toolbar = (tabs = 3, back = true) => `<div class="tb">${ic('arrow_back', 24, 0, back ? '' : 'opacity:.35')}${ic('arrow_forward', 24, 0, 'opacity:.35')}${ic('add', 27)}<span class="tabn">${tabs}</span>${ic('more_vert', 24)}</div>`;
+const addr = (host, extra = '') => `<div class="ab">${ic('lock', 17, 1)}<span class="host">${host}</span>${extra}${ic('refresh', 21)}</div>`;
+
+function articlePage(top = 30) {
+  const a = PAGES[0];
+  return `<div class="site" style="top:${top}px;bottom:0">
+    <div style="position:relative;height:236px">${scene(360, 236, 'sunset', { horizon: .5 })}</div>
+    <div style="padding:20px 20px 0">
+      <div style="font:700 11.5px var(--ui);letter-spacing:.12em;color:#1f6fb2">${t('OCEAN SCIENCE', 'OKYANUS BİLİMİ')}</div>
+      <h2 class="serif" style="font-size:26px;line-height:1.18;font-weight:700;margin:8px 0 12px;color:#14161a">${t(a.en, a.tr)}</h2>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;font:13px var(--ui);color:#6a6f7a">
+        <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#9bd1f5,#2f7fc0)"></div>
+        <span><b style="color:#2c2f36;font-weight:500">Mara Lindqvist</b> · ${t('6 min read', '6 dk okuma')}</span>
+      </div>
+      <p class="para">${t('A swell born in a storm near Antarctica can roll north for two weeks and still break cleanly on a beach in Alaska. The secret is that the water itself barely moves.',
+        "Antarktika yakınlarındaki bir fırtınada doğan dalga, iki hafta boyunca kuzeye ilerleyip Alaska'da bir sahile temiz bir şekilde vurabilir. İşin sırrı, suyun neredeyse hiç yer değiştirmemesi.")}</p>
+      <p class="para">${t('What travels is energy. Each water particle traces a small circle and returns almost to where it started, passing the push along to its neighbour.',
+        'Yol alan şey enerjidir. Her su parçacığı küçük bir daire çizip neredeyse başladığı yere döner ve itkiyi yanındakine aktarır.')}</p>
+    </div>
+  </div>`;
+}
+
+// ---------- Phone screens (360 x 800 dp) ----------
+const PHONE = {
+  p1() {
+    const short = [['history', t('History', 'Geçmiş')], ['star', t('Bookmarks', 'Yer imleri')], ['download', t('Downloads', 'İndirilenler')], ['settings', t('Settings', 'Ayarlar')]];
+    const watch = VIDEOS.slice(0, 2).map(v => `
+      <div style="flex:none;width:236px;height:76px;border-radius:14px;background:var(--panel);display:flex;gap:10px;padding:6px;align-items:center">
+        <div style="position:relative;width:108px;height:64px;border-radius:10px;overflow:hidden;flex:none">${scene(108, 64, v.pal)}
+          <div style="position:absolute;left:0;bottom:0;height:3px;width:100%;background:rgba(255,255,255,.3)"><div style="height:3px;width:${v.p * 100}%;background:#fff"></div></div>
+          <div style="position:absolute;inset:0;display:grid;place-items:center">${ic('play_arrow', 26, 1, 'color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.5)')}</div></div>
+        <div style="min-width:0"><div style="font:500 12.5px/1.3 var(--ui);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${t(v.en, v.tr)}</div>
+        <div class="muted" style="font:11.5px var(--ui);margin-top:3px">${v.dur}</div></div>
+      </div>`).join('');
+    const recent = PAGES.slice(1, 3).map(p => `
+      <div style="display:flex;align-items:center;gap:16px;height:56px;padding-left:8px">${fav(p, 26, 7)}
+        <div style="flex:1;min-width:0"><div style="font:14.5px var(--ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t(p.en, p.tr)}</div><div class="muted" style="font:12.5px var(--ui)">${p.host}</div></div>
+        ${ic('close', 18, 0, 'color:var(--muted);padding:0 14px')}</div>`).join('');
+    return `${status()}
+      <div style="position:absolute;top:212px;width:100%;text-align:center;font:600 50px var(--disp);letter-spacing:-1.2px">aven</div>
+      <div style="position:absolute;top:290px;left:20px;right:20px;height:52px;border-radius:26px;background:#24262c;display:flex;align-items:center;gap:14px;padding:0 16px">
+        ${ic('search', 23)}<span class="muted" style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:16px var(--ui)">${t('Search or type a URL', 'Ara veya adres yaz')}</span>${ic('mic', 22, 1)}${ic('share', 21, 0, 'opacity:.4;margin-left:12px')}</div>
+      <div style="position:absolute;top:374px;left:0;right:0;display:flex;justify-content:space-evenly">
+        ${short.map(([i, l]) => `<div style="width:76px;text-align:center"><div style="width:56px;height:56px;margin:0 auto 8px;border-radius:50%;background:#24262c;display:grid;place-items:center">${ic(i, 25, i === 'settings' ? 1 : 0)}</div><div style="font:12.5px var(--ui)">${l}</div></div>`).join('')}
+      </div>
+      <div style="position:absolute;top:484px;left:16px;right:0">
+        <div class="lbl" style="padding-left:8px;margin-bottom:8px">${t('Continue watching', 'İzlemeye devam et')}</div>
+        <div style="display:flex;gap:10px;padding-left:4px">${watch}</div>
+        <div class="lbl" style="padding-left:8px;margin:20px 0 2px">${t('Recent', 'Son açılanlar')}</div>
+        <div style="padding-right:4px">${recent}</div>
+      </div>
+      ${toolbar(3, false)}${gest()}`;
+  },
+
+  p2() {
+    return `${status('var(--bg)')}${articlePage()}${addr('northwind.news', ic('shield', 19, 1))}
+      <div class="snack" style="bottom:96px">${ic('shield', 20, 1)}<span>${t('Ad blocking is on', 'Reklam engelleme açık')}</span></div>
+      ${toolbar(3)}${gest()}`;
+  },
+
+  p3() {
+    const tiles = [['add', t('New tab', 'Yeni sekme')], ['visibility_off', t('Incognito', 'Gizli')], ['star', t('Bookmark', 'Yer imi'), 1], ['bookmark_add', t('Read later', 'Sonra oku')], ['refresh', t('Reload', 'Yenile')],
+      ['history', t('Library', 'Kütüphane')], ['download', t('Downloads', 'İndirilenler')], ['search', t('Find in page', 'Sayfada bul')], ['connected_tv', t('Send to TV', "TV'ye gönder")], ['settings_remote', t('TV remote', 'TV kumandası')]];
+    const sw = (i, l, on) => `<div style="display:flex;align-items:center;gap:16px;height:52px;padding:0 16px">${ic(i, 22, on ? 1 : 0)}<span style="flex:1;font:15px var(--ui)">${l}</span>
+      <div style="width:44px;height:26px;border-radius:13px;background:${on ? 'var(--text)' : 'var(--el)'};position:relative"><div style="position:absolute;top:4px;${on ? 'right:4px' : 'left:4px'};width:18px;height:18px;border-radius:50%;background:${on ? 'var(--on)' : 'var(--muted)'}"></div></div></div>`;
+    return `${status('var(--bg)')}${articlePage()}${addr('northwind.news')}${toolbar(3)}<div class="scrim"></div>
+      <div class="sheet"><div class="handle"></div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);row-gap:12px;column-gap:4px">
+          ${tiles.map(([i, l, a]) => `<div style="text-align:center"><div style="width:50px;height:50px;margin:0 auto 7px;border-radius:16px;background:${a ? 'var(--focus)' : 'var(--panel)'};color:${a ? 'var(--on)' : 'var(--text)'};display:grid;place-items:center">${ic(i, 23, a ? 1 : 0)}</div><div style="font:11.5px/1.25 var(--ui);height:29px">${l}</div></div>`).join('')}
+        </div>
+        <div style="margin-top:14px;background:var(--panel);border-radius:18px;padding:4px 0">
+          ${sw('desktop_windows', t('Request desktop site', 'Masaüstü sitesi iste'), 0)}
+          ${sw('chrome_reader_mode', t('Reading mode', 'Okuma modu'), 0)}
+          ${sw('shield', t('Ad blocking', 'Reklam engelleme'), 1)}
+          <div style="display:flex;align-items:center;gap:16px;height:52px;padding:0 10px 0 16px">${ic('zoom_in', 22)}<span style="flex:1;font:15px var(--ui)">${t('Zoom', 'Yakınlaştırma')}</span>
+            <div style="display:flex;align-items:center;gap:6px">${ic('remove', 22, 0, 'padding:6px')}<span style="font:500 14px var(--ui);width:44px;text-align:center">100%</span>${ic('add', 22, 0, 'padding:6px')}</div></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px">
+          ${[['tune', t('Site settings', 'Site ayarları')], ['settings', t('Settings', 'Ayarlar')]].map(([i, l]) => `<div style="flex:1;height:50px;border-radius:16px;background:var(--panel);display:flex;align-items:center;justify-content:center;gap:10px;font:500 14.5px var(--ui)">${ic(i, 21)}${l}</div>`).join('')}
+        </div>
+      </div>${gest()}`;
+  },
+
+  p4() {
+    const tabs = [
+      { p: PAGES[0], pal: 'sunset', sel: 1 }, { p: { ...PAGES[3] }, pal: 'dusk' },
+      { p: { en: VIDEOS[1].en, tr: VIDEOS[1].tr, host: 'tidepool.tv', c: '#ff6a5f', l: 'T' }, pal: 'night' }, { p: PAGES[4], pal: 'storm' },
+    ];
+    const card = ({ p, pal, sel }) => `
+      <div style="height:232px;border-radius:18px;background:var(--panel);overflow:hidden;${sel ? 'box-shadow:0 0 0 2.5px var(--text)' : ''}">
+        <div style="display:flex;align-items:center;gap:8px;height:38px;padding:0 6px 0 10px">${fav(p, 18, 5)}<span style="flex:1;font:500 12.5px var(--ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t(p.en, p.tr)}</span>${ic('close', 17, 0, 'color:var(--muted);padding:4px')}</div>
+        <div style="background:#fff;height:194px;overflow:hidden">${scene(164, 92, pal)}
+          <div style="padding:10px"><div style="height:9px;width:85%;background:#2b2e35;border-radius:3px;margin-bottom:6px"></div><div style="height:9px;width:60%;background:#2b2e35;border-radius:3px;margin-bottom:12px"></div>
+          ${[92, 96, 80, 90].map(w => `<div style="height:6px;width:${w}%;background:#d9dce2;border-radius:3px;margin-bottom:6px"></div>`).join('')}</div></div>
+      </div>`;
+    return `${status()}
+      <div style="position:absolute;top:44px;left:20px;right:12px;display:flex;align-items:center;gap:6px">
+        <span style="flex:1;font:600 24px var(--disp);letter-spacing:-.3px">${t('4 tabs', '4 sekme')}</span>
+        ${ic('visibility_off', 23, 0, 'padding:8px')}${ic('add', 25, 0, 'padding:8px')}${ic('more_vert', 23, 0, 'padding:8px')}</div>
+      <div style="position:absolute;top:104px;left:0;right:0;display:flex;gap:10px;padding:0 16px;overflow:hidden">
+        ${[t('Tabs', 'Sekmeler'), t('Incognito', 'Gizli'), t('Recently closed', 'Son kapatılanlar')].map((l, i) => `<div style="height:34px;padding:0 14px;border-radius:17px;display:flex;flex:none;white-space:nowrap;align-items:center;font:500 13.5px var(--ui);${i === 0 ? 'background:var(--focus);color:var(--on)' : 'background:var(--panel)'}">${l}</div>`).join('')}
+      </div>
+      <div style="position:absolute;top:158px;left:16px;right:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px">${tabs.map(card).join('')}</div>
+      <div class="snack" style="bottom:96px">${ic('tab_close', 20)}<span>${t('Tab closed', 'Sekme kapatıldı')}</span><b>${t('UNDO', 'GERİ AL')}</b></div>
+      ${toolbar(4)}${gest()}`;
+  },
+
+  p6() {
+    const key = (i, l) => `<div style="text-align:center;width:84px"><div style="width:58px;height:58px;margin:0 auto 7px;border-radius:50%;background:var(--panel);display:grid;place-items:center">${ic(i, 25, 1)}</div><div style="font:12px var(--ui)" class="muted">${l}</div></div>`;
+    const arrow = (i, s) => `<div style="position:absolute;${s};display:grid;place-items:center;width:56px;height:56px">${ic(i, 32)}</div>`;
+    return `${status()}
+      <div style="position:absolute;top:40px;left:8px;right:16px;display:flex;align-items:center;gap:12px;height:52px">${ic('arrow_back', 24, 0, 'padding:10px')}${ic('tv', 21)}<span style="font:500 18px var(--ui)">${t('Living room TV', 'Salon TV')}</span>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font:12.5px var(--ui)" class="muted"><span style="width:8px;height:8px;border-radius:50%;background:#3ddc84"></span>Wi-Fi</span></div>
+      <div style="position:absolute;top:104px;left:16px;right:16px;height:52px;border-radius:26px;background:var(--panel);display:flex;align-items:center;padding:0 8px 0 20px">
+        <span style="flex:1;font:15.5px var(--ui)">${t('ocean documentar', 'okyanus belgese')}<span style="display:inline-block;width:2px;height:19px;background:var(--text);vertical-align:-3px;margin-left:1px"></span></span>
+        <div style="width:40px;height:40px;border-radius:50%;background:var(--focus);color:var(--on);display:grid;place-items:center">${ic('send', 20, 1)}</div></div>
+      <div style="position:absolute;top:172px;left:16px;right:16px;height:300px;border-radius:24px;background:var(--panel);overflow:hidden">
+        <svg width="328" height="300" style="position:absolute;inset:0"><path d="M70 230 C 110 210, 130 150, 190 140 S 250 110, 262 84" fill="none" stroke="rgba(241,243,247,.22)" stroke-width="16" stroke-linecap="round"/></svg>
+        <div style="position:absolute;left:236px;top:58px;width:52px;height:52px;border-radius:50%;background:rgba(241,243,247,.18);box-shadow:0 0 0 10px rgba(241,243,247,.07)"></div>
+        <div style="position:absolute;left:0;right:0;bottom:22px;text-align:center" class="muted">${ic('touch_app', 30)}<div style="font:13px var(--ui);margin-top:8px">${t('Drag to move · tap to click · two fingers to scroll', 'Taşımak için sürükle · tıklamak için dokun · kaydırmak için iki parmak')}</div></div>
+      </div>
+      <div style="position:absolute;top:492px;left:0;right:0;display:flex;justify-content:center;gap:12px">${key('arrow_back', t('Back', 'Geri'))}${key('home', t('Home', 'Ana sayfa'))}${key('play_pause', t('Play / Pause', 'Oynat / Duraklat'))}</div>
+      <div style="position:absolute;top:592px;left:50%;margin-left:-86px;width:172px;height:172px;border-radius:50%;background:var(--panel)">
+        ${arrow('keyboard_arrow_up', 'top:2px;left:58px')}${arrow('keyboard_arrow_down', 'bottom:2px;left:58px')}${arrow('keyboard_arrow_left', 'left:2px;top:58px')}${arrow('keyboard_arrow_right', 'right:2px;top:58px')}
+        <div style="position:absolute;left:50px;top:50px;width:72px;height:72px;border-radius:50%;background:var(--focus);color:var(--on);display:grid;place-items:center;font:700 17px var(--ui)">OK</div></div>
+      ${gest()}`;
+  },
+
+  p7() {
+    const items = PAGES.slice(0, 6).map((p, i) => `
+      <div style="display:flex;align-items:center;gap:14px;padding:12px 16px 12px 20px">${fav(p, 40, 12)}
+        <div style="flex:1;min-width:0"><div style="font:500 15px/1.3 var(--ui);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${t(p.en, p.tr)}</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:5px;font:12.5px var(--ui)" class="muted">${i < 4 ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 6px;border-radius:9px;background:var(--el);color:var(--text)">${ic('download_done', 14)}${t('Offline', 'Çevrimdışı')}</span>` : ''}${p.host}</div></div>
+        ${ic('more_vert', 21, 0, 'color:var(--muted)')}</div>`).join('');
+    return `${status()}
+      <div style="position:absolute;top:40px;left:8px;right:16px;display:flex;align-items:center;gap:8px;height:52px">${ic('arrow_back', 24, 0, 'padding:10px')}<span style="font:600 23px var(--disp);letter-spacing:-.3px">${t('Library', 'Kütüphane')}</span><span style="margin-left:auto">${ic('search', 23, 0, 'padding:8px')}</span></div>
+      <div style="position:absolute;top:100px;left:16px;right:0;display:flex;gap:8px;white-space:nowrap">
+        ${[t('Reading list', 'Okuma listesi'), t('Bookmarks', 'Yer imleri'), t('History', 'Geçmiş'), t('Downloads', 'İndirilenler')].map((l, i) => `<div style="height:36px;padding:0 15px;border-radius:18px;display:flex;align-items:center;font:500 13.5px var(--ui);flex:none;${i === 0 ? 'background:var(--focus);color:var(--on)' : 'background:var(--panel)'}">${l}</div>`).join('')}</div>
+      <div style="position:absolute;top:150px;left:0;right:0">${items}</div>${gest()}`;
+  },
+
+  p8() {
+    const seg = (sel) => `<div style="display:flex;background:var(--rail);border-radius:12px;padding:3px">${[t('Ask', 'Sor'), t('Allow', 'İzin ver'), t('Block', 'Engelle')].map((l, i) => `<span style="padding:6px 9px;border-radius:9px;font:500 12px var(--ui);${i === sel ? 'background:var(--focus);color:var(--on)' : 'color:var(--muted)'}">${l}</span>`).join('')}</div>`;
+    const row = (i, l, s) => `<div style="display:flex;align-items:center;gap:14px;height:54px">${ic(i, 22)}<span style="flex:1;font:15px var(--ui)">${l}</span>${seg(s)}</div>`;
+    return `${status('var(--bg)')}${articlePage()}${addr('northwind.news')}${toolbar(3)}<div class="scrim"></div>
+      <div class="sheet" style="padding:0 20px 34px"><div class="handle"></div>
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">${fav(PAGES[0], 44, 14)}<div><div style="font:600 20px var(--disp)">northwind.news</div><div class="muted" style="font:13px var(--ui);margin-top:2px">${t('Site settings', 'Site ayarları')}</div></div></div>
+        <div style="display:flex;gap:14px;padding:14px 16px;border-radius:16px;background:var(--panel);margin-bottom:10px">${ic('lock', 22, 1)}<div><div style="font:500 15px var(--ui)">${t('Connection is secure', 'Bağlantı güvenli')}</div><div class="muted" style="font:12.5px/1.45 var(--ui);margin-top:3px">${t('You connected to this site with encryption (HTTPS). The certificate looks trusted.', 'Bu siteye şifreli (HTTPS) bağlandınız. Sertifika güvenilir görünüyor.')}</div></div></div>
+        ${row('location_on', t('Location', 'Konum'), 0)}${row('photo_camera', t('Camera', 'Kamera'), 2)}${row('mic', t('Microphone', 'Mikrofon'), 0)}${row('notifications', t('Notifications', 'Bildirimler'), 2)}${row('play_circle', t('Autoplay', 'Otomatik oynatma'), 1)}
+      </div>${gest()}`;
+  },
+};
+
+// Landscape phone player (800 x 360 dp)
+function phonePlayer() {
+  const v = VIDEOS[0];
+  return `<div style="position:absolute;inset:0">${scene(800, 360, 'sunset', { horizon: .55, sunX: .84 })}</div>
+    <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55),rgba(0,0,0,0) 30%,rgba(0,0,0,0) 55%,rgba(0,0,0,.7))"></div>
+    <div style="position:absolute;top:16px;left:40px;right:40px;display:flex;align-items:center;gap:16px">${ic('arrow_back', 24)}<div><div style="font:500 16px var(--ui)">${t(v.en, v.tr)}</div><div style="font:12px var(--ui);opacity:.7">tidepool.tv</div></div><span style="margin-left:auto;display:flex;gap:22px">${ic('connected_tv', 23)}${ic('picture_in_picture_alt', 23)}</span></div>
+    <div style="position:absolute;top:128px;left:0;right:0;display:flex;justify-content:center;align-items:center;gap:64px">${ic('replay_10', 34)}<div style="width:68px;height:68px;border-radius:50%;background:rgba(255,255,255,.95);color:#111;display:grid;place-items:center">${ic('pause', 38, 1)}</div>${ic('forward_10', 34)}</div>
+    <div style="position:absolute;bottom:92px;left:0;right:0;text-align:center"><span style="background:rgba(0,0,0,.55);padding:4px 12px;border-radius:6px;font:500 19px var(--ui);color:#fff">${t('We will be home before the tide turns.', 'Gelgit dönmeden evde oluruz.')}</span></div>
+    <div style="position:absolute;bottom:52px;left:40px;right:40px;display:flex;align-items:center;gap:14px;font:500 12.5px var(--ui)"><span>8:36</span>
+      <div style="flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.3);position:relative"><div style="width:46%;height:4px;border-radius:2px;background:#fff"></div><div style="position:absolute;left:46%;top:-5px;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:#fff"></div></div><span>18:42</span></div>
+    <div style="position:absolute;bottom:12px;left:40px;right:40px;display:flex;gap:10px">
+      ${[['speed', '1.25×'], ['hd', '1080p'], ['subtitles', t('Subtitles', 'Altyazı')]].map(([i, l]) => `<span style="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;border-radius:16px;background:rgba(255,255,255,.16);font:500 13px var(--ui)">${ic(i, 18)}${l}</span>`).join('')}
+      <span style="margin-left:auto">${ic('fullscreen_exit', 24)}</span></div>`;
+}
+
+// ---------- TV screens (960 x 540 dp) ----------
+function poster(s, focused, w = 228, h = 128) {
+  return `<div style="flex:none;width:${w}px;${focused ? 'transform:scale(1.06);transform-origin:50% 60%' : ''}">
+    <div style="height:${h}px;border-radius:16px;background:linear-gradient(135deg,${s.g[0]},${s.g[1]});display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;
+      ${focused ? 'box-shadow:0 0 0 3px var(--text),0 0 26px 2px rgba(241,243,247,.22)' : 'box-shadow:0 0 0 1px rgba(241,243,247,.08)'}">${ic(s.i, 34, 1)}<span style="font:600 26px var(--disp);letter-spacing:-.4px">${s.name}</span></div>
+    <div style="margin-top:10px;text-align:center;font:500 15px var(--ui);color:${focused ? 'var(--text)' : 'var(--muted)'}">${s.name}</div></div>`;
+}
+function tvWatchCard(v, focused) {
+  return `<div style="flex:none;width:240px;${focused ? 'transform:scale(1.06);transform-origin:50% 60%' : ''}">
+    <div style="position:relative;height:135px;border-radius:14px;overflow:hidden;${focused ? 'box-shadow:0 0 0 3px var(--text),0 0 26px 2px rgba(241,243,247,.22)' : ''}">${scene(240, 135, v.pal)}
+      <div style="position:absolute;inset:auto 0 0 0;height:60px;background:linear-gradient(transparent,rgba(0,0,0,.75))"></div>
+      <div style="position:absolute;left:12px;right:12px;bottom:12px;font:500 13.5px/1.25 var(--ui);color:#fff">${t(v.en, v.tr)}</div>
+      <div style="position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.3)"><div style="height:4px;width:${v.p * 100}%;background:#fff"></div></div></div></div>`;
+}
+const tvSearch = (top) => `<div style="position:absolute;top:${top}px;left:170px;width:620px;display:flex;gap:12px">
+    <div style="flex:1;height:52px;border-radius:26px;background:var(--el);display:flex;align-items:center;gap:14px;padding:0 20px">${ic('search', 24)}<span class="muted" style="white-space:nowrap;font:18px var(--ui)">${t('Search or type a URL', 'Ara veya adres yaz')}</span></div>
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--el);display:grid;place-items:center">${ic('mic', 24, 1)}</div></div>`;
+const tvActions = (top) => `<div style="position:absolute;top:${top}px;left:0;right:0;display:flex;justify-content:center;gap:14px">
+    <span class="pill">${ic('video_library', 22)}${t('Library', 'Kütüphane')}</span><span class="pill">${ic('settings', 22, 1)}${t('Settings', 'Ayarlar')}</span></div>`;
+
+const TV = {
+  t1() {
+    return `<div style="position:absolute;top:28px;width:100%;text-align:center;font:600 56px var(--disp);letter-spacing:-1.2px;line-height:1">aven</div>
+      ${tvSearch(102)}${tvActions(170)}
+      <div style="position:absolute;top:236px;left:28px;right:0">
+        <div style="font:16px var(--ui)" class="muted">${t('Suggestions', 'Öneriler')}</div>
+        <div style="display:flex;gap:18px;padding:20px 4px 0">${SITES.slice(0, 5).map((s, i) => poster(s, i === 1)).join('')}</div>
+        <div style="font:16px var(--ui);margin-top:24px" class="muted">${t('Bookmarks', 'Yer imleri')}</div>
+        <div style="display:flex;gap:18px;padding:14px 4px 0">${PAGES.slice(0, 5).map(p => `<div style="flex:none;width:228px;height:60px;border-radius:16px;background:var(--panel);display:flex;align-items:center;gap:12px;padding:0 14px">${fav(p, 34, 10)}<span class="muted" style="font:14px var(--ui)">${p.host}</span></div>`).join('')}</div>
+      </div>`;
+  },
+
+  t2() {
+    const cards = VIDEOS.map((v, i) => `<div style="${i === 1 ? 'transform:translateY(-2px)' : ''}">
+        <div style="position:relative;height:139px;border-radius:12px;overflow:hidden;${i === 1 ? 'box-shadow:0 0 0 3px #ff6a5f' : ''}">${scene(247, 139, v.pal)}<span style="position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.75);color:#fff;font:500 11px var(--ui);padding:2px 6px;border-radius:4px">${v.dur}</span></div>
+        <div style="display:flex;gap:10px;margin-top:10px"><div style="width:30px;height:30px;border-radius:50%;flex:none;background:linear-gradient(135deg,${SITES[i % 6].g[0]},${SITES[i % 6].g[1]})"></div>
+        <div><div style="font:500 14px/1.3 var(--ui);color:#14161a">${t(v.en, v.tr)}</div><div style="font:12.5px var(--ui);color:#6a6f7a;margin-top:3px">${v.ch} · ${(1.2 + i * .7).toFixed(1)}${t('M views', ' Mn izlenme')}</div></div></div></div>`).join('');
+    return `<div class="site" style="inset:0">
+      <div style="height:60px;display:flex;align-items:center;gap:16px;padding:0 24px;border-bottom:1px solid #eceef2">
+        ${ic('menu', 24, 0, 'color:#333')}<div style="display:flex;align-items:center;gap:7px"><div style="width:30px;height:22px;border-radius:7px;background:linear-gradient(135deg,#ff5f6d,#ffc371);display:grid;place-items:center;color:#fff">${ic('play_arrow', 18, 1)}</div><span style="font:600 21px var(--disp);letter-spacing:-.4px;color:#1b1d22">tidepool</span></div>
+        <div style="margin-left:90px;width:400px;height:38px;border-radius:19px;border:1px solid #dcdfe5;display:flex;align-items:center;padding:0 16px;gap:10px;color:#777;font:14px var(--ui)">${ic('search', 20)}${t('Search', 'Ara')}</div>
+        <span style="margin-left:auto;display:flex;gap:18px;color:#333">${ic('notifications', 23)}${ic('account_circle', 26)}</span></div>
+      <div style="display:flex">
+        <div style="width:170px;padding:16px 10px">${[['home', t('Home', 'Ana sayfa')], ['local_fire_department', t('Trending', 'Gündem')], ['sensors', t('Live', 'Canlı')], ['video_library', t('Library', 'Kitaplık')]].map(([i, l], k) => `<div style="display:flex;align-items:center;gap:14px;height:42px;padding:0 12px;border-radius:10px;font:500 14px var(--ui);color:#1b1d22;${k === 0 ? 'background:#f1f2f5' : ''}">${ic(i, 22, k === 0 ? 1 : 0)}${l}</div>`).join('')}</div>
+        <div style="flex:1;padding:18px 24px 0 8px">
+          <div style="display:flex;gap:10px;margin-bottom:16px">${[t('All', 'Tümü'), t('Ocean', 'Okyanus'), t('Travel', 'Seyahat'), t('Science', 'Bilim'), t('Cooking', 'Yemek'), t('Live', 'Canlı')].map((l, i) => `<span style="padding:7px 14px;border-radius:9px;font:500 13px var(--ui);${i === 1 ? 'background:#1b1d22;color:#fff' : 'background:#f1f2f5;color:#1b1d22'}">${l}</span>`).join('')}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px 18px">${cards}</div></div></div></div>
+      <div class="cur" style="left:520px;top:178px"></div>`;
+  },
+
+  t3() {
+    const v = VIDEOS[0];
+    return `<div style="position:absolute;inset:0">${scene(960, 540, 'sunset', { horizon: .56, sunX: .64 })}</div>
+      <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.6),rgba(0,0,0,0) 26%,rgba(0,0,0,0) 50%,rgba(0,0,0,.82))"></div>
+      <div style="position:absolute;top:30px;left:48px"><div style="font:500 13px var(--ui);opacity:.7;letter-spacing:.04em">${t('AVEN PLAYER', 'AVEN OYNATICI')}</div><div style="font:600 30px var(--disp);letter-spacing:-.4px;margin-top:6px">${t(v.en, v.tr)}</div></div>
+      <div style="position:absolute;bottom:150px;left:0;right:0;text-align:center"><span style="background:rgba(0,0,0,.55);padding:5px 14px;border-radius:6px;font:500 24px var(--ui);color:#fff">${t('We will be home before the tide turns.', 'Gelgit dönmeden evde oluruz.')}</span></div>
+      <div style="position:absolute;bottom:94px;left:48px;right:48px;display:flex;align-items:center;gap:16px;font:500 15px var(--ui)"><span>8:36</span>
+        <div style="flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.3)"><div style="width:46%;height:5px;border-radius:3px;background:#fff"></div></div><span>18:42</span></div>
+      <div style="position:absolute;bottom:32px;left:48px;right:48px;display:flex;gap:12px;align-items:center">
+        <span class="pill">${ic('replay_10', 24)}</span><span class="pill f" style="padding:0 22px">${ic('pause', 26, 1)}</span><span class="pill">${ic('forward_10', 24)}</span>
+        <span style="width:18px"></span><span class="pill">${ic('speed', 22)}1.25×</span><span class="pill">${ic('hd', 22)}1080p</span><span class="pill">${ic('subtitles', 22)}${t('English', 'Türkçe')}</span></div>`;
+  },
+
+  t4() {
+    return `${tvSearch(20)}${tvActions(88)}
+      <div style="position:absolute;top:156px;left:28px;right:0">
+        <div style="font:16px var(--ui)" class="muted">${t('Continue watching', 'İzlemeye devam et')}</div>
+        <div style="display:flex;gap:18px;padding:20px 4px 0">${VIDEOS.slice(0, 4).map((v, i) => tvWatchCard(v, i === 0)).join('')}</div>
+        <div style="font:16px var(--ui);margin-top:34px" class="muted">${t('Suggestions', 'Öneriler')}</div>
+        <div style="display:flex;gap:18px;padding:20px 4px 0">${SITES.slice(0, 5).map(s => poster(s, false)).join('')}</div>
+      </div>`;
+  },
+
+  t5tv() {
+    const v = VIDEOS[1];
+    return `<div style="position:absolute;inset:0">${scene(960, 540, 'night', { horizon: .55, sunX: .3, sun: .07 })}</div>
+      <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,0) 30%,rgba(0,0,0,0) 60%,rgba(0,0,0,.7))"></div>
+      <div style="position:absolute;top:26px;left:50%;transform:translateX(-50%);height:50px;border-radius:14px;background:var(--focus);color:var(--on);display:flex;align-items:center;gap:12px;padding:0 20px;font:500 17px var(--ui);box-shadow:0 10px 30px rgba(0,0,0,.4)">${ic('smartphone', 22)}${t('Opened from your phone', 'Telefonundan açıldı')}</div>
+      <div style="position:absolute;bottom:36px;left:48px;right:48px"><div style="font:600 26px var(--disp);margin-bottom:16px">${t(v.en, v.tr)}</div>
+        <div style="height:5px;border-radius:3px;background:rgba(255,255,255,.3)"><div style="width:8%;height:5px;border-radius:3px;background:#fff"></div></div></div>`;
+  },
+};
+
+function phoneCastSheet() {
+  const v = VIDEOS[1];
+  const dev = (n, s, f) => `<div style="display:flex;align-items:center;gap:16px;height:64px;padding:0 16px;border-radius:16px;${f ? 'background:var(--panel)' : ''}">
+    <div style="width:42px;height:42px;border-radius:50%;background:${f ? 'var(--focus)' : 'var(--el)'};color:${f ? 'var(--on)' : 'var(--text)'};display:grid;place-items:center">${ic('tv', 22)}</div>
+    <div style="flex:1"><div style="font:500 15.5px var(--ui)">${n}</div><div class="muted" style="font:12.5px var(--ui);margin-top:2px">${s}</div></div>${f ? ic('check_circle', 22, 1) : ''}</div>`;
+  return `${status('var(--bg)')}
+    <div class="site" style="top:30px;bottom:0;background:#0f1013">
+      <div style="height:203px">${scene(360, 203, 'night', { horizon: .55, sunX: .3, sun: .07 })}</div>
+      <div style="padding:14px 16px;color:#fff"><div style="font:500 16px/1.3 var(--ui)">${t(v.en, v.tr)}</div><div style="font:12.5px var(--ui);opacity:.6;margin-top:4px">${v.ch} · 1.9${t('M views', ' Mn izlenme')}</div></div>
+    </div>
+    ${addr('tidepool.tv')}<div class="scrim"></div>
+    <div class="sheet" style="padding:0 12px 36px"><div class="handle"></div>
+      <div style="font:600 21px var(--disp);padding:0 16px 4px">${t('Play on Aven TV', "Aven TV'de oynat")}</div>
+      <div class="muted" style="font:13px var(--ui);padding:0 16px 14px">${t('TVs on the same Wi-Fi', 'Aynı Wi-Fi ağındaki TV\'ler')}</div>
+      ${dev(t('Living room TV', 'Salon TV'), t('Sent to Aven TV', "Aven TV'ye gönderildi"), 1)}${dev(t('Bedroom TV', 'Yatak odası TV'), 'Aven · Wi-Fi')}
+      <div style="display:flex;gap:10px;margin:16px 4px 0">${[['cast', t('Play on Aven TV', "Aven TV'de oynat")], ['share', t('Share with Aven TV', 'Aven TV ile paylaş')]].map(([i, l], k) => `<div style="flex:1;height:48px;border-radius:24px;display:flex;align-items:center;justify-content:center;gap:8px;font:500 13.5px var(--ui);${k === 0 ? 'background:var(--focus);color:var(--on)' : 'background:var(--panel)'}">${ic(i, 19)}${l}</div>`).join('')}</div>
+    </div>${gest()}`;
+}
+
+// ---------- Frames ----------
+function phoneDevice(inner, x, y, k, land = false) {
+  const w = (land ? 800 : 360) * k, h = (land ? 360 : 800) * k;
+  return `<div class="device" style="left:${x}px;top:${y}px;border-radius:${Math.round(66 * k / 1.7)}px"><div class="glass" style="width:${w}px;height:${h}px;border-radius:${Math.round(52 * k / 1.7)}px">
+    <div class="scr" style="width:${land ? 800 : 360}px;height:${land ? 360 : 800}px;transform:scale(${k})">${inner}</div></div></div>`;
+}
+function tvDevice(inner, x, y, k) {
+  return `<div class="tvf" style="left:${x}px;top:${y}px"><div class="glass" style="width:${960 * k}px;height:${540 * k}px">
+    <div class="scr" style="width:960px;height:540px;transform:scale(${k})">${inner}</div></div></div>`;
+}
+const lines = (w, h) => {
+  let d = '';
+  for (let i = 0; i < 9; i++) {
+    let p = `M0 ${h * (.55 + i * .06)}`;
+    for (let x = 0; x <= w; x += 20) p += ` L${x} ${(h * (.55 + i * .06) + Math.sin(x / 140 + i * .8) * 26).toFixed(1)}`;
+    d += `<path d="${p}" fill="none" stroke="#7fdcff" stroke-width="1.5"/>`;
+  }
+  return `<svg class="lines" width="${w}" height="${h}">${d}</svg>`;
+};
+function caption(h, p, top, hs, ps, maxw) {
+  return `<div class="cap" style="top:${top}px"><h1 style="font-size:${hs}px">${h}</h1><p style="font-size:${ps}px;max-width:${maxw}px;margin-top:${Math.round(hs * .32)}px">${p}</p></div>`;
+}
+
+const CAPS = {
+  p1: [t('The web, clean and fast', 'Web, sade ve hızlı'), t('Search, voice, recent sites and videos you were watching, all on one calm screen.', 'Arama, sesli arama, son siteler ve yarım kalan videolar tek ekranda.')],
+  p2: [t('Less clutter, more page', 'Daha az kalabalık, daha çok sayfa'), t('Optional ad blocking that never touches your network settings.', 'Ağ ayarlarına dokunmayan, isteğe bağlı reklam engelleme.')],
+  p3: [t('Everything in one menu', 'Her şey tek menüde'), t('Bookmarks, reading mode, desktop site, zoom and Send to TV.', "Yer imi, okuma modu, masaüstü sitesi, yakınlaştırma ve TV'ye gönder.")],
+  p4: [t('Closed a tab? Undo it', 'Kapattın mı? Geri al'), t('Tabs with site icons, Incognito and a list of recently closed tabs.', 'Site simgeli sekmeler, gizli mod ve son kapatılan sekmeler.')],
+  p5: [t('A video player, built in', 'Yerleşik video oynatıcı'), t('Speed, quality and subtitles styled the way you like them.', 'Hız, kalite ve istediğin gibi görünen altyazılar.')],
+  p6: [t('Your phone is the TV remote', 'Telefonun artık TV kumandası'), t('Drag to move the cursor, type on the TV, all over your Wi-Fi.', "İmleci sürükle, TV'ye telefondan yaz. Hepsi Wi-Fi üzerinden.")],
+  p7: [t('Save it, read it offline', 'Kaydet, çevrimdışı oku'), t('Read later keeps the text so it is ready without a connection.', 'Sonra oku, sayfanın metnini saklar; internet olmadan da okursun.')],
+  p8: [t('Your sites, your rules', 'Siteler senin kurallarınla'), t('Per-site permissions, Incognito tabs. No account and no tracking.', 'Site bazında izinler ve gizli sekmeler. Hesap yok, izleme yok.')],
+  t1: [t('Built for the big screen', 'Büyük ekran için tasarlandı'), t('A web browser you drive with your TV remote.', 'Televizyon kumandasıyla kullanılan web tarayıcı.')],
+  t2: [t('Point, click, browse', 'İmleci gezdir, OK ile tıkla'), t('The arrow keys move a cursor and OK clicks, on any website.', 'Yön tuşları imleci taşır, OK tıklar. Her sitede.')],
+  t3: [t('Videos, full screen', 'Videolar tam ekran'), t('The Aven player with speed, quality and subtitle controls.', 'Hız, kalite ve altyazı ayarlı Aven oynatıcı.')],
+  t4: [t('Pick up where you left off', 'Kaldığın yerden devam et'), t('Continue watching and your favourite sites on the home screen.', 'Yarım kalan videolar ve sevdiğin siteler ana ekranda.')],
+  t5: [t('From your phone to your TV', "Telefonundan TV'ye"), t('Found something on your phone? Send it to Aven on the TV.', "Telefonda bir şey mi buldun? Tek dokunuşla TV'deki Aven'e gönder.")],
+};
+
+function render() {
+  const [W, H] = SIZES[A];
+  const c = document.getElementById('canvas');
+  c.style.width = W + 'px'; c.style.height = H + 'px';
+  document.body.style.width = W + 'px'; document.body.style.height = H + 'px';
+  let html = '';
+
+  if (A.startsWith('p')) {
+    const [h, p] = CAPS[A];
+    html = `<div class="mk"></div>${lines(W, H)}${caption(h, p, 112, 84, 34, 860)}`;
+    if (A === 'p5') {
+      html += phoneDevice(phonePlayer(), 36, 470, 1.235, true);
+      // Subtitle style card
+      const chip = (l, on) => `<span style="padding:12px 22px;border-radius:30px;font:500 25px var(--ui);${on ? 'background:var(--focus);color:var(--on)' : 'background:var(--el);color:var(--text)'}">${l}</span>`;
+      html += `<div style="position:absolute;left:96px;right:96px;top:1070px;background:rgba(26,27,32,.92);border-radius:40px;padding:44px 48px;box-shadow:0 40px 100px rgba(0,0,0,.55),0 0 0 1.5px rgba(241,243,247,.08)">
+        <div style="font:600 36px var(--disp);margin-bottom:26px">${t('Subtitles', 'Altyazı')}</div>
+        <div class="lbl" style="font-size:22px;margin-bottom:14px">${t('Text size', 'Yazı boyutu')}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px">${chip(t('Small', 'Küçük'))}${chip(t('Medium', 'Orta'))}${chip(t('Large', 'Büyük'), 1)}${chip(t('Extra large', 'Çok büyük'))}</div>
+        <div class="lbl" style="font-size:22px;margin-bottom:14px">${t('Background', 'Arka plan')}</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px">${chip(t('None', 'Yok'))}${chip(t('Translucent', 'Yarı saydam'), 1)}${chip(t('Solid black', 'Düz siyah'))}</div>
+        <div class="lbl" style="font-size:22px;margin-bottom:14px">${t('Text color', 'Yazı rengi')}</div>
+        <div style="display:flex;gap:12px;margin-bottom:34px">${chip(t('White', 'Beyaz'), 1)}${chip(t('Yellow', 'Sarı'))}</div>
+        <div style="text-align:center;padding:30px;border-radius:24px;overflow:hidden;position:relative;height:140px">
+          <div style="position:absolute;inset:0">${scene(792, 140, 'night', { horizon: .5, sunX: .8, sun: .2 })}</div>
+          <span style="position:relative;top:24px;background:rgba(0,0,0,.55);padding:6px 16px;border-radius:8px;font:500 32px var(--ui)">${t('Subtitles will look like this.', 'Altyazılar böyle görünecek.')}</span></div>
+      </div>`;
+    } else {
+      const k = 1.68, w = 360 * k;
+      html += phoneDevice(PHONE[A](), (W - w) / 2 - 14, 486, k);
+    }
+  } else if (A.startsWith('t')) {
+    const [h, p] = CAPS[A];
+    html = `<div class="mk"></div>${lines(W, H)}`;
+    if (A === 't5') {
+      html += caption(h, p, 60, 66, 28, 1100);
+      html += tvDevice(TV.t5tv(), 600, 250, 1.3);
+      html += phoneDevice(phoneCastSheet(), 260, 250, .95);
+    } else {
+      html += caption(h, p, 52, 66, 28, 1200);
+      html += tvDevice(TV[A](), (W - 1440) / 2 - 12, 226, 1.5);
+    }
+  } else if (A === 'fg') {
+    html = `<div class="mk"></div>${lines(W, H)}
+      <div style="position:absolute;left:64px;top:150px;z-index:5">
+        <div class="brand" style="justify-content:flex-start;gap:18px"><img src="assets/mark.png" style="width:92px;height:92px"><span style="font-size:96px">aven</span></div>
+        <div style="font:500 30px/1.3 var(--ui2);color:rgba(241,243,247,.75);margin-top:22px;max-width:420px">${t('The browser for your TV and phone', 'TV ve telefonun için tarayıcı')}</div>
+      </div>
+      ${tvDevice(TV.t1(), 530, 96, .5)}
+      ${phoneDevice(PHONE.p1(), 846, 196, .62)}`;
+  } else if (A === 'banner') {
+    html = `<div class="mk"></div>${lines(W, H)}
+      <div class="brand" style="position:absolute;inset:0;gap:40px"><img src="assets/mark.png" style="width:230px;height:230px"><span style="font-size:250px;margin-top:-30px">aven</span></div>`;
+  } else if (A === 'icon') {
+    html = `<div style="position:absolute;inset:0;background:radial-gradient(420px 420px at 70% 15%, rgba(43,196,243,.28), transparent 65%),linear-gradient(160deg,#1b1d23,#0d0e11)"></div>
+      <img src="assets/mark.png" style="position:absolute;left:96px;top:96px;width:320px;height:320px">`;
+  } else if (A === 'iconLight') {
+    html = `<div style="position:absolute;inset:0;background:#ffffff"></div>
+      <img src="assets/mark.png" style="position:absolute;left:96px;top:96px;width:320px;height:320px">`;
+  }
+  c.dataset.l = L; c.dir = RTL ? 'rtl' : 'ltr';
+  c.innerHTML = html;
+  // Shrink captions that would run into the device below.
+  const cap = c.querySelector('.cap'), dev = c.querySelector('.device,.tvf');
+  if (cap && dev) {
+    const h1 = cap.querySelector('h1'), p = cap.querySelector('p');
+    const limit = dev.getBoundingClientRect().top - (A.startsWith('t') ? 18 : 34);
+    for (let i = 0; i < 30 && cap.getBoundingClientRect().bottom > limit; i++) {
+      h1.style.fontSize = parseFloat(getComputedStyle(h1).fontSize) * .95 + 'px';
+      p.style.fontSize = Math.max(22, parseFloat(getComputedStyle(p).fontSize) * .97) + 'px';
+    }
+  }
+}
+document.fonts.ready.then(render);
+render();
+</script>
+</body>
+</html>
